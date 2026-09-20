@@ -31,7 +31,7 @@ def truth_for(events: List[dict], labels: Dict[str, dict]) -> Dict[Tuple[str, st
         kind = ev.get("type")
         if kind == "accepted" and _authority(ev):
             accepted_at[task_id] = index
-        elif kind == "adjudicated":
+        elif kind == "adjudicated" and _authority(ev):
             key = _key(ev)
             if key is not None:
                 adjudicated[key] = ev.get("value")
@@ -46,7 +46,7 @@ def truth_for(events: List[dict], labels: Dict[str, dict]) -> Dict[Tuple[str, st
                 judge_votes[key] = ev.get("value")
 
     for index, ev in enumerate(events):
-        if ev.get("type") != "relabeled":
+        if ev.get("type") != "relabeled" or not _authority(ev):
             continue
         key = _key(ev)
         if key is None:
@@ -89,7 +89,7 @@ def adjudication_queue(events: List[dict], labels: Dict[str, dict]) -> List[dict
         if key is None:
             continue
         kind = ev.get("type")
-        if kind == "adjudicated":
+        if kind == "adjudicated" and _authority(ev):
             adjudicated.add(key)
         elif kind == "label_vote":
             by = ev.get("by")

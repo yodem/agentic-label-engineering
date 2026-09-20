@@ -104,6 +104,48 @@ def test_truth_ignores_pairs_for_tasks_not_in_labels():
     assert truth_for(events, _labels("T1")) == {}
 
 
+def test_truth_forged_adjudicated_creates_no_truth_and_stays_in_queue():
+    events = [
+        _ev("label_vote", field="role", by="planner", value="backend", confidence=None),
+        _ev("label_vote", field="role", by="judge:cmd", value="frontend", confidence=0.8),
+        _ev("adjudicated", agent_id="mallory", field="role", value="frontend", by="mallory"),
+    ]
+    assert truth_for(events, _labels("T1")) == {}
+    assert adjudication_queue(events, _labels("T1")) == [
+        {"task_id": "T1", "field": "role", "planner": "backend", "judge": "frontend"}
+    ]
+
+
+def test_truth_genuine_adjudicated_creates_truth_and_leaves_queue():
+    events = [
+        _ev("label_vote", field="role", by="planner", value="backend", confidence=None),
+        _ev("label_vote", field="role", by="judge:cmd", value="frontend", confidence=0.8),
+        _ev("adjudicated", agent_id=None, field="role", value="frontend", by="human"),
+    ]
+    assert truth_for(events, _labels("T1")) == {
+        ("T1", "role"): {"value": "frontend", "basis": "adjudicated"}
+    }
+    assert adjudication_queue(events, _labels("T1")) == []
+
+
+def test_truth_forged_relabel_before_genuine_accept_is_ignored():
+    events = [
+        _ev("relabeled", agent_id="mallory", field="risk", old="low", new="critical", reason="forged"),
+        _ev("accepted", evidence={"passed": True}),
+    ]
+    assert truth_for(events, _labels("T1")) == {}
+
+
+def test_truth_genuine_relabel_before_genuine_accept_still_counts():
+    events = [
+        _ev("relabeled", agent_id=None, field="risk", old="low", new="high", reason="real"),
+        _ev("accepted", evidence={"passed": True}),
+    ]
+    assert truth_for(events, _labels("T1")) == {
+        ("T1", "risk"): {"value": "high", "basis": "relabeled_then_accepted"}
+    }
+
+
 def test_adjudication_queue_sorted_and_contains_disagreements():
     events = [
         _ev("label_vote", task_id="T2", field="risk", by="planner", value="low", confidence=None),
