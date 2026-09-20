@@ -39,8 +39,9 @@ Add `.ale/` to your `.gitignore`.
 - **Completion barrier**: only `ale verify` writes `accepted`, after running the acceptance commands itself.
 - **Event authorship**: system events (`verified`, `accepted`, `rejected`, `failed`, `canceled`,
   `lease_expired`, `released`, `input_answered`) are applied only when written with no agent id.
-  Executor events (`claim`, `heartbeat`, `submit`, `input-required`, `note`, `usage`) must come from
-  the task's current owner.
+  Executor events (`claim`, `heartbeat`, `submit`, `input-required`, `note`) must come from
+  the task's current owner. Usage is recorded by the orchestrator or an adapter, not the
+  executor, and is therefore not owner-guarded.
 
 ## Exit codes
 
@@ -56,6 +57,8 @@ Add `.ale/` to your `.gitignore`.
   malicious local process that forges events.
 - Changed paths are normalised before containment is checked; absolute paths and paths that escape
   the project are always violations.
+- `cost_gate.max_concurrent` is part of the roster schema, but v0.1 does not enforce it yet.
+  Enforcement arrives with `dispatch`.
 
 ## Watchdog
 

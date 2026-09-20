@@ -20,4 +20,4 @@ The environment provides ALE_RUN_DIR and ALE_ROSTER. Run every command from the 
    `ale submit --task <task> --agent <agent> --summary "<what changed and how you checked it>"`.
 9. You cannot mark a task accepted. The verifier runs the acceptance commands itself. If it rejects, the next
    attempt receives the failure output.
-10. If you know your token usage: `ale usage --task <task> --agent <agent> --model <id> --input-tokens N --output-tokens N`.
+10. Do not record token usage yourself. The orchestrator or an adapter records usage for the task.
