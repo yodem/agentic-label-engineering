@@ -114,6 +114,67 @@ def test_summary_reports_judge_abstains_and_disagreements(label_run, tmp_path, c
     assert summary["judge_abstains"] == 3  # model_tier, risk, effort all abstain (stub always says "frontend")
 
 
+def test_outside_spec_path_content_never_reaches_the_judge(label_run, tmp_path, capsys, monkeypatch):
+    run_dir, roster_path = label_run
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    secret = outside / "secret.md"
+    secret.write_text("TOP SECRET CONTENT THAT MUST NOT LEAK")
+
+    draft = _draft("T1")
+    draft["context"]["spec_path"] = str(secret)
+    _write_draft(run_dir, draft)
+
+    stdin_capture = tmp_path / "stdin_capture.txt"
+    stub = tmp_path / "stub-judge.sh"
+    stub.write_text(
+        "#!/bin/sh\n"
+        "cat > %s\n"
+        'echo \'{"type": "choice", "choice": "other: none of these fit", '
+        '"confidence": 0.5, "probabilities": {"other: none of these fit": 0.5}, "model": "m"}\'\n' % str(stdin_capture)
+    )
+    stub.chmod(stub.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    with open(roster_path, encoding="utf-8") as f:
+        roster = json.load(f)
+    roster["judge"]["command"] = [str(stub)]
+    with open(roster_path, "w", encoding="utf-8") as f:
+        json.dump(roster, f)
+
+    capsys.readouterr()
+    assert ale(run_dir, roster_path, "label") == 0
+    err = capsys.readouterr().err
+    assert "spec_path outside the project, not read: %s" % str(secret) in err
+
+    captured_stdin = stdin_capture.read_text() if stdin_capture.exists() else ""
+    assert "TOP SECRET CONTENT THAT MUST NOT LEAK" not in captured_stdin
+
+
+def test_label_after_run_started_is_refused(label_run, capsys):
+    run_dir, roster_path = label_run
+    _write_draft(run_dir, _draft("T1"))
+    assert ale(run_dir, roster_path, "label", "--no-judge") == 0
+    assert ale(run_dir, roster_path, "init-run") == 0
+
+    events_path = os.path.join(run_dir, "events.jsonl")
+    with open(os.path.join(run_dir, "labels", "T1.json"), encoding="utf-8") as f:
+        label_before = f.read()
+    events_before = read_events(events_path)
+
+    capsys.readouterr()
+    assert ale(run_dir, roster_path, "label", "--no-judge") == 1
+    err = capsys.readouterr().err
+    assert "run already started: labels are frozen, use `ale relabel`" in err
+
+    with open(os.path.join(run_dir, "labels", "T1.json"), encoding="utf-8") as f:
+        label_after = f.read()
+    assert label_after == label_before
+    assert read_events(events_path) == events_before
+
+
 def test_no_judge_produces_no_judge_abstains(label_run, capsys):
     run_dir, roster_path = label_run
     _write_draft(run_dir, _draft("T1"))

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import os
 from typing import List, Optional, Tuple
 
 from .judge import options_for
@@ -8,6 +9,48 @@ from .merge import merge
 from .rules import rule_votes
 
 FIELDS = ("role", "model_tier", "risk", "effort")
+
+
+def _contained(candidate: str, root: str) -> bool:
+    real_candidate = os.path.realpath(candidate)
+    real_root = os.path.realpath(root)
+    if real_candidate == real_root:
+        return True
+    try:
+        common = os.path.commonpath([real_candidate, real_root])
+    except ValueError:
+        return False
+    return common == real_root
+
+
+def read_spec_text(spec_path: str, roots: List[str], limit: int = 4000) -> Tuple[str, Optional[str]]:
+    try:
+        if not spec_path:
+            return "", None
+
+        candidates = []
+        for root in roots:
+            candidate = spec_path if os.path.isabs(spec_path) else os.path.join(root, spec_path)
+            candidates.append(candidate)
+
+        found_but_outside = False
+        for candidate in candidates:
+            if not os.path.exists(candidate):
+                continue
+            if not any(_contained(candidate, root) for root in roots):
+                found_but_outside = True
+                continue
+            try:
+                with open(candidate, encoding="utf-8") as f:
+                    return f.read()[:limit], None
+            except (OSError, UnicodeDecodeError):
+                return "", "spec_path unreadable: %s" % spec_path
+
+        if found_but_outside:
+            return "", "spec_path outside the project, not read: %s" % spec_path
+        return "", None
+    except Exception:
+        return "", None
 
 
 def _ask_judge(judge, field: str, roster: dict, state: str) -> dict:

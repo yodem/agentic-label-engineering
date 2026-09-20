@@ -323,6 +323,10 @@ def cmd_label(a) -> int:
     roster = R.load_roster(a.roster or os.environ.get("ALE_ROSTER") or "roster.json")
     now = _resolve_now(a)
 
+    events_path = os.path.join(run_dir, "events.jsonl")
+    if any(e["type"] == "run_started" for e in E.read_events(events_path)):
+        raise CliError(FAIL, "run already started: labels are frozen, use `ale relabel`")
+
     drafts: "dict[str, dict]" = {}
     errs: List[str] = []
     for path in sorted(glob.glob(os.path.join(run_dir, "drafts", "*.json"))):
@@ -346,7 +350,6 @@ def cmd_label(a) -> int:
     if not a.no_judge and jconf.get("plugin") is not None:
         judge = CommandJudge(jconf["command"], timeout_s=jconf.get("timeout_s", 30))
 
-    events_path = os.path.join(run_dir, "events.jsonl")
     total_votes = 0
     judge_abstains = 0
     conflicts = 0
@@ -355,10 +358,9 @@ def cmd_label(a) -> int:
     for tid in sorted(drafts):
         draft = drafts[tid]
         spec_path = draft["context"]["spec_path"]
-        text = ""
-        if os.path.exists(spec_path):
-            with open(spec_path, encoding="utf-8") as f:
-                text = f.read()
+        text, warning = CAS.read_spec_text(spec_path, [os.getcwd(), run_dir])
+        if warning:
+            print(warning, file=sys.stderr)
         final, votes = CAS.label_task(draft, text, roster, judge=judge)
         H.write_atomic(os.path.join(run_dir, "labels", "%s.json" % tid),
                        json.dumps(final, indent=2, sort_keys=True))
@@ -428,13 +430,10 @@ def cmd_relabel(a) -> int:
 
 def _read_spec_snippet(run_dir: str, label: dict) -> str:
     path = label["context"]["spec_path"]
-    if not os.path.isabs(path):
-        path = os.path.join(run_dir, path)
-    try:
-        with open(path, encoding="utf-8") as f:
-            return f.read()[:300]
-    except OSError:
-        return ""
+    text, warning = CAS.read_spec_text(path, [os.getcwd(), run_dir], limit=300)
+    if warning:
+        print(warning, file=sys.stderr)
+    return text
 
 
 def _emit_adjudicated(c: Ctx, task_id: str, field: str, value: str, by: str) -> None:
