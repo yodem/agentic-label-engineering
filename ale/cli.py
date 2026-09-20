@@ -17,6 +17,7 @@ from . import roster as R
 from . import verify as V
 from . import watchdog as W
 from .labeling import cascade as CAS
+from .labeling import truth as TRUTH
 from .labeling.judge import CommandJudge
 
 OK, FAIL, USAGE, CLAIM_LOST, LEASE_LOST, SIGNOFF, BREACH = 0, 1, 2, 3, 4, 5, 6
@@ -384,6 +385,115 @@ def cmd_label(a) -> int:
     return OK
 
 
+def _vocab_value(roster: dict, field: str, value: str) -> None:
+    if field == "lane" or field not in CAS.FIELDS:
+        raise CliError(USAGE, "field %s cannot be relabeled or adjudicated" % field)
+    if value not in roster["vocab"][field]:
+        raise CliError(FAIL, "%s=%r is not in the roster vocabulary" % (field, value))
+
+
+def _label_path(run_dir: str, task_id: str) -> str:
+    return os.path.join(run_dir, "labels", "%s.json" % task_id)
+
+
+def cmd_relabel(a) -> int:
+    if a.field == "lane" or a.field not in CAS.FIELDS:
+        raise CliError(USAGE, "field %s cannot be relabeled or adjudicated" % a.field)
+    c = Ctx(a)
+    _vocab_value(c.roster, a.field, a.value)
+    st = c.task(a.task)
+    if st["state"] in E.TERMINAL:
+        raise CliError(FAIL, "task %s is terminal: %s" % (a.task, st["state"]))
+
+    label = dict(c.labels[a.task])
+    labels = dict(label["labels"])
+    old = labels[a.field]
+    labels[a.field] = a.value
+    label["labels"] = labels
+    provenance = dict(label.get("provenance") or {})
+    field_provenance = provenance.get(a.field)
+    if not isinstance(field_provenance, dict):
+        field_provenance = {}
+    else:
+        field_provenance = dict(field_provenance)
+    field_provenance["relabeled_from"] = old
+    provenance[a.field] = field_provenance
+    label["provenance"] = provenance
+
+    H.write_atomic(_label_path(c.run_dir, a.task), json.dumps(label, indent=2, sort_keys=True))
+    c.emit("relabeled", a.task, None, st["attempt"], field=a.field, old=old, new=a.value,
+           reason=a.reason[:TEXT_MAX])
+    return OK
+
+
+def _read_spec_snippet(run_dir: str, label: dict) -> str:
+    path = label["context"]["spec_path"]
+    if not os.path.isabs(path):
+        path = os.path.join(run_dir, path)
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read()[:300]
+    except OSError:
+        return ""
+
+
+def _emit_adjudicated(c: Ctx, task_id: str, field: str, value: str, by: str) -> None:
+    _vocab_value(c.roster, field, value)
+    st = c.task(task_id)
+    c.emit("adjudicated", task_id, None, st["attempt"], field=field, value=value, by=by)
+
+
+def _interactive_adjudicate(c: Ctx) -> int:
+    for item in TRUTH.adjudication_queue(E.read_events(c.events_path), c.labels):
+        task_id = item["task_id"]
+        label = c.labels[task_id]
+        print("%s: %s" % (task_id, label["title"]))
+        snippet = _read_spec_snippet(c.run_dir, label)
+        if snippet:
+            print(snippet)
+        print("1 %s" % item["planner"])
+        print("2 %s" % item["judge"])
+        print("3 other value")
+        print("s skip")
+        print("q quit")
+        choice = sys.stdin.readline()
+        if choice == "":
+            break
+        choice = choice.strip()
+        if choice == "q":
+            break
+        if choice == "s":
+            continue
+        if choice == "1":
+            value = item["planner"]
+        elif choice == "2":
+            value = item["judge"]
+        elif choice == "3":
+            print("value:")
+            value = sys.stdin.readline().strip()
+            if value == "":
+                break
+        else:
+            continue
+        _emit_adjudicated(c, task_id, item["field"], value, "human")
+    return OK
+
+
+def cmd_adjudicate(a) -> int:
+    if a.field is not None and (a.field == "lane" or a.field not in CAS.FIELDS):
+        raise CliError(USAGE, "field %s cannot be relabeled or adjudicated" % a.field)
+    c = Ctx(a)
+    if a.list:
+        print(json.dumps(TRUTH.adjudication_queue(E.read_events(c.events_path), c.labels), sort_keys=True))
+        return OK
+    if a.task is None and a.field is None and a.value is None:
+        return _interactive_adjudicate(c)
+    if a.task is None or a.field is None or a.value is None:
+        raise CliError(USAGE, "--task, --field and --value are required unless --list is used")
+    _emit_adjudicated(c, a.task, a.field, a.value, a.by)
+    return OK
+
+
 def _parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--run-dir")
@@ -431,6 +541,16 @@ def _parser() -> argparse.ArgumentParser:
     us.add_argument("--source", default="self_report", choices=["adapter", "self_report", "unknown"])
     add("decide", cmd_decide).add_argument("--text", required=True)
     add("label", cmd_label).add_argument("--no-judge", action="store_true")
+    rl = add("relabel", cmd_relabel, task=True)
+    rl.add_argument("--field", required=True)
+    rl.add_argument("--value", required=True)
+    rl.add_argument("--reason", required=True)
+    adj = add("adjudicate", cmd_adjudicate)
+    adj.add_argument("--list", action="store_true")
+    adj.add_argument("--task")
+    adj.add_argument("--field")
+    adj.add_argument("--value")
+    adj.add_argument("--by", default="human")
     add("paths-within", cmd_paths_within).add_argument("task_id")
     add("doctor", cmd_doctor)
     return p
