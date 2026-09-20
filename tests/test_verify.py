@@ -46,3 +46,11 @@ def test_paths_within():
     allowed = ["src/auth/**", "tests/auth/**"]
     assert paths_within(["src/auth/a.py", "src/auth/deep/b.py", "tests/auth/t.py"], allowed) == []
     assert paths_within(["src/auth/a.py", "README.md"], allowed) == ["README.md"]
+
+
+def test_traversal_and_absolute_paths_are_violations():
+    allowed = ["src/auth/**"]
+    changed = ["src/auth/a.py", "src/auth/sub/../../../secrets.txt", "/etc/passwd", "../x", "..",
+               "src/auth/./b.py", "src/auth/sub/../c.py", "src/auth/../../etc/passwd"]
+    assert paths_within(changed, allowed) == ["src/auth/sub/../../../secrets.txt", "/etc/passwd", "../x", "..",
+                                              "src/auth/../../etc/passwd"]

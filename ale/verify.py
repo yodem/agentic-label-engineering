@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fnmatch
+import posixpath
 import subprocess
 from typing import Callable, List
 
@@ -27,4 +28,11 @@ def run_acceptance(label: dict, cwd: str, run: Callable = subprocess.run, timeou
 
 
 def paths_within(changed: List[str], allowed: List[str]) -> List[str]:
-    return [p for p in changed if not any(fnmatch.fnmatch(p, g) for g in allowed)]
+    out = []
+    for p in changed:
+        norm = posixpath.normpath(p)
+        if posixpath.isabs(norm) or norm == ".." or norm.startswith("../"):
+            out.append(p)
+        elif not any(fnmatch.fnmatch(norm, g) for g in allowed):
+            out.append(p)
+    return out
