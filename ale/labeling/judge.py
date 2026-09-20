@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import subprocess
 import time
@@ -77,12 +78,21 @@ class CommandJudge:
         try:
             parsed = json.loads(proc.stdout)
             choice = parsed["choice"]
-            confidence = float(parsed["confidence"])
+            raw_confidence = parsed["confidence"]
             probabilities = parsed["probabilities"]
             if not isinstance(choice, str) or not isinstance(probabilities, dict):
                 return self._abstain(field, "bad_json")
         except (KeyError, TypeError, ValueError, json.JSONDecodeError):
             return self._abstain(field, "bad_json")
+
+        if (
+            isinstance(raw_confidence, bool)
+            or not isinstance(raw_confidence, (int, float))
+            or not math.isfinite(raw_confidence)
+            or not (0 <= raw_confidence <= 1)
+        ):
+            return self._abstain(field, "bad_confidence")
+        confidence = float(raw_confidence)
 
         value = key_of(choice)
         if value not in offered:
@@ -103,4 +113,11 @@ class CommandJudge:
         return {"field": field, "value": None, "by": "judge:command", "confidence": None, "detail": {"error": reason}}
 
     def _keyed_probabilities(self, probabilities: Dict[str, object]) -> Dict[str, object]:
-        return dict((key_of(option), probability) for option, probability in probabilities.items())
+        out = {}
+        for option, probability in probabilities.items():
+            if isinstance(probability, bool) or not isinstance(probability, (int, float)):
+                continue
+            if not math.isfinite(probability):
+                continue
+            out[key_of(option)] = probability
+        return out

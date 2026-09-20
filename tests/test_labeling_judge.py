@@ -79,3 +79,61 @@ def test_lane_is_refused(roster):
 
 def test_is_mostly_english():
     assert is_mostly_english("Add an endpoint") and not is_mostly_english("הוסף endpoint") and not is_mostly_english("1234 !!")
+
+
+def _answer_with_confidence(conf_literal, probs_literal='{"backend: Server code, APIs, data access, scripts.": 0.8, "other: none of these fit": 0.2}'):
+    return (
+        '{"type": "choice", "choice": "backend: Server code, APIs, data access, scripts.", '
+        '"confidence": %s, "probabilities": %s, "model": "m"}' % (conf_literal, probs_literal)
+    )
+
+
+@pytest.mark.parametrize("conf_literal", ["NaN", "Infinity", "-0.1", "1.5", '"high"', "true"])
+def test_bad_confidence_is_an_abstain(roster, conf_literal):
+    def run(cmd, **kw):
+        return Proc(0, _answer_with_confidence(conf_literal))
+    vote = CommandJudge(["jev-ask"], run=run).ask("role", "q", options_for("role", roster), "Add an endpoint")
+    assert vote["value"] is None
+    assert vote["confidence"] is None
+    assert vote["detail"]["error"] == "bad_confidence"
+
+
+@pytest.mark.parametrize("conf_literal", ["0", "1"])
+def test_boundary_confidence_is_accepted(roster, conf_literal):
+    def run(cmd, **kw):
+        return Proc(0, _answer_with_confidence(conf_literal))
+    vote = CommandJudge(["jev-ask"], run=run).ask("role", "q", options_for("role", roster), "Add an endpoint")
+    assert vote["value"] == "backend"
+    assert vote["confidence"] == float(conf_literal)
+
+
+def test_non_finite_probabilities_are_dropped_not_fatal(roster):
+    probs = '{"backend: Server code, APIs, data access, scripts.": NaN, "other: none of these fit": 0.2}'
+    def run(cmd, **kw):
+        return Proc(0, _answer_with_confidence("0.8", probs))
+    vote = CommandJudge(["jev-ask"], run=run).ask("role", "q", options_for("role", roster), "Add an endpoint")
+    assert vote["value"] == "backend"
+    assert vote["confidence"] == 0.8
+    assert vote["detail"]["probabilities"] == {"other": 0.2}
+
+
+def test_huge_stdout_with_valid_json_does_not_raise(roster):
+    padding = "x" * (1024 * 1024)
+    payload = (
+        '{"type": "choice", "choice": "backend: Server code, APIs, data access, scripts.", '
+        '"confidence": 0.8, "probabilities": {"backend: Server code, APIs, data access, scripts.": 0.8, '
+        '"other: none of these fit": 0.2}, "model": "m", "padding": "%s"}' % padding
+    )
+    def run(cmd, **kw):
+        return Proc(0, payload)
+    vote = CommandJudge(["jev-ask"], run=run).ask("role", "q", options_for("role", roster), "Add an endpoint")
+    assert vote["value"] == "backend"
+    assert vote["confidence"] == 0.8
+
+
+def test_empty_stdout_is_bad_json(roster):
+    def run(cmd, **kw):
+        return Proc(0, "")
+    vote = CommandJudge(["jev-ask"], run=run).ask("role", "q", options_for("role", roster), "Add an endpoint")
+    assert vote["value"] is None
+    assert vote["detail"]["error"] == "bad_json"
