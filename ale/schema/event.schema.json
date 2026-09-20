@@ -1,0 +1,13 @@
+{
+  "type": "object",
+  "required": ["schema_version", "ts", "run_id", "task_id", "agent_id", "attempt", "type"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "ts": {"type": "number", "minimum": 0},
+    "run_id": {"type": "string", "minLength": 1},
+    "task_id": {"type": ["string", "null"]},
+    "agent_id": {"type": ["string", "null"]},
+    "attempt": {"type": ["integer", "null"]},
+    "type": {"enum": ["run_started", "label_vote", "labeled", "relabeled", "dispatched", "claimed", "heartbeat", "note", "input_required", "input_answered", "relayed", "submitted", "verified", "accepted", "rejected", "failed", "canceled", "lease_expired", "released", "breach", "monitor_verdict", "usage", "decision", "run_finished"]}
+  }
+}

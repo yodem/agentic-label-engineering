@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentic-label-engineering"
+version = "0.1.0"
+description = "Typed task labels, an append-only board and a zero-LLM watchdog for multi-agent coding work"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.scripts]
+ale = "ale.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["ale*"]
+
+[tool.setuptools.package-data]
+ale = ["schema/*.json"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

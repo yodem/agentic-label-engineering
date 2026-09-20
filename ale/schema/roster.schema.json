@@ -1,0 +1,66 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "vocab", "routing", "watch_defaults", "uncertain_below", "judge", "promotion", "cost_gate"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "vocab": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "model_tier", "risk", "effort"],
+      "properties": {
+        "role": {"type": "object"},
+        "model_tier": {"type": "object"},
+        "risk": {"type": "object"},
+        "effort": {"type": "object"}
+      }
+    },
+    "routing": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role", "model_tier", "executor", "model"],
+        "properties": {
+          "role": {"type": "string"},
+          "model_tier": {"type": "string"},
+          "executor": {"type": "string"},
+          "model": {"type": "string"}
+        }
+      }
+    },
+    "watch_defaults": {"type": "object"},
+    "uncertain_below": {"type": "number", "minimum": 0},
+    "judge": {
+      "type": "object",
+      "required": ["plugin", "threshold", "modes"],
+      "properties": {
+        "plugin": {"type": ["string", "null"]},
+        "threshold": {"type": "number", "minimum": 0},
+        "modes": {"type": "object"}
+      }
+    },
+    "promotion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min_cases", "tolerance", "min_coverage", "demote_window"],
+      "properties": {
+        "min_cases": {"type": "integer", "minimum": 1},
+        "tolerance": {"type": "number", "minimum": 0},
+        "min_coverage": {"type": "number", "minimum": 0},
+        "demote_window": {"type": "integer", "minimum": 1}
+      }
+    },
+    "cost_gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_concurrent", "max_tasks_per_run", "max_run_budget_tokens"],
+      "properties": {
+        "max_concurrent": {"type": "integer", "minimum": 1},
+        "max_tasks_per_run": {"type": "integer", "minimum": 1},
+        "max_run_budget_tokens": {"type": "integer", "minimum": 1000}
+      }
+    }
+  }
+}
