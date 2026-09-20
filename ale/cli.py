@@ -4,6 +4,7 @@ import argparse
 import glob
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -19,6 +20,7 @@ from . import watchdog as W
 from .labeling import cascade as CAS
 from .labeling import truth as TRUTH
 from .labeling.judge import CommandJudge
+from .evalharness import corpus as CORPUS
 
 OK, FAIL, USAGE, CLAIM_LOST, LEASE_LOST, SIGNOFF, BREACH = 0, 1, 2, 3, 4, 5, 6
 TEXT_MAX = 1000
@@ -493,6 +495,72 @@ def cmd_adjudicate(a) -> int:
     return OK
 
 
+def _nearest_existing_parent(path: str) -> str:
+    cur = os.path.abspath(path)
+    while not os.path.exists(cur):
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        cur = parent
+    if os.path.isfile(cur):
+        return os.path.dirname(cur)
+    return cur
+
+
+def _refuse_tracked_out_dir(out_dir: str) -> None:
+    parent = _nearest_existing_parent(out_dir)
+    inside = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], cwd=parent,
+                            capture_output=True, text=True)
+    if inside.returncode != 0 or inside.stdout.strip() != "true":
+        return
+    rel = os.path.relpath(os.path.abspath(out_dir), parent)
+    for candidate in (rel, rel.rstrip(os.sep) + os.sep):
+        ignored = subprocess.run(["git", "check-ignore", "-q", "--", candidate], cwd=parent)
+        if ignored.returncode == 0:
+            return
+        if ignored.returncode != 1:
+            raise CliError(FAIL, "git check-ignore failed for %s" % out_dir)
+    if ignored.returncode == 1:
+        raise CliError(FAIL, "--out must be git-ignored when it is inside a git work tree")
+
+
+def _read_jsonl(path: str) -> List[dict]:
+    rows: List[dict] = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                rows.append(json.loads(line))
+    return rows
+
+
+def cmd_eval_corpus(a) -> int:
+    _refuse_tracked_out_dir(a.out)
+    try:
+        deny = re.compile(a.deny_regex) if a.deny_regex else None
+    except re.error as exc:
+        raise CliError(USAGE, "bad --deny-regex: %s" % exc)
+
+    ledger_rows = _read_jsonl(a.ledger)
+    short_rows, ledger_stats = CORPUS.from_task_ledger(ledger_rows, deny)
+    plan_inputs = []
+    for pattern in a.plans or []:
+        for path in sorted(glob.glob(pattern)):
+            with open(path, encoding="utf-8") as f:
+                plan_inputs.append((os.path.basename(path), f.read()))
+    full_rows, plan_stats = CORPUS.from_plan_files(plan_inputs, deny)
+    sampled = CORPUS.stratified_sample(full_rows + short_rows, a.n, a.seed)
+
+    os.makedirs(a.out, exist_ok=True)
+    corpus_path = os.path.join(a.out, "corpus.jsonl")
+    with open(corpus_path, "w", encoding="utf-8") as f:
+        for row in sampled:
+            f.write(json.dumps(row, sort_keys=True) + "\n")
+    stats = {"ledger": ledger_stats, "plans": plan_stats, "rows": len(sampled), "available": len(full_rows) + len(short_rows)}
+    with open(os.path.join(a.out, "corpus-stats.json"), "w", encoding="utf-8") as f:
+        json.dump(stats, f, indent=2, sort_keys=True)
+    return OK
+
+
 def _parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--run-dir")
@@ -552,6 +620,16 @@ def _parser() -> argparse.ArgumentParser:
     adj.add_argument("--by", default="human")
     add("paths-within", cmd_paths_within).add_argument("task_id")
     add("doctor", cmd_doctor)
+    ev = sub.add_parser("eval")
+    evsub = ev.add_subparsers(dest="eval_cmd")
+    ec = evsub.add_parser("corpus")
+    ec.set_defaults(fn=cmd_eval_corpus)
+    ec.add_argument("--ledger", required=True)
+    ec.add_argument("--plans", action="append")
+    ec.add_argument("--deny-regex")
+    ec.add_argument("--n", type=int, default=150)
+    ec.add_argument("--seed", type=int, default=7)
+    ec.add_argument("--out", required=True)
     return p
 
 
