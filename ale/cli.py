@@ -93,7 +93,7 @@ def cmd_init_run(a) -> int:
         for e in errs:
             print(e, file=sys.stderr)
         return FAIL
-    if E.read_events(c.events_path):
+    if any(e["type"] == "run_started" for e in E.read_events(c.events_path)):
         raise CliError(FAIL, "run already initialised: %s" % c.events_path)
     c.emit("run_started")
     rhash = R.roster_hash(c.roster)

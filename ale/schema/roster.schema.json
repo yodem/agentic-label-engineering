@@ -31,12 +31,35 @@
       }
     },
     "watch_defaults": {"type": "object"},
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["field", "when", "value"],
+        "properties": {
+          "field": {"enum": ["role", "model_tier", "risk", "effort"]},
+          "when": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path_prefix": {"type": "string", "minLength": 1},
+              "keyword": {"type": "string", "minLength": 1}
+            }
+          },
+          "value": {"type": "string", "minLength": 1}
+        }
+      }
+    },
     "uncertain_below": {"type": "number", "minimum": 0},
     "judge": {
       "type": "object",
       "required": ["plugin", "threshold", "modes"],
       "properties": {
         "plugin": {"type": ["string", "null"]},
+        "command": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "questions": {"type": "object"},
+        "timeout_s": {"type": "integer", "minimum": 1},
         "threshold": {"type": "number", "minimum": 0},
         "modes": {"type": "object"}
       }

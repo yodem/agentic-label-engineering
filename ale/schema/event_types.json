@@ -1,5 +1,8 @@
 {
+  "label_vote": ["field", "by", "value"],
   "labeled": ["labels", "roster_hash"],
+  "relabeled": ["field", "old", "new", "reason"],
+  "adjudicated": ["field", "value", "by"],
   "heartbeat": ["step"],
   "note": ["text"],
   "input_required": ["question"],
