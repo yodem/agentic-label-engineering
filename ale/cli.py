@@ -19,7 +19,7 @@ from . import verify as V
 from . import watchdog as W
 from .labeling import cascade as CAS
 from .labeling import truth as TRUTH
-from .labeling.judge import CommandJudge
+from .labeling.judge import CommandJudge, is_mostly_english
 from .evalharness import corpus as CORPUS
 from .evalharness import goldset as GOLDSET
 from .evalharness import jevrun as JEVRUN
@@ -572,16 +572,49 @@ def cmd_eval_corpus(a) -> int:
         deny = re.compile(a.deny_regex) if a.deny_regex else None
     except re.error as exc:
         raise CliError(USAGE, "bad --deny-regex: %s" % exc)
+    try:
+        exclude_task_id = re.compile(a.exclude_task_id_regex) if a.exclude_task_id_regex else None
+    except re.error as exc:
+        raise CliError(USAGE, "bad --exclude-task-id-regex: %s" % exc)
+    if not (0 < a.full_share <= 1):
+        raise CliError(USAGE, "--full-share must be > 0 and <= 1")
+    extra_redactions = []
+    for raw in a.redact_regex or []:
+        if "=>" not in raw:
+            raise CliError(USAGE, "--redact-regex must be RE=>REPLACEMENT")
+        pattern, replacement = raw.split("=>", 1)
+        try:
+            extra_redactions.append((re.compile(pattern), replacement))
+        except re.error as exc:
+            raise CliError(USAGE, "bad --redact-regex: %s" % exc)
 
     ledger_rows = _read_jsonl(a.ledger)
-    short_rows, ledger_stats = CORPUS.from_task_ledger(ledger_rows, deny)
+    short_rows, ledger_stats = CORPUS.from_task_ledger(ledger_rows, deny, exclude_task_id=exclude_task_id)
     plan_inputs = []
+    seen_plan_paths = set()
     for pattern in a.plans or []:
         for path in sorted(glob.glob(pattern)):
+            real_path = os.path.realpath(path)
+            if real_path in seen_plan_paths:
+                continue
+            seen_plan_paths.add(real_path)
             with open(path, encoding="utf-8") as f:
                 plan_inputs.append((os.path.basename(path), f.read()))
     full_rows, plan_stats = CORPUS.from_plan_files(plan_inputs, deny)
-    sampled = CORPUS.stratified_sample(full_rows + short_rows, a.n, a.seed)
+    all_rows = full_rows + short_rows
+    dropped_non_english = 0
+    if a.english_only:
+        kept_rows = []
+        for row in all_rows:
+            if is_mostly_english(str(row.get("text") or "")):
+                kept_rows.append(row)
+            else:
+                dropped_non_english += 1
+        all_rows = kept_rows
+    sampled = CORPUS.stratified_sample(all_rows, a.n, a.seed, full_share=a.full_share)
+    redactions = {}
+    if a.redact or extra_redactions:
+        sampled, redactions = CORPUS.redact(sampled, extra_redactions)
 
     os.makedirs(a.out, exist_ok=True)
     corpus_path = os.path.join(a.out, "corpus.jsonl")
@@ -589,6 +622,10 @@ def cmd_eval_corpus(a) -> int:
         for row in sampled:
             f.write(json.dumps(row, sort_keys=True) + "\n")
     stats = {"ledger": ledger_stats, "plans": plan_stats, "rows": len(sampled), "available": len(full_rows) + len(short_rows)}
+    if a.english_only:
+        stats["dropped_non_english"] = dropped_non_english
+    if redactions:
+        stats["redactions"] = redactions
     with open(os.path.join(a.out, "corpus-stats.json"), "w", encoding="utf-8") as f:
         json.dump(stats, f, indent=2, sort_keys=True)
     return OK
@@ -665,6 +702,9 @@ def cmd_eval_report(a) -> int:
     for raw in a.arm or []:
         name, path = _parse_arm(raw)
         arms[name] = _read_jsonl(path)
+    if a.incumbent_arm is not None and a.incumbent_arm not in arms:
+        supplied = ", ".join(sorted(arms)) if arms else "none"
+        raise CliError(FAIL, "unknown incumbent arm %s; supplied arms: %s" % (a.incumbent_arm, supplied))
     stats = {
         "roster": roster,
         "fields": [f for f in CAS.FIELDS if f in roster.get("vocab", {})],
@@ -750,8 +790,13 @@ def _parser() -> argparse.ArgumentParser:
     ec.add_argument("--ledger", required=True)
     ec.add_argument("--plans", action="append")
     ec.add_argument("--deny-regex")
+    ec.add_argument("--exclude-task-id-regex")
     ec.add_argument("--n", type=int, default=150)
     ec.add_argument("--seed", type=int, default=7)
+    ec.add_argument("--full-share", type=float, default=1 / 3)
+    ec.add_argument("--redact", action="store_true")
+    ec.add_argument("--redact-regex", action="append")
+    ec.add_argument("--english-only", action="store_true")
     ec.add_argument("--out", required=True)
     eg = evsub.add_parser("gold")
     eg.set_defaults(fn=cmd_eval_gold)

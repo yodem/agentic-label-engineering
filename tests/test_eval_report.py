@@ -297,3 +297,29 @@ def test_cli_report_bad_corpus_jsonl_is_clean_error(tmp_path, roster, capsys):
     assert str(corpus) in err
     assert ":1:" in err
     assert "Traceback" not in err
+
+
+def test_cli_report_unknown_incumbent_arm_is_error_and_writes_no_report(tmp_path, roster, capsys):
+    corpus = tmp_path / "corpus.jsonl"
+    gold = tmp_path / "gold.json"
+    judge = tmp_path / "judge.jsonl"
+    labeler_a = tmp_path / "a.jsonl"
+    arm = tmp_path / "arm.jsonl"
+    roster_path = tmp_path / "roster.json"
+    out = tmp_path / "out"
+    corpus.write_text(json.dumps({"id": "C1", "text": "Add a tiny status page.", "source": "fixture", "kind": "short"}) + "\n")
+    gold.write_text(json.dumps({"gold": {"role": {"C1": "backend"}}, "basis": {"role": {"C1": "human"}},
+                                "kappa": {"role": None}}))
+    judge.write_text(json.dumps({"id": "C1", "field": "role", "perm": 0, "choice": "backend", "confidence": 0.9}) + "\n")
+    labeler_a.write_text(json.dumps({"id": "C1", "role": "backend"}) + "\n")
+    arm.write_text(json.dumps({"id": "C1", "role": "backend"}) + "\n")
+    roster_path.write_text(json.dumps(roster))
+
+    assert main(["eval", "report", "--corpus", str(corpus), "--gold", str(gold), "--judge", str(judge),
+                 "--a", str(labeler_a), "--arm", "rule=%s" % arm, "--incumbent-arm", "missing",
+                 "--roster", str(roster_path), "--out", str(out)]) == 1
+
+    err = capsys.readouterr().err
+    assert "unknown incumbent arm missing" in err
+    assert "rule" in err
+    assert not (out / "report.md").exists()

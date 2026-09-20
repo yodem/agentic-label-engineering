@@ -25,11 +25,15 @@ Use the same ids as the corpus. Missing ids are skipped when the gold set is bui
 Build a corpus first, then collect two labeler files, adjudicate disagreements, run the judge, and render the report.
 
 ```sh
-ale eval corpus --ledger events.jsonl --plans "plans/*.md" --out .ale/eval/run1
+ale eval corpus --ledger events.jsonl --plans "plans/*.md" --exclude-task-id-regex "scratch-" --redact --english-only --out .ale/eval/run1
 ale eval gold --a a.jsonl --b b.jsonl --rulings rulings.jsonl --out .ale/eval/run1
 ale eval judge --corpus .ale/eval/run1/corpus.jsonl --roster roster.json --out .ale/eval/run1
 ale eval report --corpus .ale/eval/run1/corpus.jsonl --gold .ale/eval/run1/gold.json --judge .ale/eval/run1/judge.jsonl --a a.jsonl --b b.jsonl --arm incumbent=incumbent.jsonl --incumbent-arm incumbent --roster roster.json --out .ale/eval/run1
 ```
+
+`eval corpus` accepts repeatable `--plans` globs and de-duplicates matched files by real path. `--full-share FLOAT` controls how much of the sampled corpus is reserved for full plan rows, with the default preserving the historical one-third share. Pass `--full-share 1` to take full rows first up to `--n`, then fill with ledger rows.
+
+Use `--exclude-task-id-regex RE` to drop ledger starts whose `task_id` or `task` matches a pattern. Use `--english-only` to drop rows whose text is not mostly English.
 
 `eval judge` appends to `judge.jsonl` as each call finishes. It can resume because existing `(id, field, perm)` triples are skipped. `--max-calls` stops after that many new calls and exits successfully.
 
@@ -38,6 +42,8 @@ ale eval report --corpus .ale/eval/run1/corpus.jsonl --gold .ale/eval/run1/gold.
 ## Privacy
 
 Use synthetic invented text in fixtures, docs, and committed corpora. Real corpora, label files, rulings, judge rows, and reports should live under git ignored evaluation directories. Pass a deny regex when building a corpus if source data can contain private strings.
+
+`ale eval corpus --redact` applies built-in redaction to emitted row `text` and `source`: home directories become `~`, email and ssh-style addresses become `<addr>`, IPv4 addresses become `<ip>`, and key-like values for `api_key`, `apikey`, `token`, `password`, and `secret` become `<redacted>`. Repeat `--redact-regex 'RE=>REPLACEMENT'` to add caller-provided redactions after the built-ins; this flag implies `--redact`. Replacement counts are written to `corpus-stats.json` under `redactions`.
 
 ## Reading The Report
 
