@@ -1,0 +1,50 @@
+ ▐▛███▛█   Claude Code v2.1.278
+▝▜██████▀  Fable 5.1 with high effort · Claude Max
+  ▝▝ ▝▝    ~/dev/agentic-label-engineering
+
+▎ Debug mode enabled · logging to /tmp/ale-board.log
+
+❯ /ale-board
+  ⎿  ale: board above the prompt · /ale-board close closes
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ale-board · board-demo · input-required:1 working:1 submitted:0 ready:0 attention:0 planned:0 accepted:0 failed:0 canceled:0                                                                       ✕ │
+│ 0 tok · $0.00 · refreshed 0s ago                                                                                                                                                                     │
+│ input-required                                                                                                                                                                                       │
+│ ?  T02 Document the refresh endpoi… docs/cheap demo-t02 #1 0tok 21s                                                                                                                                  │
+│ working / claimed                                                                                                                                                                                    │
+│ ●  T01 Add token refresh endpoint backend/standard demo-t01 #1 0tok 21s wired up the refresh endpoint                                                                                                │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ale board-demo · 1 working · 1 input-required · 0 accepted · 0 breaches                                                                                                                              [-]
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  [Fable 5.1] │ agentic-label-engineering git:(main*)
+  Context ░░░░░░░░░░ 0%
+  1 CLAUDE.md | 12 MCPs | 9 hooks
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← 3 agents
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

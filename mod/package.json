@@ -1,0 +1,7 @@
+{
+  "name": "ale-board-mod",
+  "private": true,
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

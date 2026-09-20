@@ -1,0 +1,16 @@
+{
+  "name": "ale",
+  "version": "0.1.0",
+  "description": "/ale:board: a live task board for an Agentic Label Engineering (ALE) run above the prompt and in a docked pane. Reads `python3 -m ale status --json` and the run's label files; read-only, LLM-free. An experiment on Claude Code function hooks (Mods).",
+  "author": { "name": "ALE" },
+  "license": "MIT",
+  "userConfig": {
+    "aleCommand": {
+      "type": "string",
+      "title": "ale command",
+      "description": "The command used to run the ale CLI, split on spaces (no shell). Change this if `python3 -m ale` is not importable from your session's cwd — for example to point at a venv's python or an installed `ale` entry point.",
+      "required": false,
+      "default": "python3 -m ale"
+    }
+  }
+}
