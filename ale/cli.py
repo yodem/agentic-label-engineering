@@ -234,6 +234,20 @@ def cmd_verify(a) -> int:
     return OK
 
 
+def cmd_check(a) -> int:
+    c = Ctx(a)
+    c.task(a.task)
+    evidence = V.run_acceptance(c.labels[a.task], a.cwd or os.getcwd())
+    if a.json:
+        print(json.dumps(evidence, sort_keys=True))
+    else:
+        for result in evidence["results"]:
+            print("%s %s exit=%d" % (result["id"], "ok" if result["ok"] else "FAIL", result["exit"]))
+        if evidence["manual"]:
+            print("manual: %s" % ", ".join(evidence["manual"]))
+    return OK if evidence["passed"] else FAIL
+
+
 def cmd_watchdog(a) -> int:
     c = Ctx(a)
     breaches = W.check(c.state(), c.labels, c.roster, c.now)
@@ -786,6 +800,9 @@ def _parser() -> argparse.ArgumentParser:
     vf.add_argument("--cwd")
     vf.add_argument("--base")
     vf.add_argument("--signoff")
+    ch = add("check", cmd_check, task=True)
+    ch.add_argument("--cwd")
+    ch.add_argument("--json", action="store_true")
     add("watchdog", cmd_watchdog)
     us = add("usage", cmd_usage, task=True)
     us.add_argument("--agent")
