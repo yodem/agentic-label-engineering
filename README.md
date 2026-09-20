@@ -68,3 +68,7 @@ a loop or scheduler; exit 6 means it found at least one breach.
 ## Tests
 
 `uvx --python 3.9 pytest -q`
+
+## License
+
+MIT. See `LICENSE`.

@@ -1,5 +1,5 @@
  ▐▛███▛█   Claude Code v2.1.278
-▝▜██████▀  Fable 5.1 with high effort · Claude Max
+▝▜██████▀  Fable 5.1 with high effort
   ▝▝ ▝▝    ~/dev/agentic-label-engineering
 
 ▎ Debug mode enabled · logging to /tmp/ale-board.log
@@ -19,10 +19,6 @@ ale board-demo · 1 working · 1 input-required · 0 accepted · 0 breaches     
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 ❯ 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-  [Fable 5.1] │ agentic-label-engineering git:(main*)
-  Context ░░░░░░░░░░ 0%
-  1 CLAUDE.md | 12 MCPs | 9 hooks
-  ⏵⏵ auto mode on (shift+tab to cycle) · ← 3 agents
 
 
 

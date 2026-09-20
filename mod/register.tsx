@@ -1,6 +1,6 @@
 // ale-board: never name a local `h` in this file — every JSX tag compiles to
-// a call of `h`, the JSX factory global. See CandleKeep book
-// cmu2p81n306ppqb0i7v1rli1r, Chapter 10, Rule 1.
+// a call of `h`, the JSX factory global. This is the first rule of
+// writing function-hook plugins: a local `h` breaks the first draw.
 //
 // This module wires Claude Code's function-hook events to the pure helpers
 // in ./lib.ts. It draws two sites: the AbovePrompt band (one line, while a

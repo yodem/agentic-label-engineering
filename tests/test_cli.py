@@ -92,8 +92,8 @@ def test_manual_criterion_needs_signoff(run_dir, capsys):
     ale(run_dir, "submit", "--task", "T01", "--agent", "a1", "--summary", "s", now=2)
     assert ale(run_dir, "verify", "--task", "T01", "--cwd", run_dir, now=3) == 5
     assert state(run_dir, capsys)["state"] == "submitted"
-    assert ale(run_dir, "verify", "--task", "T01", "--cwd", run_dir, "--signoff", "yotam", now=4) == 0
-    assert state(run_dir, capsys)["evidence"]["signoff"] == "yotam"
+    assert ale(run_dir, "verify", "--task", "T01", "--cwd", run_dir, "--signoff", "reviewer", now=4) == 0
+    assert state(run_dir, capsys)["evidence"]["signoff"] == "reviewer"
 
 
 def test_high_risk_needs_signoff(run_dir):
