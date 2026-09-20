@@ -17,6 +17,7 @@ from . import lifecycle as LC
 from . import roster as R
 from . import verify as V
 from . import watchdog as W
+from . import binding as B
 from .labeling import cascade as CAS
 from .labeling import truth as TRUTH
 from .labeling.judge import CommandJudge, is_mostly_english
@@ -309,6 +310,30 @@ def cmd_doctor(a) -> int:
     for p in problems:
         print(p, file=sys.stderr)
     return FAIL if problems else OK
+
+
+def _binding_home(a) -> str:
+    return a.home or os.environ.get("ALE_HOME") or os.path.expanduser("~")
+
+
+def cmd_bind(a) -> int:
+    c = Ctx(a)
+    c.task(a.task)
+    path = B.binding_path(_binding_home(a), a.session, a.subagent)
+    roster = a.roster or os.environ.get("ALE_ROSTER") or "roster.json"
+    value = {"run_dir": c.run_dir, "roster": roster, "task_id": a.task,
+             "agent_id": a.agent, "source": "file"}
+    H.write_atomic(path, json.dumps(value, sort_keys=True))
+    return OK
+
+
+def cmd_unbind(a) -> int:
+    path = B.binding_path(_binding_home(a), a.session, a.subagent)
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+    return OK
 
 
 def _resolve_now(a: argparse.Namespace) -> float:
@@ -783,6 +808,14 @@ def _parser() -> argparse.ArgumentParser:
     adj.add_argument("--by", default="human")
     add("paths-within", cmd_paths_within).add_argument("task_id")
     add("doctor", cmd_doctor)
+    bd = add("bind", cmd_bind, task=True, agent=True)
+    bd.add_argument("--session", required=True)
+    bd.add_argument("--subagent")
+    bd.add_argument("--home")
+    ub = add("unbind", cmd_unbind)
+    ub.add_argument("--session", required=True)
+    ub.add_argument("--subagent")
+    ub.add_argument("--home")
     ev = sub.add_parser("eval")
     evsub = ev.add_subparsers(dest="eval_cmd")
     ec = evsub.add_parser("corpus")
