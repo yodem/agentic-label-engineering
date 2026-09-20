@@ -74,7 +74,7 @@ def read_events(path: str) -> List[dict]:
 
 def _new_task() -> dict:
     return {"state": "planned", "claimable": False, "attempt": 1, "owner": None, "started_ts": None,
-            "last_heartbeat_ts": None, "last_step": None, "step_changed_ts": None, "steps": [],
+            "last_heartbeat_ts": None, "submitted_ts": None, "last_step": None, "step_changed_ts": None, "steps": [],
             "files_modified": [], "pending": [], "next_steps": [], "waiting_on": None, "summary": None,
             "notes": [], "tokens": 0, "cost_usd": 0.0, "rejections": 0, "last_reject_reason": None,
             "evidence": None, "breaches_seen": []}
@@ -92,7 +92,8 @@ def _apply(st: dict, ev: dict, tasks: Dict[str, dict], labels: Dict[str, dict]) 
     if kind == "claimed":
         if (st["owner"] is None and st["state"] in _OPEN and ev.get("attempt") == st["attempt"]
                 and _deps_ok(ev["task_id"], tasks, labels)):
-            st.update(state="claimed", owner=agent, started_ts=ts, last_heartbeat_ts=ts, step_changed_ts=ts)
+            st.update(state="claimed", owner=agent, started_ts=ts, last_heartbeat_ts=ts, step_changed_ts=ts,
+                      submitted_ts=None)
     elif kind == "heartbeat":
         if is_owner and st["state"] in LIVE:
             if st["state"] != "input-required":
@@ -118,7 +119,7 @@ def _apply(st: dict, ev: dict, tasks: Dict[str, dict], labels: Dict[str, dict]) 
             st.update(state="working", waiting_on=None, last_heartbeat_ts=ts, step_changed_ts=ts)
     elif kind == "submitted":
         if is_owner and st["state"] in LIVE:
-            st["state"], st["summary"] = "submitted", ev["summary"]
+            st["state"], st["summary"], st["submitted_ts"] = "submitted", ev["summary"], ts
     elif kind == "verified":
         st["evidence"] = ev["evidence"]
     elif kind == "accepted":

@@ -64,6 +64,14 @@ def test_seen_breach_not_repeated(roster, label_t01):
     assert names(run(events, label_t01, roster, 3)) == []
 
 
+def test_submitted_without_verdict_breaches_as_unverified(roster, label_t01):
+    events = [ev("claimed", 0), ev("heartbeat", 10, step="s"), ev("submitted", 20, summary="s")]
+    assert names(run(events, label_t01, roster, 20 + 900)) == []
+    assert names(run(events, label_t01, roster, 20 + 901)) == ["unverified"]
+    seen = events + [ev("breach", 1000, agent=None, breach="unverified", detail="d")]
+    assert names(run(seen, label_t01, roster, 5000)) == []
+
+
 def test_run_budget(roster, label_t01):
     roster["cost_gate"]["max_run_budget_tokens"] = 1000
     usage = {"gen_ai.request.model": "m", "gen_ai.usage.input_tokens": 2000, "gen_ai.usage.output_tokens": 0,

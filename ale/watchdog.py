@@ -29,6 +29,9 @@ def check(run_state: dict, labels: Dict[str, dict], roster: dict, now: float) ->
             found.append(_breach(tid, "overrun", attempt, "running for %ds" % int(now - st["started_ts"])))
         if state not in TERMINAL and st["tokens"] > watch["budget_tokens"]:
             found.append(_breach(tid, "over_budget", attempt, "%d tokens > %d" % (st["tokens"], watch["budget_tokens"])))
+        if state == "submitted" and now - st["submitted_ts"] > watch["heartbeat_timeout_s"]:
+            found.append(_breach(tid, "unverified", attempt,
+                                 "submitted %ds ago with no verdict" % int(now - st["submitted_ts"])))
         if state == "input-required":
             found.append(_breach(tid, "input_required", attempt, st["waiting_on"] or ""))
         if state not in TERMINAL and st["rejections"] >= 2:

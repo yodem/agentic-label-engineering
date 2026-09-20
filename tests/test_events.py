@@ -111,6 +111,14 @@ def test_usage_and_breaches_recorded(label_t01):
     assert out["tasks"]["T01"]["breaches_seen"] == [["stuck", 1]] and out["run"]["breaches_seen"] == ["run_budget"]
 
 
+def test_submitted_ts_recorded_and_reset_on_reclaim(label_t01):
+    base = [ev("claimed", 1), ev("submitted", 7, summary="s")]
+    assert reduce_run(base, labels_of(label_t01))["tasks"]["T01"]["submitted_ts"] == 7.0
+    again = base + [ev("rejected", 8, agent=None, evidence=EVID, reason="r"), ev("claimed", 9, agent="a2", attempt=2)]
+    st = reduce_run(again, labels_of(label_t01))["tasks"]["T01"]
+    assert st["owner"] == "a2" and st["submitted_ts"] is None
+
+
 def test_non_owner_cannot_fail_or_cancel(label_t01):
     for kind, extra in (("failed", {"reason": "because"}), ("canceled", {})):
         st = reduce_run([ev("claimed", 1), ev("heartbeat", 2, step="s1"), ev(kind, 3, agent="mallory", **extra)],
