@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import os
 import subprocess
@@ -15,6 +16,8 @@ from . import lifecycle as LC
 from . import roster as R
 from . import verify as V
 from . import watchdog as W
+from .labeling import cascade as CAS
+from .labeling.judge import CommandJudge
 
 OK, FAIL, USAGE, CLAIM_LOST, LEASE_LOST, SIGNOFF, BREACH = 0, 1, 2, 3, 4, 5, 6
 TEXT_MAX = 1000
@@ -302,6 +305,85 @@ def cmd_doctor(a) -> int:
     return FAIL if problems else OK
 
 
+def _resolve_now(a: argparse.Namespace) -> float:
+    raw_now = a.now if a.now is not None else os.environ.get("ALE_NOW")
+    if raw_now in (None, ""):
+        return time.time()
+    try:
+        return float(raw_now)
+    except (TypeError, ValueError):
+        raise CliError(USAGE, "--now must be a number, got %r" % (raw_now,))
+
+
+def cmd_label(a) -> int:
+    run_dir = a.run_dir or os.environ.get("ALE_RUN_DIR")
+    if not run_dir:
+        raise CliError(USAGE, "--run-dir or ALE_RUN_DIR is required")
+    roster = R.load_roster(a.roster or os.environ.get("ALE_ROSTER") or "roster.json")
+    now = _resolve_now(a)
+
+    drafts: "dict[str, dict]" = {}
+    errs: List[str] = []
+    for path in sorted(glob.glob(os.path.join(run_dir, "drafts", "*.json"))):
+        with open(path, encoding="utf-8") as f:
+            draft = json.load(f)
+        tid = draft.get("task_id", os.path.basename(path))
+        if not H.is_safe_id(tid):
+            errs.append("%s: unsafe task_id %r" % (path, tid))
+            continue
+        drafts[tid] = draft
+
+    for tid in sorted(drafts):
+        errs.extend(L.check_label(drafts[tid], roster))
+    if errs:
+        for e in errs:
+            print(e, file=sys.stderr)
+        return FAIL
+
+    jconf = roster.get("judge") or {}
+    judge = None
+    if not a.no_judge and jconf.get("plugin") is not None:
+        judge = CommandJudge(jconf["command"], timeout_s=jconf.get("timeout_s", 30))
+
+    events_path = os.path.join(run_dir, "events.jsonl")
+    total_votes = 0
+    judge_abstains = 0
+    conflicts = 0
+    disagreements: List[dict] = []
+
+    for tid in sorted(drafts):
+        draft = drafts[tid]
+        spec_path = draft["context"]["spec_path"]
+        text = ""
+        if os.path.exists(spec_path):
+            with open(spec_path, encoding="utf-8") as f:
+                text = f.read()
+        final, votes = CAS.label_task(draft, text, roster, judge=judge)
+        H.write_atomic(os.path.join(run_dir, "labels", "%s.json" % tid),
+                       json.dumps(final, indent=2, sort_keys=True))
+        run_id = draft.get("run_id", "")
+        for v in votes:
+            extra = {"field": v["field"], "by": v["by"], "value": v["value"], "confidence": v["confidence"]}
+            err = (v.get("detail") or {}).get("error")
+            if err:
+                extra["error"] = str(err)[:200]
+            E.append_event(events_path, E.make_event("label_vote", run_id, now, tid, None, 1, **extra))
+            total_votes += 1
+            if v["by"].startswith("judge:"):
+                if v["value"] is None:
+                    judge_abstains += 1
+                elif v["value"] != draft["labels"][v["field"]]:
+                    disagreements.append({"task": tid, "field": v["field"],
+                                           "planner": draft["labels"][v["field"]], "judge": v["value"]})
+        for field in CAS.FIELDS:
+            if final["provenance"][field]["conflict"]:
+                conflicts += 1
+
+    print(json.dumps({"tasks": len(drafts), "votes": total_votes, "judge_abstains": judge_abstains,
+                       "conflicts": conflicts, "disagreements": disagreements}, sort_keys=True))
+    return OK
+
+
 def _parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--run-dir")
@@ -348,6 +430,7 @@ def _parser() -> argparse.ArgumentParser:
     us.add_argument("--cost-usd", type=float)
     us.add_argument("--source", default="self_report", choices=["adapter", "self_report", "unknown"])
     add("decide", cmd_decide).add_argument("--text", required=True)
+    add("label", cmd_label).add_argument("--no-judge", action="store_true")
     add("paths-within", cmd_paths_within).add_argument("task_id")
     add("doctor", cmd_doctor)
     return p
