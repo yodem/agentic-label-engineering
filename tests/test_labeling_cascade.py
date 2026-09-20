@@ -1,4 +1,6 @@
 import copy
+import os
+import signal
 
 import pytest
 
@@ -207,3 +209,25 @@ class TestReadSpecText:
         text, warning = read_spec_text("", [])
         assert text == ""
         assert warning is None
+
+    @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="mkfifo unavailable")
+    def test_fifo_is_rejected_without_opening(self, tmp_path):
+        cwd = tmp_path / "cwd"
+        run_dir = tmp_path / "run"
+        cwd.mkdir()
+        run_dir.mkdir()
+        fifo = cwd / "spec.fifo"
+        os.mkfifo(str(fifo))
+
+        def _timeout(signum, frame):
+            raise AssertionError("read_spec_text hung on fifo")
+
+        old_handler = signal.signal(signal.SIGALRM, _timeout)
+        signal.alarm(5)
+        try:
+            text, warning = read_spec_text("spec.fifo", [str(cwd), str(run_dir)])
+        finally:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old_handler)
+        assert text == ""
+        assert warning == "spec_path is not a regular file: spec.fifo"

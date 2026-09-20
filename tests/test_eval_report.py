@@ -69,6 +69,46 @@ def test_report_contains_comparison_arm_accuracy_and_kappa():
     assert "rule kappa" in text
 
 
+def test_report_uses_goldset_kappa_and_agreement():
+    text = report.render(stats())
+
+    assert "role: kappa 0.500, agreement n/a" in text
+
+
+def test_report_scores_full_gold_and_human_basis_subset_for_judge_and_arms():
+    text = report.render(stats())
+
+    assert "judge full gold accuracy: 0.333" in text
+    assert "judge human-basis subset accuracy: 0.500" in text
+    assert "rule full gold accuracy: 1.000" in text
+    assert "rule human-basis subset accuracy: 1.000" in text
+
+
+def test_report_scores_labelers_only_on_human_basis_subset():
+    text = report.render(stats())
+
+    assert "labeler A human-basis subset accuracy: 0.500" in text
+    assert "labeler B human-basis subset accuracy: 1.000" in text
+    assert "informational: the human subset is the A/B disagreement set" in text
+    assert "labeler A full gold" not in text
+
+
+def test_report_incumbent_bar_compares_full_gold_accuracy_minus_tolerance():
+    s = stats()
+    s["incumbent_arm"] = "rule"
+    text = report.render(s)
+
+    assert "Promotion bar" in text
+    assert text.index("Promotion bar") < text.index("## Results")
+    assert "BELOW BAR role full gold: judge 0.333 < rule 1.000 - tolerance 0.030" in text
+
+
+def test_report_without_incumbent_prints_below_bar_reason():
+    text = report.render(stats())
+
+    assert "BELOW BAR role full gold: no incumbent arm" in text
+
+
 def test_report_includes_confusion_errors_latency_sensitivity_and_interlabeler():
     text = report.render(stats())
 
@@ -103,3 +143,50 @@ def test_cli_report_writes_markdown_that_names_every_field(tmp_path, roster):
     text = (out / "report.md").read_text()
     for field in firsts:
         assert field in text
+
+
+def test_cli_report_accepts_b_and_incumbent_arm(tmp_path, roster):
+    corpus = tmp_path / "corpus.jsonl"
+    gold = tmp_path / "gold.json"
+    judge = tmp_path / "judge.jsonl"
+    labeler_a = tmp_path / "a.jsonl"
+    labeler_b = tmp_path / "b.jsonl"
+    arm = tmp_path / "arm.jsonl"
+    roster_path = tmp_path / "roster.json"
+    out = tmp_path / "out"
+    corpus.write_text(json.dumps({"id": "C1", "text": "Add a tiny status page.", "source": "fixture", "kind": "short"}) + "\n")
+    gold.write_text(json.dumps({"gold": {"role": {"C1": "backend"}}, "basis": {"role": {"C1": "human"}},
+                                "kappa": {"role": 0.25}, "agreement": {"role": 0.75}}))
+    judge.write_text(json.dumps({"id": "C1", "field": "role", "perm": 0, "choice": "backend", "confidence": 0.9}) + "\n")
+    labeler_a.write_text(json.dumps({"id": "C1", "role": "frontend"}) + "\n")
+    labeler_b.write_text(json.dumps({"id": "C1", "role": "backend"}) + "\n")
+    arm.write_text(json.dumps({"id": "C1", "role": "backend"}) + "\n")
+    roster_path.write_text(json.dumps(roster))
+
+    assert main(["eval", "report", "--corpus", str(corpus), "--gold", str(gold), "--judge", str(judge),
+                 "--a", str(labeler_a), "--b", str(labeler_b), "--arm", "rule=%s" % arm,
+                 "--incumbent-arm", "rule", "--roster", str(roster_path), "--out", str(out)]) == 0
+    text = (out / "report.md").read_text()
+    assert "labeler B human-basis subset accuracy: 1.000" in text
+    assert "MEETS BAR role full gold" in text
+
+
+def test_cli_report_bad_corpus_jsonl_is_clean_error(tmp_path, roster, capsys):
+    corpus = tmp_path / "corpus.jsonl"
+    gold = tmp_path / "gold.json"
+    judge = tmp_path / "judge.jsonl"
+    labeler_a = tmp_path / "a.jsonl"
+    roster_path = tmp_path / "roster.json"
+    out = tmp_path / "out"
+    corpus.write_text("{bad json}\n")
+    gold.write_text(json.dumps({"gold": {}, "basis": {}}))
+    judge.write_text("")
+    labeler_a.write_text("")
+    roster_path.write_text(json.dumps(roster))
+
+    assert main(["eval", "report", "--corpus", str(corpus), "--gold", str(gold), "--judge", str(judge),
+                 "--a", str(labeler_a), "--roster", str(roster_path), "--out", str(out)]) == 1
+    err = capsys.readouterr().err
+    assert str(corpus) in err
+    assert ":1:" in err
+    assert "Traceback" not in err

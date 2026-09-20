@@ -37,6 +37,18 @@ def test_ledger_profile_work_dropped_without_regex():
     assert stats["dropped_work"] == 1
 
 
+def test_ledger_profile_work_filter_is_case_and_space_tolerant():
+    rows, stats = corpus.from_task_ledger([
+        {"event": "start", "desc": "Add pagination to the widget list", "profile": "Work"},
+        {"event": "start", "desc": "Refresh the chart legend labels", "profile": "WORK"},
+        {"event": "start", "desc": "Improve empty states for settings", "profile": " work "},
+        {"event": "start", "desc": "Tune the local example fixtures", "profile": "lab"},
+    ], None)
+
+    assert [r["text"] for r in rows] == ["Tune the local example fixtures"]
+    assert stats["dropped_work"] == 3
+
+
 def test_ledger_duplicates_short_rows_and_stable_ids():
     source = [
         {"event": "start", "desc": "Add pagination to the widget list"},

@@ -499,7 +499,7 @@ def cmd_adjudicate(a) -> int:
 
 
 def _nearest_existing_parent(path: str) -> str:
-    cur = os.path.abspath(path)
+    cur = os.path.realpath(os.path.abspath(path))
     while not os.path.exists(cur):
         parent = os.path.dirname(cur)
         if parent == cur:
@@ -511,29 +511,53 @@ def _nearest_existing_parent(path: str) -> str:
 
 
 def _refuse_tracked_out_dir(out_dir: str) -> None:
-    parent = _nearest_existing_parent(out_dir)
-    inside = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], cwd=parent,
-                            capture_output=True, text=True)
-    if inside.returncode != 0 or inside.stdout.strip() != "true":
+    real_out = os.path.realpath(os.path.abspath(out_dir))
+    cur = _nearest_existing_parent(real_out)
+    repo_root = None
+    while True:
+        if os.path.exists(os.path.join(cur, ".git")):
+            repo_root = cur
+            break
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        cur = parent
+    if repo_root is None:
         return
-    rel = os.path.relpath(os.path.abspath(out_dir), parent)
-    for candidate in (rel, rel.rstrip(os.sep) + os.sep):
-        ignored = subprocess.run(["git", "check-ignore", "-q", "--", candidate], cwd=parent)
-        if ignored.returncode == 0:
-            return
-        if ignored.returncode != 1:
-            raise CliError(FAIL, "git check-ignore failed for %s" % out_dir)
-    if ignored.returncode == 1:
-        raise CliError(FAIL, "--out must be git-ignored when it is inside a git work tree")
+    git_path = os.path.relpath(real_out, repo_root).rstrip(os.sep) + os.sep
+    try:
+        proc = subprocess.run(["git", "check-ignore", "-q", "--", git_path], cwd=repo_root, timeout=10)
+    except Exception:
+        proc = None
+    if proc is not None and proc.returncode == 0:
+        return
+    raise CliError(FAIL, "output directory could not be confirmed git-ignored: %s" % out_dir)
 
 
 def _read_jsonl(path: str) -> List[dict]:
     rows: List[dict] = []
     with open(path, encoding="utf-8") as f:
-        for line in f:
+        for line_no, line in enumerate(f, 1):
             if line.strip():
-                rows.append(json.loads(line))
+                try:
+                    row = json.loads(line)
+                except ValueError as exc:
+                    raise CliError(FAIL, "%s:%d: invalid JSON: %s" % (path, line_no, exc))
+                if not isinstance(row, dict):
+                    raise CliError(FAIL, "%s:%d: expected JSON object" % (path, line_no))
+                rows.append(row)
     return rows
+
+
+def _truncate_incomplete_jsonl_tail(path: str) -> None:
+    if not os.path.exists(path) or os.path.getsize(path) == 0:
+        return
+    with open(path, "rb+") as f:
+        data = f.read()
+        if data.endswith(b"\n"):
+            return
+        last_newline = data.rfind(b"\n")
+        f.truncate(0 if last_newline < 0 else last_newline + 1)
 
 
 def _write_jsonl(path: str, rows: List[dict]) -> None:
@@ -588,6 +612,7 @@ def _done_judge_rows(path: str) -> "set[tuple[str, str, int]]":
     done = set()
     if not os.path.exists(path):
         return done
+    _truncate_incomplete_jsonl_tail(path)
     for row in _read_jsonl(path):
         try:
             done.add((str(row["id"]), str(row["field"]), int(row["perm"])))
@@ -648,8 +673,9 @@ def cmd_eval_report(a) -> int:
         "gold": _read_report_gold(a.gold),
         "judge": _read_jsonl(a.judge),
         "labeler_a": _read_jsonl(a.a),
-        "labeler_b": [],
+        "labeler_b": _read_jsonl(a.b) if a.b else [],
         "arms": arms,
+        "incumbent_arm": a.incumbent_arm,
     }
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
@@ -747,7 +773,9 @@ def _parser() -> argparse.ArgumentParser:
     er.add_argument("--gold", required=True)
     er.add_argument("--judge", required=True)
     er.add_argument("--a", required=True)
+    er.add_argument("--b")
     er.add_argument("--arm", action="append")
+    er.add_argument("--incumbent-arm")
     er.add_argument("--roster", required=True)
     er.add_argument("--out", required=True)
     return p

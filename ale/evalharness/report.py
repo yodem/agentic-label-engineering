@@ -46,9 +46,29 @@ def _gold_for_kind(gold: Dict[str, str], corpus_by_id: Dict[str, dict], kind: st
     return {task_id: value for task_id, value in gold.items() if (corpus_by_id.get(task_id) or {}).get("kind") == kind}
 
 
+def _gold_for_basis(gold: Dict[str, str], basis: Dict[str, str], wanted: str) -> Dict[str, str]:
+    return {task_id: value for task_id, value in gold.items() if basis.get(task_id) == wanted}
+
+
 def _counts(rows: List[dict], key: str) -> Dict[str, int]:
     counter = collections.Counter(str(row.get(key)) for row in rows if row.get(key))
     return dict(sorted(counter.items()))
+
+
+def _coverage_line(pred_conf: Dict[str, Tuple[Optional[str], Optional[float]]], gold: Dict[str, str]) -> str:
+    cov = coverage_table(pred_conf, gold, [0.5, 0.75, 0.9])
+    return "coverage: " + ", ".join(
+        "%s=%s/%s acc=%s" % (_fmt(r["threshold"]), r["covered"], r["n"], _fmt(r["accuracy_covered"]))
+        for r in cov
+    )
+
+
+def _score_lines(name: str, pred: Dict[str, Optional[str]], gold: Dict[str, str]) -> List[str]:
+    acc = accuracy(pred, gold)
+    return [
+        "%s n: %d" % (name, acc["n"]),
+        "%s accuracy: %s" % (name, _fmt(acc["accuracy"])),
+    ]
 
 
 def _promotion_line(field: str, kind: str, acc: dict, cov_rows: List[dict], promotion: dict) -> str:
@@ -61,6 +81,23 @@ def _promotion_line(field: str, kind: str, acc: dict, cov_rows: List[dict], prom
     if coverage is None or coverage < min_coverage:
         return "BELOW BAR %s %s: coverage %s < min_coverage %s" % (field, kind, _fmt(coverage), _fmt(min_coverage))
     return "MEETS BAR %s %s: n %d, coverage %s" % (field, kind, n, _fmt(coverage))
+
+
+def _incumbent_promotion_line(field: str, judge_acc: dict, incumbent_acc: Optional[dict],
+                              incumbent_name: Optional[str], tolerance) -> str:
+    if not incumbent_name:
+        return "BELOW BAR %s full gold: no incumbent arm" % field
+    if incumbent_acc is None:
+        return "BELOW BAR %s full gold: incumbent arm %s not found" % (field, incumbent_name)
+    if judge_acc["accuracy"] is None or incumbent_acc["accuracy"] is None or tolerance is None:
+        return "BELOW BAR %s full gold: judge %s vs %s minus tolerance %s" % (
+            field, _fmt(judge_acc["accuracy"]), incumbent_name, _fmt(tolerance))
+    threshold = incumbent_acc["accuracy"] - float(tolerance)
+    if judge_acc["accuracy"] >= threshold:
+        return "MEETS BAR %s full gold: judge %s >= %s %s - tolerance %s" % (
+            field, _fmt(judge_acc["accuracy"]), incumbent_name, _fmt(incumbent_acc["accuracy"]), _fmt(tolerance))
+    return "BELOW BAR %s full gold: judge %s < %s %s - tolerance %s" % (
+        field, _fmt(judge_acc["accuracy"]), incumbent_name, _fmt(incumbent_acc["accuracy"]), _fmt(tolerance))
 
 
 def render(stats: dict) -> str:
@@ -77,26 +114,57 @@ def render(stats: dict) -> str:
     labeler_a = list(stats.get("labeler_a") or [])
     labeler_b = list(stats.get("labeler_b") or [])
     arms = stats.get("arms") or {}
+    incumbent_name = stats.get("incumbent_arm")
 
     lines = [
         "# Evaluation report",
         "",
         "Tolerance: %s" % _fmt(tolerance),
-        "Promotion bar: min_cases %s, min_coverage %s" % (_fmt(promotion.get("min_cases")), _fmt(promotion.get("min_coverage"))),
+        "Promotion bar: judge full-gold accuracy must meet incumbent full-gold accuracy minus tolerance",
+        "Split diagnostics: min_cases %s, min_coverage %s" % (_fmt(promotion.get("min_cases")), _fmt(promotion.get("min_coverage"))),
         "",
-        "## Results",
+        "## Promotion",
     ]
 
     for field in fields:
         field_gold = gold_all.get(field) or {}
+        pred = _pred_map(judge_rows, field)
+        judge_full_acc = accuracy(pred, field_gold)
+        incumbent_acc = None
+        if incumbent_name and incumbent_name in arms:
+            incumbent_acc = accuracy(_labeler_map(list(arms[incumbent_name]), field), field_gold)
+        lines.append(_incumbent_promotion_line(field, judge_full_acc, incumbent_acc, incumbent_name, tolerance))
+
+    lines.extend([
+        "",
+        "## Results",
+    ])
+
+    for field in fields:
+        field_gold = gold_all.get(field) or {}
+        field_basis = (gold_bundle.get("basis") or {}).get(field) or {}
+        human_gold = _gold_for_basis(field_gold, field_basis, "human")
+        pred = _pred_map(judge_rows, field)
+        pred_conf = _pred_conf_map(judge_rows, field)
+        a_map = _labeler_map(labeler_a, field)
+        b_map = _labeler_map(labeler_b, field)
         lines.extend(["", "### %s" % field])
+        lines.extend(_score_lines("judge full gold", pred, field_gold))
+        lines.extend(_score_lines("judge human-basis subset", pred, human_gold))
+        lines.append(_coverage_line(pred_conf, field_gold))
+        lines.append(_coverage_line(pred_conf, human_gold).replace("coverage:", "human-basis coverage:", 1))
+        lines.extend(_score_lines("labeler A human-basis subset", a_map, human_gold))
+        if labeler_b:
+            lines.extend(_score_lines("labeler B human-basis subset", b_map, human_gold))
+        lines.append("informational: the human subset is the A/B disagreement set")
+        for arm_name, arm_rows in sorted(arms.items()):
+            arm_map = _labeler_map(list(arm_rows), field)
+            lines.extend(_score_lines("%s full gold" % arm_name, arm_map, field_gold))
+            lines.extend(_score_lines("%s human-basis subset" % arm_name, arm_map, human_gold))
         for kind in kinds:
             kind_gold = _gold_for_kind(field_gold, corpus_by_id, kind)
-            pred = _pred_map(judge_rows, field)
-            pred_conf = _pred_conf_map(judge_rows, field)
             acc = accuracy(pred, kind_gold)
             cov = coverage_table(pred_conf, kind_gold, [0.5, 0.75, 0.9])
-            a_map = _labeler_map(labeler_a, field)
             lines.extend([
                 "",
                 "#### %s" % kind,
@@ -135,9 +203,13 @@ def render(stats: dict) -> str:
 
     lines.extend(["", "## Inter-labeler kappa"])
     for field in fields:
-        a_map = _labeler_map(labeler_a, field)
-        b_map = _labeler_map(labeler_b, field)
-        ids = sorted(i for i in a_map if i in b_map)
-        lines.append("%s: %s" % (field, _fmt(cohen_kappa([str(a_map[i]) for i in ids], [str(b_map[i]) for i in ids]))))
+        field_kappa = (gold_bundle.get("kappa") or {}).get(field)
+        field_agreement = (gold_bundle.get("agreement") or {}).get(field)
+        if field_kappa is None and labeler_b:
+            a_map = _labeler_map(labeler_a, field)
+            b_map = _labeler_map(labeler_b, field)
+            ids = sorted(i for i in a_map if i in b_map)
+            field_kappa = cohen_kappa([str(a_map[i]) for i in ids], [str(b_map[i]) for i in ids])
+        lines.append("%s: kappa %s, agreement %s" % (field, _fmt(field_kappa), _fmt(field_agreement)))
 
     return "\n".join(lines) + "\n"

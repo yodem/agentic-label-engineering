@@ -31,7 +31,7 @@ def from_task_ledger(rows: List[dict], deny: Optional[Pattern], min_chars: int =
         if not isinstance(desc, str) or len(desc) < min_chars:
             stats["dropped_short"] += 1
             continue
-        if row.get("profile") == "work":
+        if str(row.get("profile")).strip().lower() == "work":
             stats["dropped_work"] += 1
             continue
         if _denied(deny, [desc, row.get("cwd"), row.get("task")]):

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import os
+import stat
 from typing import List, Optional, Tuple
 
 from .judge import options_for
@@ -40,6 +41,11 @@ def read_spec_text(spec_path: str, roots: List[str], limit: int = 4000) -> Tuple
             if not any(_contained(candidate, root) for root in roots):
                 found_but_outside = True
                 continue
+            try:
+                if not stat.S_ISREG(os.stat(candidate).st_mode):
+                    return "", "spec_path is not a regular file: %s" % spec_path
+            except OSError:
+                return "", "spec_path unreadable: %s" % spec_path
             try:
                 with open(candidate, encoding="utf-8") as f:
                     return f.read()[:limit], None

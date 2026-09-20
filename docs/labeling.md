@@ -28,10 +28,12 @@ Build a corpus first, then collect two labeler files, adjudicate disagreements, 
 ale eval corpus --ledger events.jsonl --plans "plans/*.md" --out .ale/eval/run1
 ale eval gold --a a.jsonl --b b.jsonl --rulings rulings.jsonl --out .ale/eval/run1
 ale eval judge --corpus .ale/eval/run1/corpus.jsonl --roster roster.json --out .ale/eval/run1
-ale eval report --corpus .ale/eval/run1/corpus.jsonl --gold .ale/eval/run1/gold.json --judge .ale/eval/run1/judge.jsonl --a a.jsonl --roster roster.json --out .ale/eval/run1
+ale eval report --corpus .ale/eval/run1/corpus.jsonl --gold .ale/eval/run1/gold.json --judge .ale/eval/run1/judge.jsonl --a a.jsonl --b b.jsonl --arm incumbent=incumbent.jsonl --incumbent-arm incumbent --roster roster.json --out .ale/eval/run1
 ```
 
 `eval judge` appends to `judge.jsonl` as each call finishes. It can resume because existing `(id, field, perm)` triples are skipped. `--max-calls` stops after that many new calls and exits successfully.
+
+`eval gold` records a gold value for every field and id where labelers agree or where a human ruling exists. It also records the basis for each value: `agree` for labeler agreement and `human` for adjudicated disagreements.
 
 ## Privacy
 
@@ -39,11 +41,17 @@ Use synthetic invented text in fixtures, docs, and committed corpora. Real corpo
 
 ## Reading The Report
 
-The report states the tolerance and promotion bar before results. Each field is split by `short` and `full` corpus rows. For each split it shows sample count, accuracy, coverage at confidence thresholds, kappa against labeler A, common confusion pairs, abstain and error reasons, latency, calls, and position sensitivity.
+The report states the tolerance and promotion bar before results. The promotion bar compares judge accuracy on the full gold set with the selected incumbent arm accuracy on the full gold set minus the roster tolerance. Pass the independent comparison arm with `--arm NAME=PATH` and select it with `--incumbent-arm NAME`. When no incumbent arm is selected, every field is below bar with the reason `no incumbent arm`.
 
-Comparison arms passed with `--arm NAME=PATH` are shown beside the judge with accuracy and kappa rows.
+The judge and every comparison arm are scored on the full gold set and on the human-basis subset. The human-basis subset is the adjudicated A/B disagreement set.
 
-`MEETS BAR` means the split has enough cases and coverage for the roster promotion rule. `BELOW BAR` names the number that failed the bar.
+Labeler A and optional labeler B are scored only on the human-basis subset, and the report labels this as informational because that subset is where A and B originally disagreed. A and B cannot be used as the incumbent promotion arm for that bar because agreement-derived gold already contains their shared answers, and the human subset is selected from their disagreement set. Use an independent comparison arm for promotion.
+
+Each field is also split by `short` and `full` corpus rows for diagnostics. For each split the report shows sample count, accuracy, coverage at confidence thresholds, kappa against labeler A, common confusion pairs, abstain and error reasons, latency, calls, and position sensitivity.
+
+The inter-labeler table prints the gold set kappa and agreement for each field. Metrics that cannot be computed render as `n/a`.
+
+Teams can optionally blind-audit a sample of agreement-based gold items. This checks whether easy agreement cases still match the roster guidance without mixing that audit into the promotion bar.
 
 ## Known Limits
 

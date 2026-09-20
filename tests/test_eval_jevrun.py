@@ -108,6 +108,54 @@ def test_cli_judge_max_calls_appends_exactly_and_resumes(tmp_path, roster):
     assert len({(json.loads(line)["id"], json.loads(line)["field"], json.loads(line)["perm"]) for line in lines}) == 6
 
 
+def test_cli_judge_resume_truncates_torn_tail_before_appending(tmp_path, roster):
+    corpus = tmp_path / "corpus.jsonl"
+    roster_path = tmp_path / "roster.json"
+    out = tmp_path / "out"
+    stub = tmp_path / "stub-judge.py"
+    corpus.write_text(json.dumps(corpus_rows()[0]) + "\n")
+    roster["judge"]["command"] = [str(stub)]
+    roster_path.write_text(json.dumps(roster))
+    stub.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, sys\n"
+        "choice = sys.argv[3]\n"
+        "print(json.dumps({'type':'choice','choice':choice,'confidence':0.7,'probabilities':{choice:0.7}}))\n"
+    )
+    stub.chmod(stub.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    out.mkdir()
+    complete = {"id": "C1", "field": "role", "perm": 0, "choice": "backend", "confidence": 0.7}
+    (out / "judge.jsonl").write_text(json.dumps(complete) + "\n" + '{"id": "C1", "field":')
+
+    assert main(["eval", "judge", "--corpus", str(corpus), "--roster", str(roster_path),
+                 "--out", str(out), "--perms", "1", "--sensitivity-sample", "0"]) == 0
+    lines = (out / "judge.jsonl").read_text().splitlines()
+    rows = [json.loads(line) for line in lines]
+    triples = [(row["id"], row["field"], row["perm"]) for row in rows]
+    assert len(triples) == len(set(triples))
+    assert ("C1", "role", 0) in triples
+    assert all(isinstance(row, dict) for row in rows)
+
+
+def test_cli_judge_malformed_middle_line_is_clean_error(tmp_path, roster, capsys):
+    corpus = tmp_path / "corpus.jsonl"
+    roster_path = tmp_path / "roster.json"
+    out = tmp_path / "out"
+    corpus.write_text(json.dumps(corpus_rows()[0]) + "\n")
+    roster_path.write_text(json.dumps(roster))
+    out.mkdir()
+    (out / "judge.jsonl").write_text(
+        json.dumps({"id": "C1", "field": "role", "perm": 0}) + "\n"
+        "{bad json}\n"
+    )
+
+    assert main(["eval", "judge", "--corpus", str(corpus), "--roster", str(roster_path),
+                 "--out", str(out), "--perms", "1", "--sensitivity-sample", "0"]) == 1
+    err = capsys.readouterr().err
+    assert "judge.jsonl:2:" in err
+    assert "Traceback" not in err
+
+
 def test_cli_judge_refuses_tracked_output_directory(tmp_path, roster):
     repo = tmp_path / "repo"
     repo.mkdir()

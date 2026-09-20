@@ -75,3 +75,31 @@ def test_cli_gold_writes_expected_files(tmp_path):
     assert written["gold"]["role"] == {"A1": "backend"}
     assert written["basis"]["role"] == {"A1": "human"}
     assert (out / "gold-queue.jsonl").read_text() == ""
+
+
+def test_cli_gold_bad_a_jsonl_is_clean_error(tmp_path, capsys):
+    a = tmp_path / "a.jsonl"
+    b = tmp_path / "b.jsonl"
+    out = tmp_path / "out"
+    a.write_text("{bad json}\n")
+    b.write_text(json.dumps(row("A1", "backend")) + "\n")
+
+    assert main(["eval", "gold", "--a", str(a), "--b", str(b), "--out", str(out)]) == 1
+    err = capsys.readouterr().err
+    assert str(a) in err
+    assert ":1:" in err
+    assert "Traceback" not in err
+
+
+def test_cli_gold_non_object_jsonl_is_clean_error(tmp_path, capsys):
+    a = tmp_path / "a.jsonl"
+    b = tmp_path / "b.jsonl"
+    out = tmp_path / "out"
+    a.write_text("[]\n")
+    b.write_text(json.dumps(row("A1", "backend")) + "\n")
+
+    assert main(["eval", "gold", "--a", str(a), "--b", str(b), "--out", str(out)]) == 1
+    err = capsys.readouterr().err
+    assert str(a) in err
+    assert ":1:" in err
+    assert "expected JSON object" in err
