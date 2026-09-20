@@ -44,6 +44,27 @@ def test_rule_needs_exactly_the_known_shape(roster):
     assert validate(roster, load_schema("roster.schema.json")) != []
 
 
+def test_lane_in_judge_modes_is_a_schema_error(roster):
+    roster["judge"]["modes"]["lane"] = "shadow"
+    assert validate(roster, load_schema("roster.schema.json")) != []
+
+
+def test_lane_in_judge_questions_is_a_schema_error(roster):
+    roster["judge"]["questions"]["lane"] = "Which lane?"
+    assert validate(roster, load_schema("roster.schema.json")) != []
+
+
+def test_unknown_judge_mode_value_is_a_schema_error(roster):
+    roster["judge"]["modes"]["role"] = "loud"
+    assert validate(roster, load_schema("roster.schema.json")) != []
+
+
+def test_example_roster_still_validates_after_schema_tightening():
+    with open(os.path.join(ROOT, "examples", "roster.json"), encoding="utf-8") as f:
+        example = json.load(f)
+    assert validate(example, load_schema("roster.schema.json")) == []
+
+
 def test_init_run_allowed_after_label_votes_but_not_twice(tmp_path):
     run = tmp_path / "run"
     shutil.copytree(os.path.join(ROOT, "examples", "run"), str(run))
