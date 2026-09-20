@@ -14,6 +14,7 @@ LIVE = ("claimed", "working", "input-required")
 TERMINAL = ("accepted", "failed", "canceled")
 _OPEN = ("planned", "released", "rejected")
 _NEEDS_EVIDENCE = ("verified", "accepted", "rejected")
+_AUTHORITY = ("verified", "accepted", "rejected", "failed", "canceled", "lease_expired", "released", "input_answered")
 
 
 class EventError(Exception):
@@ -85,6 +86,8 @@ def _deps_ok(task_id: str, tasks: Dict[str, dict], labels: Dict[str, dict]) -> b
 
 def _apply(st: dict, ev: dict, tasks: Dict[str, dict], labels: Dict[str, dict]) -> None:
     kind, agent, ts = ev["type"], ev.get("agent_id"), ev["ts"]
+    if kind in _AUTHORITY and agent is not None:
+        return
     is_owner = st["owner"] is not None and agent == st["owner"]
     if kind == "claimed":
         if (st["owner"] is None and st["state"] in _OPEN and ev.get("attempt") == st["attempt"]

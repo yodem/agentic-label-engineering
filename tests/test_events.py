@@ -109,3 +109,32 @@ def test_usage_and_breaches_recorded(label_t01):
                       make_event("breach", RUN, 4.0, breach="run_budget", detail="d")], labels_of(label_t01))
     assert out["tasks"]["T01"]["tokens"] == 120 and out["run"]["tokens"] == 120 and out["run"]["cost_usd"] == 0.5
     assert out["tasks"]["T01"]["breaches_seen"] == [["stuck", 1]] and out["run"]["breaches_seen"] == ["run_budget"]
+
+
+def test_non_owner_cannot_fail_or_cancel(label_t01):
+    for kind, extra in (("failed", {"reason": "because"}), ("canceled", {})):
+        st = reduce_run([ev("claimed", 1), ev("heartbeat", 2, step="s1"), ev(kind, 3, agent="mallory", **extra)],
+                        labels_of(label_t01))["tasks"]["T01"]
+        assert st["state"] == "working" and st["owner"] == "a1"
+
+
+def test_owner_cannot_fail_or_accept_own_task(label_t01):
+    base = [ev("claimed", 1), ev("submitted", 2, summary="s")]
+    for forged in (ev("accepted", 3, agent="a1", evidence=EVID), ev("rejected", 3, agent="a1", evidence=EVID, reason="r"),
+                   ev("failed", 3, agent="a1", reason="r"), ev("verified", 3, agent="a1", evidence=EVID)):
+        st = reduce_run(base + [forged], labels_of(label_t01))["tasks"]["T01"]
+        assert st["state"] == "submitted" and st["owner"] == "a1" and st["evidence"] is None and st["rejections"] == 0
+
+
+def test_system_can_fail_and_cancel(label_t01):
+    for kind, extra in (("failed", {"reason": "attempts_exhausted"}), ("canceled", {})):
+        st = reduce_run([ev("claimed", 1), ev(kind, 2, agent=None, **extra)], labels_of(label_t01))["tasks"]["T01"]
+        assert st["state"] == kind and st["owner"] is None
+
+
+def test_forged_release_and_answer_ignored(label_t01):
+    st = reduce_run([ev("claimed", 1), ev("lease_expired", 2, agent="mallory")], labels_of(label_t01))["tasks"]["T01"]
+    assert st["state"] == "claimed" and st["owner"] == "a1"
+    st = reduce_run([ev("claimed", 1), ev("input_required", 2, question="q?"), ev("input_answered", 3, agent="mallory", text="x")],
+                    labels_of(label_t01))["tasks"]["T01"]
+    assert st["state"] == "input-required"
