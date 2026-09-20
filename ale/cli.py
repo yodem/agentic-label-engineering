@@ -21,6 +21,9 @@ from .labeling import cascade as CAS
 from .labeling import truth as TRUTH
 from .labeling.judge import CommandJudge
 from .evalharness import corpus as CORPUS
+from .evalharness import goldset as GOLDSET
+from .evalharness import jevrun as JEVRUN
+from .evalharness import report as REPORT
 
 OK, FAIL, USAGE, CLAIM_LOST, LEASE_LOST, SIGNOFF, BREACH = 0, 1, 2, 3, 4, 5, 6
 TEXT_MAX = 1000
@@ -533,6 +536,12 @@ def _read_jsonl(path: str) -> List[dict]:
     return rows
 
 
+def _write_jsonl(path: str, rows: List[dict]) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        for row in rows:
+            f.write(json.dumps(row, sort_keys=True) + "\n")
+
+
 def cmd_eval_corpus(a) -> int:
     _refuse_tracked_out_dir(a.out)
     try:
@@ -558,6 +567,93 @@ def cmd_eval_corpus(a) -> int:
     stats = {"ledger": ledger_stats, "plans": plan_stats, "rows": len(sampled), "available": len(full_rows) + len(short_rows)}
     with open(os.path.join(a.out, "corpus-stats.json"), "w", encoding="utf-8") as f:
         json.dump(stats, f, indent=2, sort_keys=True)
+    return OK
+
+
+def cmd_eval_gold(a) -> int:
+    _refuse_tracked_out_dir(a.out)
+    labels_a = _read_jsonl(a.a)
+    labels_b = _read_jsonl(a.b)
+    rulings = _read_jsonl(a.rulings) if a.rulings else []
+    built = GOLDSET.build(labels_a, labels_b, rulings)
+
+    os.makedirs(a.out, exist_ok=True)
+    with open(os.path.join(a.out, "gold.json"), "w", encoding="utf-8") as f:
+        json.dump(built, f, indent=2, sort_keys=True)
+    _write_jsonl(os.path.join(a.out, "gold-queue.jsonl"), built["queue"])
+    return OK
+
+
+def _done_judge_rows(path: str) -> "set[tuple[str, str, int]]":
+    done = set()
+    if not os.path.exists(path):
+        return done
+    for row in _read_jsonl(path):
+        try:
+            done.add((str(row["id"]), str(row["field"]), int(row["perm"])))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return done
+
+
+def cmd_eval_judge(a) -> int:
+    _refuse_tracked_out_dir(a.out)
+    corpus_rows = _read_jsonl(a.corpus)
+    roster = R.load_roster(a.roster)
+    jconf = roster.get("judge") or {}
+    judge = CommandJudge(jconf.get("command") or ["jev-ask"], timeout_s=jconf.get("timeout_s", 30))
+    os.makedirs(a.out, exist_ok=True)
+    path = os.path.join(a.out, "judge.jsonl")
+    done = _done_judge_rows(path)
+    fields = [f for f in CAS.FIELDS if f in roster.get("vocab", {})]
+    calls = 0
+    with open(path, "a", encoding="utf-8") as f:
+        for row in JEVRUN.run(corpus_rows, roster, judge, fields, a.perms, a.seed, a.sensitivity_sample, done=done):
+            if a.max_calls is not None and calls >= a.max_calls:
+                break
+            f.write(json.dumps(row, sort_keys=True) + "\n")
+            f.flush()
+            calls += 1
+    print(json.dumps({"calls": calls}, sort_keys=True))
+    return OK
+
+
+def _read_report_gold(path: str) -> dict:
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _parse_arm(raw: str) -> tuple:
+    if "=" not in raw:
+        raise CliError(USAGE, "--arm must be NAME=PATH")
+    name, path = raw.split("=", 1)
+    if not name or not path:
+        raise CliError(USAGE, "--arm must be NAME=PATH")
+    return name, path
+
+
+def cmd_eval_report(a) -> int:
+    out_path = a.out if a.out.endswith(".md") else os.path.join(a.out, "report.md")
+    _refuse_tracked_out_dir(os.path.dirname(out_path) or ".")
+    roster = R.load_roster(a.roster)
+    arms = {}
+    for raw in a.arm or []:
+        name, path = _parse_arm(raw)
+        arms[name] = _read_jsonl(path)
+    stats = {
+        "roster": roster,
+        "fields": [f for f in CAS.FIELDS if f in roster.get("vocab", {})],
+        "kinds": ["short", "full"],
+        "corpus": _read_jsonl(a.corpus),
+        "gold": _read_report_gold(a.gold),
+        "judge": _read_jsonl(a.judge),
+        "labeler_a": _read_jsonl(a.a),
+        "labeler_b": [],
+        "arms": arms,
+    }
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write(REPORT.render(stats))
     return OK
 
 
@@ -630,6 +726,30 @@ def _parser() -> argparse.ArgumentParser:
     ec.add_argument("--n", type=int, default=150)
     ec.add_argument("--seed", type=int, default=7)
     ec.add_argument("--out", required=True)
+    eg = evsub.add_parser("gold")
+    eg.set_defaults(fn=cmd_eval_gold)
+    eg.add_argument("--a", required=True)
+    eg.add_argument("--b", required=True)
+    eg.add_argument("--rulings")
+    eg.add_argument("--out", required=True)
+    ej = evsub.add_parser("judge")
+    ej.set_defaults(fn=cmd_eval_judge)
+    ej.add_argument("--corpus", required=True)
+    ej.add_argument("--roster", required=True)
+    ej.add_argument("--out", required=True)
+    ej.add_argument("--perms", type=int, default=3)
+    ej.add_argument("--sensitivity-sample", type=int, default=30)
+    ej.add_argument("--seed", type=int, default=7)
+    ej.add_argument("--max-calls", type=int)
+    er = evsub.add_parser("report")
+    er.set_defaults(fn=cmd_eval_report)
+    er.add_argument("--corpus", required=True)
+    er.add_argument("--gold", required=True)
+    er.add_argument("--judge", required=True)
+    er.add_argument("--a", required=True)
+    er.add_argument("--arm", action="append")
+    er.add_argument("--roster", required=True)
+    er.add_argument("--out", required=True)
     return p
 
 
