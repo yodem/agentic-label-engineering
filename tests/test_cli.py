@@ -163,3 +163,31 @@ def test_doctor(run_dir):
 def test_missing_run_dir_is_usage_error(monkeypatch):
     monkeypatch.delenv("ALE_RUN_DIR", raising=False)
     assert main(["status"]) == 2
+
+
+def test_unsafe_ids_refused_before_any_write(run_dir):
+    ale(run_dir, "init-run")
+    events = os.path.join(run_dir, "events.jsonl")
+    before = open(events).read()
+    assert ale(run_dir, "claim", "--task", "T01", "--agent", "../../../../escape-poc", now=1) == 2
+    assert ale(run_dir, "heartbeat", "--task", "../T01", "--agent", "a1", "--step", "x", now=2) == 2
+    assert ale(run_dir, "note", "--task", "T01", "--agent", "a1", "--text", "t", "--to", "../T02", now=3) == 2
+    assert open(events).read() == before
+    assert not os.path.exists(os.path.join(run_dir, "handoff"))
+
+
+def test_non_numeric_now_is_usage_error(run_dir):
+    roster = os.path.join(os.path.dirname(run_dir), "roster.json")
+    assert main(["status", "--run-dir", run_dir, "--roster", roster, "--now", "abc"]) == 2
+
+
+def test_doctor_reports_deleted_label(run_dir):
+    ale(run_dir, "init-run")
+    assert ale(run_dir, "doctor", now=1) == 0
+    os.remove(os.path.join(run_dir, "labels", "T02.json"))
+    assert ale(run_dir, "doctor", now=2) == 1
+
+
+def test_unsafe_task_id_inside_label_file_is_refused(run_dir):
+    edit_label(run_dir, "T01", lambda l: l.update(task_id="../T01"))
+    assert ale(run_dir, "status") == 1

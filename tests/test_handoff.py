@@ -1,5 +1,7 @@
 import os
 
+import pytest
+
 from ale.events import make_event, reduce_run
 from ale.handoff import handoff_path, render, write_atomic
 
@@ -33,3 +35,10 @@ def test_write_atomic_replaces_and_leaves_no_temp(tmp_path):
     write_atomic(p, "one")
     write_atomic(p, "two")
     assert open(p).read() == "two" and os.listdir(os.path.dirname(p)) == ["T01.a1.md"]
+
+
+@pytest.mark.parametrize("task,agent", [("T01", "../x"), ("T01", "a/b"), ("T01", ".."), ("T01", ""), ("../T01", "a1"),
+                                        ("T01", "a" * 65), ("T01", "-x"), ("T01", "a\\b")])
+def test_handoff_path_rejects_unsafe_ids(tmp_path, task, agent):
+    with pytest.raises(ValueError):
+        handoff_path(str(tmp_path), task, agent)

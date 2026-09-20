@@ -35,10 +35,19 @@ class Ctx:
         self.labels = L.load_labels(self.run_dir)
         if not self.labels:
             raise CliError(FAIL, "no labels under %s/labels" % self.run_dir)
+        for tid in self.labels:
+            if not H.is_safe_id(tid):
+                raise CliError(FAIL, "unsafe task_id in label file: %r" % (tid,))
         self.run_id = next(iter(self.labels.values())).get("run_id", "")
         self.roster = R.load_roster(a.roster or os.environ.get("ALE_ROSTER") or "roster.json") if need_roster else None
         raw_now = a.now if a.now is not None else os.environ.get("ALE_NOW")
-        self.now = float(raw_now) if raw_now not in (None, "") else time.time()
+        if raw_now in (None, ""):
+            self.now = time.time()
+        else:
+            try:
+                self.now = float(raw_now)
+            except (TypeError, ValueError):
+                raise CliError(USAGE, "--now must be a number, got %r" % (raw_now,))
 
     def state(self) -> dict:
         return E.reduce_run(E.read_events(self.events_path), self.labels)
@@ -280,6 +289,14 @@ def cmd_doctor(a) -> int:
             cap = L.effective_watch(c.labels[tid], c.roster)["max_duration_s"]
             if c.now - st["started_ts"] > cap and ["overrun", st["attempt"]] not in st["breaches_seen"]:
                 problems.append("%s: live past max_duration_s with no overrun breach recorded. Is the watchdog running?" % tid)
+        labeled_ids = set()
+        if os.path.exists(c.events_path):
+            for ev in E.read_events(c.events_path):
+                if ev.get("type") == "labeled" and ev.get("task_id"):
+                    labeled_ids.add(ev["task_id"])
+        for tid in sorted(labeled_ids):
+            if tid not in c.labels:
+                problems.append("%s: labeled in the log but its label file is missing" % tid)
     for p in problems:
         print(p, file=sys.stderr)
     return FAIL if problems else OK
@@ -345,6 +362,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     if not getattr(args, "fn", None):
         parser.print_usage(sys.stderr)
         return USAGE
+    for name in ("task", "agent", "task_id", "to"):
+        if hasattr(args, name):
+            value = getattr(args, name)
+            if value is not None and not H.is_safe_id(value):
+                print("ale: unsafe id for --%s: %r" % (name, value), file=sys.stderr)
+                return USAGE
     try:
         return args.fn(args)
     except CliError as exc:

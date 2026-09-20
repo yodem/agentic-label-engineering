@@ -1,13 +1,26 @@
 from __future__ import annotations
 
 import os
+import re
 import tempfile
 from typing import List
 
 _STATUS = {"accepted": "done", "input-required": "blocked", "failed": "failed", "canceled": "failed"}
 
+SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+
+def is_safe_id(value) -> bool:
+    if not isinstance(value, str):
+        return False
+    return bool(SAFE_ID.match(value))
+
 
 def handoff_path(run_dir: str, task_id: str, agent_id: str) -> str:
+    if not is_safe_id(task_id):
+        raise ValueError("unsafe id: %r" % (task_id,))
+    if not is_safe_id(agent_id):
+        raise ValueError("unsafe id: %r" % (agent_id,))
     return os.path.join(run_dir, "handoff", "%s.%s.md" % (task_id, agent_id))
 
 
