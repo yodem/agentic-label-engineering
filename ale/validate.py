@@ -55,8 +55,12 @@ def validate(inst: Any, schema: dict, path: str = "$") -> List[str]:
             errs.append("%s: shorter than %d" % (path, schema["minLength"]))
         if "maxLength" in schema and len(inst) > schema["maxLength"]:
             errs.append("%s: longer than %d" % (path, schema["maxLength"]))
-        if "pattern" in schema and re.search(schema["pattern"], inst) is None:
-            errs.append("%s: does not match %s" % (path, schema["pattern"]))
+        if "pattern" in schema:
+            pat = schema["pattern"]
+            if pat.endswith("$") and (len(pat) < 2 or pat[-2] != "\\"):
+                pat = pat[:-1] + r"\Z"
+            if re.search(pat, inst) is None:
+                errs.append("%s: does not match %s" % (path, schema["pattern"]))
     if _is_type(inst, "number") and "minimum" in schema and inst < schema["minimum"]:
         errs.append("%s: below minimum %s" % (path, schema["minimum"]))
     if isinstance(inst, list):

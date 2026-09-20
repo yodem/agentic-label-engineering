@@ -3,7 +3,7 @@ import os
 import pytest
 
 from ale.events import make_event, reduce_run
-from ale.handoff import handoff_path, render, write_atomic
+from ale.handoff import handoff_path, is_safe_id, render, write_atomic
 
 
 def test_render_has_seven_fields_in_order(label_t01):
@@ -42,3 +42,10 @@ def test_write_atomic_replaces_and_leaves_no_temp(tmp_path):
 def test_handoff_path_rejects_unsafe_ids(tmp_path, task, agent):
     with pytest.raises(ValueError):
         handoff_path(str(tmp_path), task, agent)
+
+
+def test_trailing_newline_id_is_unsafe(tmp_path):
+    assert not is_safe_id("a1\n") and not is_safe_id("T01\n")
+    assert is_safe_id("a1") and is_safe_id("good.agent-1")
+    with pytest.raises(ValueError):
+        handoff_path(str(tmp_path), "T01", "a1\n")

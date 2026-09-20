@@ -53,3 +53,10 @@ def test_null_allowed_in_type_list():
 def test_unsupported_keyword_raises():
     with pytest.raises(ValueError):
         validate({}, {"type": "object", "patternProperties": {}})
+
+
+def test_pattern_dollar_does_not_accept_trailing_newline(label_t01):
+    label_t01["task_id"] = "T01\n"
+    assert validate(label_t01, load_schema("label.schema.json")) != []
+    assert validate("exit0\n", {"type": "string", "pattern": "^exit(0|:[0-9]{1,3})$"}) != []
+    assert validate("exit0", {"type": "string", "pattern": "^exit(0|:[0-9]{1,3})$"}) == []

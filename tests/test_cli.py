@@ -191,3 +191,11 @@ def test_doctor_reports_deleted_label(run_dir):
 def test_unsafe_task_id_inside_label_file_is_refused(run_dir):
     edit_label(run_dir, "T01", lambda l: l.update(task_id="../T01"))
     assert ale(run_dir, "status") == 1
+
+
+def test_newline_agent_id_refused(run_dir):
+    ale(run_dir, "init-run")
+    events = os.path.join(run_dir, "events.jsonl")
+    before = open(events).read()
+    assert ale(run_dir, "claim", "--task", "T01", "--agent", "a1\n", now=1) == 2
+    assert open(events).read() == before

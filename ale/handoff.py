@@ -13,7 +13,7 @@ SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 def is_safe_id(value) -> bool:
     if not isinstance(value, str):
         return False
-    return bool(SAFE_ID.match(value))
+    return bool(SAFE_ID.fullmatch(value))
 
 
 def handoff_path(run_dir: str, task_id: str, agent_id: str) -> str:
