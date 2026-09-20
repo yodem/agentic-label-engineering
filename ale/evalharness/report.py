@@ -83,27 +83,63 @@ def _promotion_line(field: str, kind: str, acc: dict, cov_rows: List[dict], prom
     return "MEETS BAR %s %s: n %d, coverage %s" % (field, kind, n, _fmt(coverage))
 
 
-def _incumbent_promotion_line(field: str, judge_acc: dict, incumbent_acc: Optional[dict],
-                              incumbent_name: Optional[str], tolerance) -> str:
+def _promotion_verdict_line(field: str, judge_acc: dict, incumbent_acc: Optional[dict],
+                            incumbent_name: Optional[str], tolerance, cov_row: Optional[dict],
+                            sensitivity: dict, promotion: dict, max_instability: float) -> str:
+    min_cases = int(promotion.get("min_cases", 0))
+    min_coverage = float(promotion.get("min_coverage", 0.0))
+    failures = []
+
+    if judge_acc["n"] < min_cases:
+        failures.append("n %d < min_cases %d" % (judge_acc["n"], min_cases))
+
+    accuracy_bar = None
     if not incumbent_name:
-        return "BELOW BAR %s full gold: no incumbent arm" % field
-    if incumbent_acc is None:
-        return "BELOW BAR %s full gold: incumbent arm %s not found" % (field, incumbent_name)
-    if judge_acc["accuracy"] is None or incumbent_acc["accuracy"] is None or tolerance is None:
-        return "BELOW BAR %s full gold: judge %s vs %s minus tolerance %s" % (
-            field, _fmt(judge_acc["accuracy"]), incumbent_name, _fmt(tolerance))
-    threshold = incumbent_acc["accuracy"] - float(tolerance)
-    if judge_acc["accuracy"] >= threshold:
-        return "MEETS BAR %s full gold: judge %s >= %s %s - tolerance %s" % (
-            field, _fmt(judge_acc["accuracy"]), incumbent_name, _fmt(incumbent_acc["accuracy"]), _fmt(tolerance))
-    return "BELOW BAR %s full gold: judge %s < %s %s - tolerance %s" % (
-        field, _fmt(judge_acc["accuracy"]), incumbent_name, _fmt(incumbent_acc["accuracy"]), _fmt(tolerance))
+        failures.append("no incumbent arm")
+    elif incumbent_acc is None:
+        failures.append("incumbent arm %s not found" % incumbent_name)
+    elif judge_acc["accuracy"] is None or incumbent_acc["accuracy"] is None or tolerance is None:
+        failures.append("judge %s vs %s %s - tolerance %s" % (
+            _fmt(judge_acc["accuracy"]), incumbent_name, _fmt(incumbent_acc["accuracy"]), _fmt(tolerance)))
+    else:
+        accuracy_bar = incumbent_acc["accuracy"] - float(tolerance)
+        if judge_acc["accuracy"] < accuracy_bar:
+            failures.append("judge %s < %s %s - tolerance %s" % (
+                _fmt(judge_acc["accuracy"]), incumbent_name, _fmt(incumbent_acc["accuracy"]), _fmt(tolerance)))
+
+    if cov_row is None or cov_row.get("coverage") is None or cov_row["coverage"] < min_coverage:
+        coverage = cov_row.get("coverage") if cov_row else None
+        threshold = cov_row.get("threshold") if cov_row else None
+        failures.append("coverage at threshold %s %s < min_coverage %s" % (
+            _fmt(threshold), _fmt(coverage), _fmt(min_coverage)))
+
+    if accuracy_bar is not None:
+        covered_accuracy = cov_row.get("accuracy_covered") if cov_row else None
+        if covered_accuracy is None or covered_accuracy < accuracy_bar:
+            failures.append("covered accuracy at threshold %s %s < %s %s - tolerance %s" % (
+                _fmt(cov_row.get("threshold") if cov_row else None), _fmt(covered_accuracy),
+                incumbent_name, _fmt(incumbent_acc["accuracy"]), _fmt(tolerance)))
+
+    instability = sensitivity.get("rate")
+    if instability is None:
+        failures.append("instability not measured")
+    elif instability > max_instability:
+        failures.append("instability %s > max_instability %s" % (_fmt(instability), _fmt(max_instability)))
+
+    if failures:
+        return "BELOW BAR %s full gold: %s" % (field, "; ".join(failures))
+    return "MEETS BAR %s full gold: n %d, judge %s >= %s %s - tolerance %s, coverage at threshold %s %s, covered accuracy %s, instability %s <= max_instability %s" % (
+        field, judge_acc["n"], _fmt(judge_acc["accuracy"]), incumbent_name, _fmt(incumbent_acc["accuracy"]),
+        _fmt(tolerance), _fmt(cov_row["threshold"]), _fmt(cov_row["coverage"]), _fmt(cov_row["accuracy_covered"]),
+        _fmt(instability), _fmt(max_instability))
 
 
 def render(stats: dict) -> str:
     roster = stats.get("roster") or {}
     promotion = roster.get("promotion") or {}
     tolerance = promotion.get("tolerance")
+    judge_threshold = (roster.get("judge") or {}).get("threshold")
+    max_instability = float(stats.get("max_instability", promotion.get("max_instability", 0.10)))
     fields = list(stats.get("fields") or DEFAULT_FIELDS)
     kinds = list(stats.get("kinds") or DEFAULT_KINDS)
     corpus = list(stats.get("corpus") or [])
@@ -120,7 +156,9 @@ def render(stats: dict) -> str:
         "# Evaluation report",
         "",
         "Tolerance: %s" % _fmt(tolerance),
-        "Promotion bar: judge full-gold accuracy must meet incumbent full-gold accuracy minus tolerance",
+        "Promotion bar: all criteria must pass: n >= min_cases %s; incumbent arm selected and judge full-gold accuracy >= incumbent full-gold accuracy minus tolerance %s; coverage at judge threshold %s >= min_coverage %s; covered accuracy at judge threshold %s >= incumbent full-gold accuracy minus tolerance; option-order instability <= max_instability %s" % (
+            _fmt(promotion.get("min_cases")), _fmt(tolerance), _fmt(judge_threshold),
+            _fmt(promotion.get("min_coverage")), _fmt(judge_threshold), _fmt(max_instability)),
         "Split diagnostics: min_cases %s, min_coverage %s" % (_fmt(promotion.get("min_cases")), _fmt(promotion.get("min_coverage"))),
         "",
         "## Promotion",
@@ -133,7 +171,11 @@ def render(stats: dict) -> str:
         incumbent_acc = None
         if incumbent_name and incumbent_name in arms:
             incumbent_acc = accuracy(_labeler_map(list(arms[incumbent_name]), field), field_gold)
-        lines.append(_incumbent_promotion_line(field, judge_full_acc, incumbent_acc, incumbent_name, tolerance))
+        pred_conf = _pred_conf_map(judge_rows, field)
+        cov_row = coverage_table(pred_conf, field_gold, [judge_threshold])[0] if judge_threshold is not None else None
+        sensitivity = position_sensitivity([r for r in judge_rows if r.get("field") == field])
+        lines.append(_promotion_verdict_line(field, judge_full_acc, incumbent_acc, incumbent_name, tolerance,
+                                             cov_row, sensitivity, promotion, max_instability))
 
     lines.extend([
         "",

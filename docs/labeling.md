@@ -41,7 +41,7 @@ Use synthetic invented text in fixtures, docs, and committed corpora. Real corpo
 
 ## Reading The Report
 
-The report states the tolerance and promotion bar before results. The promotion bar compares judge accuracy on the full gold set with the selected incumbent arm accuracy on the full gold set minus the roster tolerance. Pass the independent comparison arm with `--arm NAME=PATH` and select it with `--incumbent-arm NAME`. When no incumbent arm is selected, every field is below bar with the reason `no incumbent arm`.
+The report states the tolerance and promotion bar before results. The promotion bar requires every field to pass all criteria: judge full-gold sample count is at least `promotion.min_cases`; an incumbent arm is selected and judge full-gold accuracy is at least incumbent full-gold accuracy minus `promotion.tolerance`; coverage at `roster["judge"]["threshold"]` is at least `promotion.min_coverage`; accuracy among covered items at that threshold is at least the same incumbent-minus-tolerance value; and option-order instability is at most `--max-instability`, which defaults to `0.10`. Pass the independent comparison arm with `--arm NAME=PATH` and select it with `--incumbent-arm NAME`. When no incumbent arm is selected, every field is below bar with the reason `no incumbent arm`.
 
 The judge and every comparison arm are scored on the full gold set and on the human-basis subset. The human-basis subset is the adjudicated A/B disagreement set.
 

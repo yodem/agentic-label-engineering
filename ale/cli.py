@@ -676,6 +676,7 @@ def cmd_eval_report(a) -> int:
         "labeler_b": _read_jsonl(a.b) if a.b else [],
         "arms": arms,
         "incumbent_arm": a.incumbent_arm,
+        "max_instability": a.max_instability,
     }
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
@@ -776,6 +777,7 @@ def _parser() -> argparse.ArgumentParser:
     er.add_argument("--b")
     er.add_argument("--arm", action="append")
     er.add_argument("--incumbent-arm")
+    er.add_argument("--max-instability", type=float, default=0.10)
     er.add_argument("--roster", required=True)
     er.add_argument("--out", required=True)
     return p

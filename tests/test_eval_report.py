@@ -168,7 +168,114 @@ def test_cli_report_accepts_b_and_incumbent_arm(tmp_path, roster):
                  "--incumbent-arm", "rule", "--roster", str(roster_path), "--out", str(out)]) == 0
     text = (out / "report.md").read_text()
     assert "labeler B human-basis subset accuracy: 1.000" in text
-    assert "MEETS BAR role full gold" in text
+    assert "BELOW BAR role full gold" in text
+    assert "n 1 < min_cases" in text
+    assert "instability not measured" in text
+
+
+def _promotion_stats(judge_rows, arm_rows=None, min_cases=2, min_coverage=1.0,
+                     tolerance=0.0, threshold=0.7, max_instability=0.10,
+                     incumbent_arm="rule"):
+    return {
+        "roster": {"judge": {"threshold": threshold},
+                   "promotion": {"min_cases": min_cases, "tolerance": tolerance, "min_coverage": min_coverage}},
+        "fields": ["role"],
+        "kinds": ["short"],
+        "corpus": [{"id": "C1", "kind": "short"}, {"id": "C2", "kind": "short"}],
+        "gold": {"gold": {"role": {"C1": "backend", "C2": "docs"}},
+                 "basis": {"role": {"C1": "human", "C2": "human"}}},
+        "judge": judge_rows,
+        "labeler_a": [{"id": "C1", "role": "backend"}, {"id": "C2", "role": "docs"}],
+        "arms": {"rule": arm_rows if arm_rows is not None else [{"id": "C1", "role": "backend"}, {"id": "C2", "role": "docs"}]},
+        "incumbent_arm": incumbent_arm,
+        "max_instability": max_instability,
+    }
+
+
+def _stable_judge_rows(c1="backend", c2="docs", c1_conf=0.9, c2_conf=0.9):
+    return [
+        {"id": "C1", "field": "role", "perm": 0, "choice": c1, "confidence": c1_conf},
+        {"id": "C2", "field": "role", "perm": 0, "choice": c2, "confidence": c2_conf},
+        {"id": "C1", "field": "role", "perm": 1, "choice": c1, "confidence": c1_conf},
+        {"id": "C2", "field": "role", "perm": 1, "choice": c2, "confidence": c2_conf},
+    ]
+
+
+def _promotion_line_from(text):
+    for line in text.splitlines():
+        if line.startswith(("MEETS BAR role full gold", "BELOW BAR role full gold")):
+            return line
+    raise AssertionError("promotion line not found")
+
+
+def _assert_single_failed_promotion(stats_obj, expected):
+    line = _promotion_line_from(report.render(stats_obj))
+    assert line.startswith("BELOW BAR role full gold: ")
+    assert expected in line
+    assert "; " not in line
+
+
+def test_promotion_below_bar_names_only_n_below_min_cases():
+    s = _promotion_stats(_stable_judge_rows(), min_cases=3)
+
+    _assert_single_failed_promotion(s, "n 2 < min_cases 3")
+
+
+def test_promotion_below_bar_names_only_no_incumbent_arm():
+    s = _promotion_stats(_stable_judge_rows(), incumbent_arm=None)
+
+    _assert_single_failed_promotion(s, "no incumbent arm")
+
+
+def test_promotion_below_bar_names_only_full_gold_accuracy_below_incumbent():
+    s = _promotion_stats(_stable_judge_rows(c2="frontend", c2_conf=0.4), min_coverage=0.5, tolerance=0.1)
+
+    _assert_single_failed_promotion(s, "judge 0.500 < rule 1.000 - tolerance 0.100")
+
+
+def test_promotion_below_bar_names_only_coverage_below_min_coverage():
+    s = _promotion_stats(_stable_judge_rows(c2_conf=0.4), min_coverage=1.0)
+
+    _assert_single_failed_promotion(s, "coverage at threshold 0.700 0.500 < min_coverage 1.000")
+
+
+def test_promotion_below_bar_names_only_covered_accuracy_too_low():
+    arm = [{"id": "C1", "role": "backend"}, {"id": "C2", "role": "frontend"}]
+    s = _promotion_stats(_stable_judge_rows(c1="frontend", c1_conf=0.9, c2="docs", c2_conf=0.4),
+                         arm_rows=arm, min_coverage=0.5)
+
+    _assert_single_failed_promotion(s, "covered accuracy at threshold 0.700 0.000 < rule 0.500 - tolerance 0.000")
+
+
+def test_promotion_below_bar_names_only_instability_above_maximum():
+    rows = [
+        {"id": "C1", "field": "role", "perm": 0, "choice": "backend", "confidence": 0.9},
+        {"id": "C2", "field": "role", "perm": 0, "choice": "docs", "confidence": 0.9},
+        {"id": "C1", "field": "role", "perm": 1, "choice": "frontend", "confidence": 0.9},
+        {"id": "C2", "field": "role", "perm": 1, "choice": "docs", "confidence": 0.9},
+    ]
+    s = _promotion_stats(rows, max_instability=0.10)
+
+    _assert_single_failed_promotion(s, "instability 0.500 > max_instability 0.100")
+
+
+def test_promotion_below_bar_names_only_instability_not_measured():
+    rows = [
+        {"id": "C1", "field": "role", "perm": 0, "choice": "backend", "confidence": 0.9},
+        {"id": "C2", "field": "role", "perm": 0, "choice": "docs", "confidence": 0.9},
+    ]
+    s = _promotion_stats(rows)
+
+    _assert_single_failed_promotion(s, "instability not measured")
+
+
+def test_promotion_meets_bar_when_all_criteria_hold():
+    s = _promotion_stats(_stable_judge_rows(), min_cases=2, min_coverage=1.0,
+                         tolerance=0.0, threshold=0.7, max_instability=0.10)
+
+    line = _promotion_line_from(report.render(s))
+    assert line.startswith("MEETS BAR role full gold")
+    assert "instability 0.000 <= max_instability 0.100" in line
 
 
 def test_cli_report_bad_corpus_jsonl_is_clean_error(tmp_path, roster, capsys):
