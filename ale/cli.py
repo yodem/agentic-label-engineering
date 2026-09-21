@@ -20,6 +20,7 @@ from . import watchdog as W
 from . import binding as B
 from . import hooks as HK
 from . import usage_transcript as UT
+from . import dynamic as D
 from .labeling import cascade as CAS
 from .labeling import truth as TRUTH
 from .labeling.judge import CommandJudge, is_mostly_english
@@ -52,6 +53,12 @@ class Ctx:
                 raise CliError(FAIL, "unsafe task_id in label file: %r" % (tid,))
         self.run_id = next(iter(self.labels.values())).get("run_id", "")
         self.roster = R.load_roster(a.roster or os.environ.get("ALE_ROSTER") or "roster.json") if need_roster else None
+        if need_roster:
+            try:
+                event_rows = E.read_events(self.events_path)
+            except (ValueError, TypeError):
+                event_rows = []
+            self.labels = D.effective_labels(self.labels, event_rows, self._load_added)
         raw_now = a.now if a.now is not None else os.environ.get("ALE_NOW")
         if raw_now in (None, ""):
             self.now = time.time()
@@ -60,6 +67,11 @@ class Ctx:
                 self.now = float(raw_now)
             except (TypeError, ValueError):
                 raise CliError(USAGE, "--now must be a number, got %r" % (raw_now,))
+
+    def _load_added(self, label_file: str) -> dict:
+        path = label_file if os.path.isabs(label_file) else os.path.join(self.run_dir, "labels", label_file)
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
 
     def state(self) -> dict:
         return E.reduce_run(E.read_events(self.events_path), self.labels)
@@ -127,6 +139,23 @@ def cmd_status(a) -> int:
     c = Ctx(a)
     state = c.state()
     if a.json:
+        events = E.read_events(c.events_path)
+        for tid, st in state["tasks"].items():
+            label = c.labels[tid]
+            st["blocked_by"] = list(st.get("blocked_by", []))
+            st["assignees"] = list(st.get("assignees", []))
+            st["attempt"] = st.get("attempt", 1)
+            st["breaches"] = [x[0] if isinstance(x, list) else x for x in st.get("breaches_seen", [])]
+            watch = L.effective_watch(label, c.roster)
+            base_ts = st.get("last_heartbeat_ts") or st.get("started_ts")
+            st["lease_expires_ts"] = (base_ts + watch["heartbeat_timeout_s"]) if base_ts is not None else None
+            st["fixes"] = sorted(x for x, item in c.labels.items() if item.get("fixes") == tid)
+            st["fixed_by"] = sorted(x for x, item in c.labels.items() if item.get("fixes") == tid and
+                                     state["tasks"].get(x, {}).get("state") == "accepted")
+            for event in events:
+                if event.get("task_id") == tid and event.get("type") == "spawned" and event.get("agent_id_minted"):
+                    if event["agent_id_minted"] not in st["assignees"]:
+                        st["assignees"].append(event["agent_id_minted"])
         print(json.dumps(state, sort_keys=True))
     else:
         for tid in sorted(state["tasks"]):
@@ -488,6 +517,31 @@ def cmd_decide(a) -> int:
     return OK
 
 
+def _failed_acceptance(label: dict, evidence: dict) -> List[dict]:
+    failed = {item.get("id") for item in evidence.get("results", []) if not item.get("ok")}
+    return [item for item in label.get("acceptance", []) if item.get("id") in failed]
+
+
+def cmd_fix(a) -> int:
+    c = Ctx(a)
+    parent = c.task(a.task)
+    if parent.get("state") != "rejected":
+        raise CliError(FAIL, "task %s is %s, not rejected" % (a.task, parent.get("state")))
+    existing = sorted(tid for tid, label in c.labels.items() if label.get("fixes") == a.task)
+    if len(existing) >= 2:
+        c.emit("breach", a.task, None, parent.get("attempt"), breach="attempts_exhausted", detail="two fix tasks already exist")
+        raise CliError(BREACH, "attempts_exhausted")
+    failed = _failed_acceptance(c.labels[a.task], parent.get("evidence") or {})
+    if not failed:
+        raise CliError(FAIL, "task %s has no failed acceptance entries" % a.task)
+    fix = D.fix_label(c.labels[a.task], failed, len(existing) + 1)
+    path = _label_path(c.run_dir, fix["task_id"])
+    H.write_atomic(path, json.dumps(fix, indent=2, sort_keys=True))
+    c.emit("task_added", fix["task_id"], None, 1, label_file=os.path.basename(path),
+           reason=(a.reason or "acceptance failure")[:TEXT_MAX])
+    return OK
+
+
 def cmd_paths_within(a) -> int:
     c = Ctx(a, need_roster=False)
     if a.task_id not in c.labels:
@@ -649,19 +703,29 @@ def _label_path(run_dir: str, task_id: str) -> str:
 
 
 def cmd_relabel(a) -> int:
-    if a.field == "lane" or a.field not in CAS.FIELDS:
+    if a.field == "lane" or (a.field not in CAS.FIELDS and a.field != "assignments"):
         raise CliError(USAGE, "field %s cannot be relabeled or adjudicated" % a.field)
     c = Ctx(a)
-    _vocab_value(c.roster, a.field, a.value)
     st = c.task(a.task)
     if st["state"] in E.TERMINAL:
         raise CliError(FAIL, "task %s is terminal: %s" % (a.task, st["state"]))
 
     label = dict(c.labels[a.task])
-    labels = dict(label["labels"])
-    old = labels[a.field]
-    labels[a.field] = a.value
-    label["labels"] = labels
+    if a.field == "assignments":
+        if not a.json:
+            raise CliError(USAGE, "--field assignments requires --json")
+        try:
+            new_value = json.loads(a.value)
+        except ValueError as exc:
+            raise CliError(USAGE, "assignments must be JSON: %s" % exc)
+        old = label.get("assignments", [])
+        label["assignments"] = new_value
+    else:
+        _vocab_value(c.roster, a.field, a.value)
+        labels = dict(label["labels"])
+        old = labels[a.field]
+        labels[a.field] = a.value
+        label["labels"] = labels
     provenance = dict(label.get("provenance") or {})
     field_provenance = provenance.get(a.field)
     if not isinstance(field_provenance, dict):
@@ -673,6 +737,10 @@ def cmd_relabel(a) -> int:
     label["provenance"] = provenance
 
     H.write_atomic(_label_path(c.run_dir, a.task), json.dumps(label, indent=2, sort_keys=True))
+    c.emit("label_changed", a.task, None, st["attempt"],
+           field=a.field if a.field == "assignments" else "labels.%s" % a.field,
+           old=old, new=label.get("assignments") if a.field == "assignments" else a.value,
+           reason=a.reason[:TEXT_MAX])
     c.emit("relabeled", a.task, None, st["attempt"], field=a.field, old=old, new=a.value,
            reason=a.reason[:TEXT_MAX])
     return OK
@@ -1277,6 +1345,9 @@ def _parser() -> argparse.ArgumentParser:
     rl.add_argument("--field", required=True)
     rl.add_argument("--value", required=True)
     rl.add_argument("--reason", required=True)
+    rl.add_argument("--json", action="store_true")
+    fx = add("fix", cmd_fix, task=True)
+    fx.add_argument("--reason")
     adj = add("adjudicate", cmd_adjudicate)
     adj.add_argument("--list", action="store_true")
     adj.add_argument("--task")

@@ -8,6 +8,6 @@
     "task_id": {"type": ["string", "null"]},
     "agent_id": {"type": ["string", "null"]},
     "attempt": {"type": ["integer", "null"]},
-    "type": {"enum": ["run_started", "label_vote", "labeled", "relabeled", "adjudicated", "dispatched", "claimed", "heartbeat", "note", "input_required", "input_answered", "relayed", "submitted", "verified", "accepted", "rejected", "failed", "canceled", "lease_expired", "released", "breach", "monitor_verdict", "usage", "decision", "run_finished"]}
+    "type": {"enum": ["run_started", "label_vote", "labeled", "relabeled", "adjudicated", "dispatched", "claimed", "heartbeat", "note", "input_required", "input_answered", "relayed", "submitted", "verified", "accepted", "rejected", "failed", "canceled", "lease_expired", "released", "breach", "monitor_verdict", "usage", "decision", "run_finished", "task_added", "label_changed", "label_removed", "spawned", "integrated"]}
   }
 }
