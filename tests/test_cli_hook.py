@@ -115,6 +115,18 @@ def test_session_start_claims_and_prints_context(fixture, monkeypatch, capsys):
     assert "T01" in out and "Executor rules" in out
 
 
+def test_session_start_preclaimed_by_same_agent_prints_context_without_reclaiming(fixture, monkeypatch, capsys):
+    tmp_path, run_dir, roster, home = fixture
+    bind(home, run_dir, roster, agent="a1")
+    assert main(["claim", "--task", "T01", "--agent", "a1", "--run-dir", str(run_dir), "--roster", str(roster), "--now", "1"]) == 0
+    before = [json.loads(line) for line in (run_dir / "events.jsonl").read_text().splitlines()]
+    assert call_hook(monkeypatch, "session-start") == 0
+    out = capsys.readouterr().out
+    after = [json.loads(line) for line in (run_dir / "events.jsonl").read_text().splitlines()]
+    assert "T01" in out and "Executor rules" in out
+    assert len([e for e in after if e["type"] == "claimed"]) == len([e for e in before if e["type"] == "claimed"])
+
+
 def test_lost_claim_tells_session_to_stop(fixture, monkeypatch, capsys):
     tmp_path, run_dir, roster, home = fixture
     bind(home, run_dir, roster, agent="a1")
@@ -230,6 +242,35 @@ def test_guard_path_exit_codes(fixture):
 def test_guard_path_accepts_absolute_path_inside_project(fixture):
     tmp_path, run_dir, roster, home = fixture
     assert main(["guard-path", "--task", "T01", "--path", str(tmp_path / "src" / "auth" / "a.py"), "--project-root", str(tmp_path), "--run-dir", str(run_dir), "--roster", str(roster)]) == 0
+
+
+def test_guard_path_rejects_symlinked_file_outside_project(fixture):
+    tmp_path, run_dir, roster, home = fixture
+    project = tmp_path / "project"
+    (project / "src" / "auth").mkdir(parents=True)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("secret")
+    (project / "src" / "auth" / "link.py").symlink_to(outside)
+    assert main(["guard-path", "--task", "T01", "--path", "src/auth/link.py", "--project-root", str(project), "--run-dir", str(run_dir), "--roster", str(roster)]) == 1
+
+
+def test_guard_path_rejects_symlinked_directory_outside_project(fixture):
+    tmp_path, run_dir, roster, home = fixture
+    project = tmp_path / "project"
+    (project / "src" / "auth").mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (project / "src" / "auth" / "linked").symlink_to(outside, target_is_directory=True)
+    assert main(["guard-path", "--task", "T01", "--path", "src/auth/linked/new.py", "--project-root", str(project), "--run-dir", str(run_dir), "--roster", str(roster)]) == 1
+
+
+def test_guard_path_accepts_file_when_project_root_is_symlink(fixture):
+    tmp_path, run_dir, roster, home = fixture
+    real_project = tmp_path / "project"
+    (real_project / "src" / "auth").mkdir(parents=True)
+    linked_project = tmp_path / "project-link"
+    linked_project.symlink_to(real_project, target_is_directory=True)
+    assert main(["guard-path", "--task", "T01", "--path", "src/auth/new.py", "--project-root", str(linked_project), "--run-dir", str(run_dir), "--roster", str(roster)]) == 0
 
 
 def test_prompt_submit_digest_is_at_most_twelve_lines(fixture, monkeypatch, capsys):

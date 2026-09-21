@@ -416,8 +416,14 @@ def cmd_hook(a) -> int:
         label = c.labels[binding["task_id"]]
         state = c.state()["tasks"][binding["task_id"]]
         if event == "session-start":
-            watch = L.effective_watch(label, c.roster)
-            if not LC.try_claim(c.events_path, c.labels, c.run_id, binding["task_id"], binding["agent_id"], c.now, watch["max_attempts"]):
+            if state["state"] in E.LIVE and state.get("owner") == binding["agent_id"]:
+                pass
+            elif state.get("claimable"):
+                watch = L.effective_watch(label, c.roster)
+                if not LC.try_claim(c.events_path, c.labels, c.run_id, binding["task_id"], binding["agent_id"], c.now, watch["max_attempts"]):
+                    print("STOP: task claim was lost; stop working on this task")
+                    return OK
+            elif state.get("owner") is not None or state["state"] in E.TERMINAL:
                 print("STOP: task claim was lost; stop working on this task")
                 return OK
             handoff = _read_optional(H.handoff_path(c.run_dir, binding["task_id"], binding["agent_id"]))
@@ -468,9 +474,8 @@ def cmd_guard_path(a) -> int:
     c = Ctx(a)
     c.task(a.task)
     label = c.labels[a.task]
-    root = os.path.abspath(a.project_root or os.getcwd())
-    path = a.path
-    relative = os.path.relpath(os.path.abspath(path if os.path.isabs(path) else os.path.join(root, path)), root)
+    root = a.project_root or os.getcwd()
+    relative = _resolved_hook_input("Write", {"file_path": a.path}, root)["file_path"]
     return OK if not V.paths_within([relative], label["context"]["allowed_paths"]) else FAIL
 
 
