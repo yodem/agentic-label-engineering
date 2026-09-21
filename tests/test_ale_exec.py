@@ -60,6 +60,12 @@ def log_text(harness):
     return harness[1].read_text() if harness[1].exists() else ""
 
 
+def heartbeat_loops_for(wrapper_pid):
+    marker = "ale-exec-heartbeat-loop-%s" % wrapper_pid
+    result = subprocess.run(["pgrep", "-f", marker], capture_output=True, text=True)
+    return {int(pid) for pid in result.stdout.split()}
+
+
 def test_help_documents_three_limits():
     proc = subprocess.run([WRAPPER, "--help"], text=True, capture_output=True)
     assert proc.returncode == 0
@@ -95,7 +101,7 @@ def test_child_exit_code_is_preserved(harness):
 def test_no_heartbeat_process_survives_normal_child(harness):
     proc = run_exec(harness, ["sleep", "0.05"], "--heartbeat-s", "0.01")
     assert proc.returncode == 0
-    pgrep = subprocess.run(["pgrep", "-f", "ale-exec-heartbeat-loop"], capture_output=True)
+    pgrep = subprocess.run(["pgrep", "-f", "ale-exec-heartbeat-loop-0"], capture_output=True)
     assert pgrep.returncode != 0
 
 
@@ -115,7 +121,7 @@ def test_kill_nine_child_leaves_no_heartbeat_process(harness, tmp_path):
         time.sleep(0.01)
     os.kill(int(pid_file.read_text()), 9)
     assert proc.wait(timeout=5) == 137
-    assert subprocess.run(["pgrep", "-f", "ale-exec-heartbeat-loop"], capture_output=True).returncode != 0
+    assert subprocess.run(["pgrep", "-f", "ale-exec-heartbeat-loop-0"], capture_output=True).returncode != 0
 
 
 def test_lease_loss_terminates_child_and_returns_four(harness, tmp_path):
@@ -181,6 +187,25 @@ def test_codex_usage_event_attributes_wrapper_agent(tmp_path):
     assert len(usage) == 1 and usage[0]["agent_id"] == "codex-worker"
 
 
+def test_scoped_heartbeat_check_ignores_unrelated_loop(harness):
+    dummy = subprocess.Popen(
+        ["ale-exec-heartbeat-loop-0", "-c", "import time; time.sleep(30)"],
+        executable=sys.executable,
+    )
+    try:
+        proc = subprocess.Popen(
+            [WRAPPER, "--task", "T1", "--agent", "agent", "--", "sleep", "0.05"],
+            cwd=ROOT,
+            env={**os.environ, "ALE_BIN": harness[2], "ALE_RUN_DIR": str(harness[0]),
+                 "ALE_ROSTER": str(harness[0] / "roster.json"), "ALE_FAKE_LOG": str(harness[1])},
+        )
+        assert proc.wait(timeout=5) == 0
+        assert heartbeat_loops_for(proc.pid) == set()
+    finally:
+        dummy.terminate()
+        dummy.wait(timeout=5)
+
+
 def test_term_wrapper_terminates_child(harness, tmp_path):
     pid_file = tmp_path / "pid"
     child = tmp_path / "child.sh"
@@ -231,4 +256,4 @@ def test_second_term_during_cleanup_is_ignored_and_cleanup_finishes(harness, tmp
     child_pid = int(pid_file.read_text())
     with pytest.raises(OSError):
         os.kill(child_pid, 0)
-    assert subprocess.run(["pgrep", "-f", "ale-exec-heartbeat-loop"], capture_output=True).returncode != 0
+    assert subprocess.run(["pgrep", "-f", "ale-exec-heartbeat-loop-0"], capture_output=True).returncode != 0

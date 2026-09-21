@@ -61,6 +61,7 @@ child_pid=
 loop_pid=
 grace_s=${ALE_EXEC_GRACE_S:-10}
 signal_exit_code=
+loop_marker=${ALE_EXEC_LOOP_MARKER:-ale-exec-heartbeat-loop-$$}
 
 # shellcheck disable=SC2329
 cleanup() {
@@ -124,7 +125,7 @@ sh -c '
         wait "$sleep_pid" 2>/dev/null || true
         sleep_pid=
     done
-' ale-exec-heartbeat-loop "$child_pid" &
+' "$loop_marker" "$child_pid" &
 loop_pid=$!
 
 wait "$child_pid"
