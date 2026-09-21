@@ -88,50 +88,22 @@ The board is append-only. Core events are `run_started`, `run_finished`, `labele
 
 The label-layer events are `task_added`, `label_changed`, `label_removed`, `spawned`, and `integrated`. Lead-authority events have no `agent_id`; executor-authored label changes are ignored. `task_added` records the label filename rather than embedding the label body, keeping event lines below the 4096-byte cap.
 
-## Toy example
+## Compact baked block
 
-````markdown
-## Add a health endpoint
-
-```ale-label
-{
- "acceptance": [
-  {"cmd": "pytest -q tests/test_health.py", "expect": "exit0", "id": "A1"},
-  {"cmd": "python3 -m compileall src/health.py", "expect": "exit0", "id": "A2"}
- ],
- "assignments": [
-  {"executor": null, "kind": "executor", "model_tier": "standard", "role": "backend", "trigger": "ready"}
- ],
- "context": {
-  "allowed_paths": ["src/health.py", "tests/test_health.py"],
-  "depends_on": [],
-  "spec_path": "specs/health.md",
-  "worktree": {"base": null, "branch": null, "mode": "per_task", "worktree_reason": null}
- },
- "labels": {"effort": "M", "lane": "pane", "model_tier": "standard", "risk": "low", "role": "backend"},
- "provenance": {"lane_reason": "Unattended implementation needs a pane."},
- "run_id": "health-run",
- "schema_version": "1.0",
- "task_id": "T1",
- "title": "Add a health endpoint"
-}
-```
-````
-
-`ale plan bake` produces this canonical schema shape.
-
-The baked block is compact and leaves defaults out while keeping the fields a planner fills:
+`ale plan bake` writes only planner-facing fields into each block. Provenance and votes go to `PLAN.md.ale-provenance.json`; `ale plan compile` rebuilds the full label.
 
 ````markdown
 ```ale-label
 {
- "acceptance": [{"cmd": "pytest -q", "expect": "exit0", "id": "A1"}],
- "assignments": [{"executor": null, "kind": "executor", "model_tier": "standard", "role": "backend", "trigger": "ready"}],
- "context": {"allowed_paths": ["src/health.py"], "depends_on": [], "worktree": {"mode": "per_task"}},
- "labels": {"effort": "M", "lane": "pane", "model_tier": "standard", "risk": "low", "role": "backend"},
- "provenance": {"lane_reason": "Unattended implementation needs a pane."},
  "task_id": "T1",
- "title": "Add a health endpoint"
+ "title": "Add a health endpoint",
+ "labels": {"role": "backend", "model_tier": "standard", "risk": "low", "effort": "M", "lane": "pane"},
+ "lane_reason": "Unattended implementation needs a pane.",
+ "acceptance": [{"id": "A1", "cmd": "pytest -q", "expect": "exit0"}],
+ "allowed_paths": ["src/health.py"],
+ "depends_on": [],
+ "worktree": "per_task",
+ "assignments": [{"kind": "executor", "role": "backend", "model_tier": "standard", "executor": null, "trigger": "ready"}]
 }
 ```
 ````

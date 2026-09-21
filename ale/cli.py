@@ -1473,6 +1473,18 @@ def _plan_labels(text: str, path: str, run_id: str, roster: dict, no_judge: bool
             "provenance": {"lane_reason": "The planner has not selected a lane."},
         }
         final, votes = CAS.label_task(draft, task.get("body", ""), roster, judge=judge)
+        for field in CAS.FIELDS:
+            current = final["provenance"].get(field, {})
+            real_vote = any(v.get("field") == field and v.get("value") is not None
+                            and (v.get("by", "").startswith("rule:")
+                                 or v.get("by", "").startswith("judge:")) for v in votes)
+            if current.get("by") == "planner" and not real_vote:
+                final["provenance"][field] = {
+                    "by": "default", "confidence": current.get("confidence"),
+                    "conflict": current.get("conflict", False),
+                    "votes": [{"by": "default", "value": final["labels"][field],
+                                "confidence": current.get("confidence")}],
+                }
         vote_values = {"roster": roster}
         for field in CAS.FIELDS:
             vote_values[field] = dict(final["provenance"][field])
@@ -1481,9 +1493,13 @@ def _plan_labels(text: str, path: str, run_id: str, roster: dict, no_judge: bool
         old = existing.get(task["task_id"])
         if old:
             label["labels"]["lane"] = old.get("labels", {}).get("lane")
-            label["provenance"]["lane_reason"] = old.get("provenance", {}).get("lane_reason")
-            if old.get("context", {}).get("worktree") is not None:
-                label["context"]["worktree"] = old["context"]["worktree"]
+            label["provenance"]["lane_reason"] = old.get("lane_reason") or old.get("provenance", {}).get("lane_reason")
+            old_worktree = old.get("worktree") or old.get("context", {}).get("worktree")
+            if old_worktree is not None:
+                if isinstance(old_worktree, str):
+                    old_worktree = {"mode": old_worktree, "branch": None, "base": None,
+                                    "worktree_reason": None}
+                label["context"]["worktree"] = old_worktree
         labels[task["task_id"]] = label
         shadow.extend({"task_id": task["task_id"], "field": vote["field"],
                        "by": vote["by"], "value": vote["value"],
@@ -1531,6 +1547,12 @@ def _write_shadow(path: str, rows: List[dict]) -> None:
     H.write_atomic(shadow, content)
 
 
+def _write_provenance(path: str, labels: dict) -> None:
+    values = {task_id: {"provenance": label.get("provenance", {}),
+                        "routing": label.get("routing")} for task_id, label in labels.items()}
+    H.write_atomic(path + ".ale-provenance.json", json.dumps(values, indent=2, sort_keys=True) + "\n")
+
+
 def _plan_print_gaps(labels: dict) -> List[str]:
     from .bake import gaps
     found = []
@@ -1569,9 +1591,6 @@ def cmd_plan_bake(a) -> int:
     try:
         labels, shadow = _plan_labels(text, a.plan_path, _plan_run_id(a.plan_path, a.run_id),
                                       roster, a.no_judge)
-        if a.run_id is not None:
-            for label in labels.values():
-                label["_render_run_id"] = a.run_id
         baked = bake(text, labels)
     except (PlanParseError, ValueError) as exc:
         raise CliError(FAIL, str(exc))
@@ -1585,6 +1604,8 @@ def cmd_plan_bake(a) -> int:
             fromfile=a.plan_path, tofile=a.plan_path)))
     elif baked != text and shadow_error is None:
         H.write_atomic(a.plan_path, baked)
+    if a.write and shadow_error is None:
+        _write_provenance(a.plan_path, labels)
     found = _plan_print_gaps(labels)
     if shadow_error is not None:
         print(str(shadow_error), file=sys.stderr)
@@ -1603,12 +1624,21 @@ def _plan_check_labels(labels: dict, roster: dict) -> List[str]:
     return errors
 
 
-def _compile_plan_to_run(path: str, run_dir: str, roster: dict) -> dict:
+def _compile_plan_to_run(path: str, run_dir: str, roster: dict, run_id: Optional[str] = None) -> dict:
     from .bake import BakeError, compile_plan
     with open(path, encoding="utf-8") as handle:
         text = handle.read()
+    provenance = {}
+    sidecar = path + ".ale-provenance.json"
+    if os.path.exists(sidecar):
+        try:
+            with open(sidecar, encoding="utf-8") as handle:
+                provenance = json.load(handle)
+        except (OSError, ValueError) as exc:
+            print("cannot read provenance sidecar: %s" % exc, file=sys.stderr)
+            return None
     try:
-        labels = compile_plan(text, _plan_run_id(path, None))
+        labels = compile_plan(text, _plan_run_id(path, run_id), provenance=provenance)
     except (BakeError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return None
@@ -1633,7 +1663,7 @@ def cmd_plan_compile(a) -> int:
     run_dir = a.run_dir or os.environ.get("ALE_RUN_DIR")
     if not run_dir:
         raise CliError(USAGE, "--run-dir or ALE_RUN_DIR is required")
-    return OK if _compile_plan_to_run(a.plan_path, run_dir, roster) is not None else FAIL
+    return OK if _compile_plan_to_run(a.plan_path, run_dir, roster, a.run_id) is not None else FAIL
 
 
 def cmd_init_run_plan(a) -> int:
@@ -1644,7 +1674,7 @@ def cmd_init_run_plan(a) -> int:
     if not run_dir:
         raise CliError(USAGE, "--run-dir or ALE_RUN_DIR is required")
     a.run_dir = run_dir
-    if _compile_plan_to_run(a.plan, run_dir, roster) is None:
+    if _compile_plan_to_run(a.plan, run_dir, roster, a.run_id) is None:
         return FAIL
     c = Ctx(a)
     errors = L.check_labelset(c.labels, c.roster)
@@ -1687,6 +1717,7 @@ def _parser() -> argparse.ArgumentParser:
     va.add_argument("--cwd")
     init_run = add("init-run", cmd_init_run)
     init_run.add_argument("--plan")
+    init_run.add_argument("--run-id")
     init_run.set_defaults(fn=cmd_init_run_plan)
     plan = sub.add_parser("plan")
     plan_sub = plan.add_subparsers(dest="plan_cmd")
@@ -1705,6 +1736,7 @@ def _parser() -> argparse.ArgumentParser:
     plan_compile.set_defaults(fn=cmd_plan_compile)
     plan_compile.add_argument("plan_path")
     plan_compile.add_argument("--run-dir")
+    plan_compile.add_argument("--run-id")
     plan_compile.add_argument("--roster")
     dispatch = add("dispatch", cmd_dispatch)
     dispatch.add_argument("--json", action="store_true")

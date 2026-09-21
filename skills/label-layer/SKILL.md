@@ -11,6 +11,8 @@ description: Turn plan mode or superpowers plans into typed ALE tasks, dispatch 
    ale plan bake PLAN.md
    ```
 
+   Baked blocks are compact planner-facing JSON with `task_id`, `title`, `labels`, `lane_reason`, `acceptance`, `allowed_paths`, `depends_on`, `worktree`, and `assignments`. Provenance and votes are stored in `PLAN.md.ale-provenance.json` when `--write` is used.
+
    Read every reported gap before editing the plan.
 
 2. Fill each gap in this order:

@@ -35,11 +35,14 @@ def corpus_rows():
 
 
 def test_perm_zero_uses_vocab_order(roster):
+    roster = dict(roster)
+    roster["vocab"] = dict(roster["vocab"])
+    roster["vocab"]["role"] = {"backend": "Backend", "docs": "Documentation"}
     judge = FakeJudge()
     rows = list(jevrun.run(corpus_rows()[:1], roster, judge, ["role"], perms=1, seed=7, sensitivity_sample=0))
 
     assert rows[0]["perm"] == 0
-    assert [key_of(o) for o in judge.calls[0]["options"]] == ["backend", "frontend", "infra", "test", "docs", "other"]
+    assert [key_of(o) for o in judge.calls[0]["options"]] == ["backend", "docs", "other"]
 
 
 def test_seeded_permutation_is_deterministic_and_keeps_other_last(roster):

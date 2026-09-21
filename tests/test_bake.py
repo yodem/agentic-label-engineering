@@ -89,8 +89,10 @@ def test_bake_replaces_a_block_in_place(roster):
 def test_compile_round_trip_returns_input_labels(roster):
     labels = {"T1": _label(roster), "T2": _label(roster, "T2")}
     text = "## Task 1: Model\n## Task 2: Screen\n"
+    provenance = {task_id: {"provenance": label["provenance"], "routing": label["routing"]}
+                  for task_id, label in labels.items()}
 
-    assert compile_plan(bake(text, labels)) == labels
+    assert compile_plan(bake(text, labels), provenance=provenance) == labels
 
 
 def test_malformed_block_reports_opening_line():

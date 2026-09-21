@@ -136,21 +136,26 @@ def test_compile_preserves_existing_plan_labels(tmp_path):
 def test_plan_compile_rejects_unsafe_run_id(tmp_path):
     roster = _roster(tmp_path)
     plan = _valid_plan(tmp_path, roster)
+    run_dir = tmp_path / "run"
+    assert main(["plan", "compile", str(plan), "--run-dir", str(run_dir), "--run-id", "../unsafe",
+                 "--roster", roster]) == 2
+    assert not (run_dir / "labels").exists()
     plan.write_text(plan.read_text().replace('"task_id": "T1"',
                                              '"run_id": "../unsafe",\n "task_id": "T1"', 1))
-    run_dir = tmp_path / "run"
-    assert main(["plan", "compile", str(plan), "--run-dir", str(run_dir), "--roster", roster]) == 1
-    assert not (run_dir / "labels").exists()
+    assert main(["plan", "compile", str(plan), "--run-dir", str(run_dir), "--run-id", "safe-run",
+                 "--roster", roster]) == 1
 
 
 def test_bake_accepts_run_id(tmp_path):
-    plan = tmp_path / "plan.md"
-    plan.write_text(open(PLAN, encoding="utf-8").read())
     roster = _roster(tmp_path)
-
-    assert main(["plan", "bake", str(plan), "--run-id", "custom-run", "--no-judge",
-                 "--write", "--roster", roster]) == 1
-    assert '"run_id": "custom-run"' in plan.read_text()
+    plan = _valid_plan(tmp_path, roster)
+    for command, run_dir in (("plan compile", tmp_path / "compile"), ("init-run", tmp_path / "init")):
+        args = (["plan", "compile", str(plan), "--run-dir", str(run_dir), "--run-id", "custom-run",
+                 "--roster", roster] if command == "plan compile" else
+                ["init-run", "--plan", str(plan), "--run-dir", str(run_dir), "--run-id", "custom-run",
+                 "--roster", roster, "--now", "7"])
+        assert main(args) == 0
+        assert {json.loads(path.read_text())["run_id"] for path in (run_dir / "labels").glob("*.json")} == {"custom-run"}
 
 
 def test_plan_compile_failure_does_not_replace_existing_label_directory(tmp_path):

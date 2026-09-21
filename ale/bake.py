@@ -134,48 +134,51 @@ def skeleton_label(task: dict, run_id: str, votes: dict) -> dict:
 def render_block(label: dict) -> str:
     if not all(key in label for key in ("acceptance", "context", "assignments", "provenance")):
         return "```ale-label\n%s\n```\n" % json.dumps(label, sort_keys=True, indent=1)
-    compact = {}
     labels = label.get("labels", {})
-    compact_labels = {key: value for key, value in labels.items()
-                      if value is not None or key == "lane"}
-    for key in ("lane",):
-        if key not in compact_labels:
-            compact_labels[key] = None
-    compact["labels"] = compact_labels
     context = label.get("context", {})
-    compact_context = {}
-    for key in ("spec_path", "pointers"):
-        if context.get(key):
-            compact_context[key] = context[key]
-    compact_context["allowed_paths"] = context.get("allowed_paths", [])
-    compact_context["depends_on"] = context.get("depends_on", [])
-    worktree = context.get("worktree")
-    if worktree is not None:
-        compact_context["worktree"] = {"mode": worktree.get("mode")}
-    compact["context"] = compact_context
-    compact["acceptance"] = label.get("acceptance", [])
-    compact["assignments"] = label.get("assignments", [])
-    provenance = {"lane_reason": label.get("provenance", {}).get("lane_reason")}
-    for key, value in label.get("provenance", {}).items():
-        if key == "lane_reason":
-            continue
-        if not (value.get("by") == "default" and
-                all(v.get("by") == "default" for v in value.get("votes", []))):
-            provenance[key] = value
-    compact["provenance"] = provenance
-    routing = label.get("routing")
-    if routing and any(value is not None for value in routing.values()):
-        compact["routing"] = routing
-    watch = label.get("watch")
-    if watch:
-        compact["watch"] = watch
+    worktree = context.get("worktree") or {}
+    compact_labels = {key: labels.get(key) for key in ("role", "model_tier", "risk", "effort", "lane")}
+    worktree_value = worktree.get("mode")
+    if worktree_value == "shared":
+        worktree_value = {"mode": "shared", "worktree_reason": worktree.get("worktree_reason")}
+    values = [
+        ("task_id", label.get("task_id")),
+        ("title", label.get("title")),
+        ("labels", compact_labels),
+        ("lane_reason", label.get("provenance", {}).get("lane_reason")),
+        ("acceptance", label.get("acceptance", [])),
+        ("allowed_paths", context.get("allowed_paths", [])),
+        ("depends_on", context.get("depends_on", [])),
+        ("worktree", worktree_value),
+        ("assignments", label.get("assignments", [])),
+    ]
     if label.get("fixes") is not None:
-        compact["fixes"] = label["fixes"]
-    if label.get("_render_run_id") is not None:
-        compact["run_id"] = label["_render_run_id"]
-    compact["task_id"] = label.get("task_id")
-    compact["title"] = label.get("title")
-    return "```ale-label\n%s\n```\n" % json.dumps(compact, indent=1)
+        values.append(("fixes", label["fixes"]))
+    if context.get("spec_path") and context.get("spec_path") != "plan":
+        values.append(("spec_path", context["spec_path"]))
+    if context.get("pointers"):
+        values.append(("pointers", context["pointers"]))
+    if label.get("watch"):
+        values.append(("watch", label["watch"]))
+    if label.get("milestone") is not None:
+        values.append(("milestone", label["milestone"]))
+
+    def compact(value):
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+    lines = ["```ale-label", "{"]
+    for index, (key, value) in enumerate(values):
+        comma = "," if index < len(values) - 1 else ""
+        if key in ("acceptance", "assignments"):
+            lines.append(' "%s": [' % key)
+            for item_index, item in enumerate(value):
+                item_comma = "," if item_index < len(value) - 1 else ""
+                lines.append("  %s%s" % (compact(item), item_comma))
+            lines.append(" ]%s" % comma)
+        else:
+            lines.append(" %s%s" % (json.dumps(key), ": " + compact(value) + comma))
+    lines.extend(["}", "```", ""])
+    return "\n".join(lines)
 
 
 def extract_blocks(text: str) -> List[Tuple[int, dict]]:
@@ -245,20 +248,61 @@ def bake(text: str, labels) -> str:
     return "".join(lines)
 
 
-def compile_plan(text: str, run_id: str = "run-1") -> Dict[str, dict]:
+def compile_plan(text: str, run_id: str = "run-1", provenance: dict = None) -> Dict[str, dict]:
     blocks = extract_blocks(text)
     labels = {}
-    for _, label in blocks:
-        label.setdefault("schema_version", "1.0")
-        label.setdefault("run_id", run_id)
-        routing = label.setdefault("routing", {"executor": None, "model": None, "resolved_from": None})
-        for key in ("executor", "model", "resolved_from"):
-            routing.setdefault(key, None)
-        worktree = label.get("context", {}).get("worktree")
-        label.setdefault("context", {}).setdefault("pointers", [])
-        if worktree is not None:
-            for key in ("branch", "base", "worktree_reason"):
-                worktree.setdefault(key, None)
+    for _, compact in blocks:
+        if "run_id" in compact:
+            raise BakeError("compact ale-label block must not contain run_id; pass --run-id")
+        label = {
+            "schema_version": "1.0", "run_id": run_id,
+            "task_id": compact.get("task_id"), "title": compact.get("title"),
+            "labels": dict(compact.get("labels") or {}),
+            "routing": {"executor": None, "model": None, "resolved_from": None},
+            "context": {"spec_path": compact.get("spec_path", "plan"),
+                         "pointers": list(compact.get("pointers", [])),
+                         "allowed_paths": list(compact.get("allowed_paths", [])),
+                         "depends_on": list(compact.get("depends_on", []))},
+            "acceptance": list(compact.get("acceptance", [])),
+            "assignments": list(compact.get("assignments", [])),
+            "provenance": {},
+        }
+        worktree = compact.get("worktree")
+        if isinstance(worktree, dict):
+            mode = worktree.get("mode")
+            reason = worktree.get("worktree_reason")
+        else:
+            mode, reason = worktree, None
+        label["context"]["worktree"] = {"mode": mode, "branch": None, "base": None,
+                                          "worktree_reason": reason}
+        if compact.get("fixes") is not None:
+            label["fixes"] = compact["fixes"]
+        if compact.get("watch") is not None:
+            label["watch"] = compact["watch"]
+        if compact.get("milestone") is not None:
+            label["milestone"] = compact["milestone"]
+        sidecar = (provenance or {}).get(label["task_id"], {})
+        if provenance is not None and label["task_id"] in provenance:
+            if isinstance(sidecar.get("provenance"), dict):
+                label["provenance"] = copy.deepcopy(sidecar["provenance"])
+            else:
+                label["provenance"] = copy.deepcopy(sidecar)
+            if isinstance(sidecar.get("routing"), dict):
+                label["routing"] = copy.deepcopy(sidecar["routing"])
+        else:
+            for field in ("role", "model_tier", "risk", "effort"):
+                label["provenance"][field] = copy.deepcopy(sidecar.get(field) or {"by": "default"})
+            lane_reason = compact.get("lane_reason")
+            label["provenance"]["lane_reason"] = sidecar.get("lane_reason", lane_reason)
+            if sidecar.get("lane_reason") is not None and isinstance(sidecar.get("lane_reason"), dict):
+                label["provenance"]["lane_reason"] = sidecar["lane_reason"]
+            for field in ("acceptance", "allowed_paths", "depends_on", "assignments", "worktree"):
+                if field not in label["provenance"]:
+                    value = compact.get(field)
+                    label["provenance"][field] = {"by": "planner" if value else "default"}
+        for field in ("role", "model_tier", "risk", "effort", "lane"):
+            if field not in label["labels"]:
+                label["labels"][field] = None
         task_id = label.get("task_id")
         if not task_id:
             raise BakeError("ale-label block has no task_id")

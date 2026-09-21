@@ -1,5 +1,7 @@
 import json
 import os
+import re
+import shutil
 import subprocess
 from types import SimpleNamespace
 
@@ -70,7 +72,7 @@ def test_rejection_then_accepted_fix_allows_parent_acceptance():
 
 def test_overridden_executor_uses_its_own_model(tmp_path):
     roster = load_roster(_roster(tmp_path))
-    roster["routing"].append({"role": "*", "model_tier": "standard", "executor": "codex-exec", "model": "codex-model"})
+    roster["routing"].insert(0, {"role": "backend", "model_tier": "standard", "executor": "codex-exec", "model": "codex-model"})
     labels = {"T1": dict(_label(), assignments=[{"kind": "executor", "role": "backend", "model_tier": "standard",
                                                    "executor": "codex-exec", "trigger": "ready"}])}
     state = {"tasks": {"T1": {"state": "ready", "attempt": 1}}, "spawned": []}
@@ -89,10 +91,19 @@ def test_compact_block_omits_defaults_and_compiles_defaults_back():
     label["provenance"]["role"] = {"by": "default", "votes": [{"by": "default", "value": "backend"}]}
     block = render_block(label)
     assert '"run_id"' not in block and '"schema_version"' not in block
-    assert '"role"' not in block.split('"provenance"', 1)[1]
+    assert "provenance" not in block
     text = "## Task 1: One\n" + block + "\n## Task 2: Two\n" + render_block(dict(label, task_id="T2"))
     assert compile_plan(text)["T1"]["run_id"] == "run-1"
     assert bake(text, {"T1": label, "T2": dict(label, task_id="T2")}) == bake(text, {"T1": label, "T2": dict(label, task_id="T2")})
+
+
+def test_superpowers_baked_blocks_have_hard_line_limit(tmp_path):
+    plan = tmp_path / "superpowers.md"
+    shutil.copyfile(ROOT + "/tests/fixtures/plans/superpowers.md", str(plan))
+    assert main(["plan", "bake", str(plan), "--no-judge", "--write", "--roster", ROOT + "/examples/roster.json"]) == 1
+    blocks = re.findall(r"```ale-label\n(.*?)\n```", plan.read_text(), re.S)
+    assert blocks and all(len(block.splitlines()) <= 22 for block in blocks)
+    assert (tmp_path / "superpowers.md.ale-provenance.json").exists()
 
 
 def test_timeline_formats_fractional_time_and_evidence():
