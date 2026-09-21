@@ -1,0 +1,7 @@
+{
+  "description": "ALE Codex hook adapter",
+  "modules": [],
+  "hooks": {
+    "PreToolUse": [{"matcher": ".*", "command": "${ALE_PLUGIN_ROOT}/bin/ale-hook pre-tool"}]
+  }
+}

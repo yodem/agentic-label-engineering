@@ -1,4 +1,12 @@
 {
   "description": "ale-board: the /ale-board task board pane and status band above the prompt. Needs CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1; builds without function hooks ignore the modules key.",
-  "modules": ["../mod/register.tsx"]
+  "modules": ["../mod/register.tsx"],
+  "hooks": {
+    "SessionStart": [{"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/ale-hook\" session-start", "timeout": 30}]}],
+    "PreToolUse": [{"matcher": ".*", "hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/ale-hook\" pre-tool", "timeout": 5}]}],
+    "PostToolUse": [{"matcher": ".*", "hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/ale-hook\" post-tool", "timeout": 5}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/ale-hook\" stop", "timeout": 600}]}],
+    "SubagentStop": [{"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/ale-hook\" stop", "timeout": 600}]}],
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/ale-hook\" prompt-submit", "timeout": 30}]}]
+  }
 }

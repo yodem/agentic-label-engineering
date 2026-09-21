@@ -18,6 +18,8 @@ from . import roster as R
 from . import verify as V
 from . import watchdog as W
 from . import binding as B
+from . import hooks as HK
+from . import usage_transcript as UT
 from .labeling import cascade as CAS
 from .labeling import truth as TRUTH
 from .labeling.judge import CommandJudge, is_mostly_english
@@ -149,14 +151,21 @@ def cmd_claim(a) -> int:
 
 
 def cmd_heartbeat(a) -> int:
+    c = Ctx(a)
+    if a.throttle_s is not None:
+        state = c.state()["tasks"].get(a.task)
+        if state is not None and state.get("last_heartbeat_ts") is not None and c.now - state["last_heartbeat_ts"] < a.throttle_s:
+            return OK
     extra = {"step": a.step[:TEXT_MAX]}
+    if a.auto:
+        extra["auto"] = True
     if a.files:
         extra["files_modified"] = [p for p in a.files.split(",") if p]
     if a.pending:
         extra["pending"] = a.pending
     if a.next:
         extra["next_steps"] = a.next
-    return _owned(Ctx(a), a, "heartbeat", **extra)
+    return _owned(c, a, "heartbeat", **extra)
 
 
 def cmd_note(a) -> int:
@@ -271,6 +280,160 @@ def cmd_usage(a) -> int:
         extra["cost_usd"] = a.cost_usd
     c.emit("usage", a.task, a.agent, st["attempt"], **extra)
     return OK
+
+
+def _hook_home() -> str:
+    return os.environ.get("ALE_HOME") or os.path.expanduser("~")
+
+
+def _hook_ctx(binding: dict) -> Ctx:
+    return Ctx(argparse.Namespace(run_dir=binding["run_dir"], roster=binding["roster"], now=None))
+
+
+def _read_optional(path: str) -> str:
+    if not path or not os.path.exists(path):
+        return ""
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
+def _hook_debug(binding: dict, event: str) -> None:
+    if os.environ.get("ALE_HOOK_DEBUG") == "1":
+        path = os.path.join(binding["run_dir"], "hook-debug.log")
+        with open(path, "a", encoding="utf-8") as f:
+            f.write("%s\n" % event)
+
+
+def _hook_binding(data: dict) -> Optional[dict]:
+    session_id = data.get("session_id")
+    if not isinstance(session_id, str) or not session_id:
+        return None
+    return B.resolve(os.environ, _hook_home(), session_id, data.get("agent_id"))
+
+
+def _hook_orchestrator(data: dict) -> int:
+    run_dir = os.environ.get("ALE_ORCHESTRATOR_RUN_DIR")
+    if not run_dir:
+        return OK
+    roster = os.environ.get("ALE_ROSTER") or "roster.json"
+    c = Ctx(argparse.Namespace(run_dir=run_dir, roster=roster, now=None))
+    breaches = W.check(c.state(), c.labels, c.roster, c.now)
+    for breach in breaches:
+        c.emit("breach", breach["task_id"], None, breach["attempt"], breach=breach["breach"], detail=breach["detail"][:300])
+    state = c.state()
+    counts = {}
+    for task in state["tasks"].values():
+        counts[task["state"]] = counts.get(task["state"], 0) + 1
+    for name in sorted(counts):
+        print("%s: %d" % (name, counts[name]))
+    for breach in breaches:
+        print("breach: %s %s" % (breach["task_id"], breach["breach"]))
+    waiting = [tid for tid, task in state["tasks"].items() if task["state"] == "submitted"]
+    if waiting:
+        print("awaiting verify: %s" % ", ".join(sorted(waiting)))
+    return OK
+
+
+def _usage_for_hook(c: Ctx, binding: dict, data: dict, attempt: int) -> None:
+    path = data.get("agent_transcript_path") or data.get("transcript_path")
+    if not path or not os.path.exists(path):
+        return
+    seen_path = os.path.join(c.run_dir, "usage-seen", "%s.%s.json" % (binding["task_id"], binding["agent_id"]))
+    try:
+        with open(seen_path, encoding="utf-8") as f:
+            already = set(json.load(f))
+    except (OSError, ValueError, TypeError):
+        already = set()
+    with open(path, encoding="utf-8") as f:
+        usage = UT.sum_usage(f, already)
+    H.write_atomic(seen_path, json.dumps(sorted(already)))
+    if not usage["message_ids"]:
+        return
+    c.emit("usage", binding["task_id"], binding["agent_id"], attempt,
+           **{"gen_ai.request.model": usage["model"],
+              "gen_ai.usage.input_tokens": usage["input_tokens"],
+              "gen_ai.usage.output_tokens": usage["output_tokens"],
+              "usage_source": "adapter"})
+
+
+def cmd_hook(a) -> int:
+    try:
+        data = json.load(sys.stdin)
+    except Exception:
+        return OK
+    if not isinstance(data, dict):
+        return OK
+    event = a.event
+    if event == "prompt-submit" and os.environ.get("ALE_ORCHESTRATOR_RUN_DIR"):
+        try:
+            return _hook_orchestrator(data)
+        except Exception as exc:
+            print("ale hook warning: %s" % exc, file=sys.stderr)
+            return OK
+    binding = _hook_binding(data)
+    if binding is None:
+        return OK
+    try:
+        _hook_debug(binding, event)
+        c = _hook_ctx(binding)
+        if binding["task_id"] not in c.labels:
+            raise CliError(FAIL, "bound task is missing")
+        label = c.labels[binding["task_id"]]
+        state = c.state()["tasks"][binding["task_id"]]
+        if event == "session-start":
+            watch = L.effective_watch(label, c.roster)
+            if not LC.try_claim(c.events_path, c.labels, c.run_id, binding["task_id"], binding["agent_id"], c.now, watch["max_attempts"]):
+                print("STOP: task claim was lost; stop working on this task")
+                return OK
+            handoff = _read_optional(H.handoff_path(c.run_dir, binding["task_id"], binding["agent_id"]))
+            decisions = _read_optional(os.path.join(c.run_dir, "decisions.md"))
+            print(HK.session_context(label, handoff, decisions))
+            return OK
+        if event == "pre-tool":
+            result = HK.decide_pre_tool(binding, label, state, data.get("tool_name", ""), data.get("tool_input") or {}, data.get("cwd") or os.getcwd())
+            if result["action"] == "deny":
+                print(result["reason"], file=sys.stderr)
+                return 2
+            return OK
+        if event == "post-tool":
+            decision = HK.decide_heartbeat(state, c.now, 60, data.get("tool_name", ""), data.get("tool_input") or {})
+            if decision is not None and state.get("owner") == binding["agent_id"]:
+                c.emit("heartbeat", binding["task_id"], binding["agent_id"], state["attempt"], step=decision["step"], files_modified=decision["files"], auto=True)
+                c.render(binding["task_id"], binding["agent_id"])
+            return OK
+        if event == "stop":
+            if data.get("stop_hook_active"):
+                return OK
+            evidence = V.run_acceptance(label, data.get("cwd") or os.getcwd())
+            blocks = sum(1 for note in state.get("notes", []) if note.startswith("auto-stop-block") and state.get("attempt") is not None)
+            decision = HK.decide_stop(label, state, evidence, blocks, 2)
+            if decision["action"] == "block":
+                c.emit("note", binding["task_id"], binding["agent_id"], state["attempt"], text="auto-stop-block: " + decision["reason"])
+                print(json.dumps({"decision": "block", "reason": decision["reason"]}))
+            elif decision["action"] == "input_required":
+                c.emit("input_required", binding["task_id"], binding["agent_id"], state["attempt"], question=decision["question"])
+                print(json.dumps({"decision": "block", "reason": decision["question"]}))
+            elif decision["action"] == "submit":
+                c.emit("submitted", binding["task_id"], binding["agent_id"], state["attempt"], summary=decision["summary"])
+                _usage_for_hook(c, binding, data, state["attempt"])
+            return OK
+        return OK
+    except Exception as exc:
+        if event == "pre-tool":
+            print("ale hook denied: bound executor state could not be read: %s" % exc, file=sys.stderr)
+            return 2
+        print("ale hook warning: %s" % exc, file=sys.stderr)
+        return OK
+
+
+def cmd_guard_path(a) -> int:
+    c = Ctx(a)
+    c.task(a.task)
+    label = c.labels[a.task]
+    root = os.path.abspath(a.project_root or os.getcwd())
+    path = a.path
+    relative = os.path.relpath(os.path.abspath(path if os.path.isabs(path) else os.path.join(root, path)), root)
+    return OK if not V.paths_within([relative], label["context"]["allowed_paths"]) else FAIL
 
 
 def cmd_decide(a) -> int:
@@ -790,6 +953,8 @@ def _parser() -> argparse.ArgumentParser:
     hb.add_argument("--files")
     hb.add_argument("--pending", action="append")
     hb.add_argument("--next", action="append")
+    hb.add_argument("--auto", action="store_true")
+    hb.add_argument("--throttle-s", type=float)
     nt = add("note", cmd_note, task=True, agent=True)
     nt.add_argument("--text", required=True)
     nt.add_argument("--to")
@@ -825,6 +990,11 @@ def _parser() -> argparse.ArgumentParser:
     adj.add_argument("--by", default="human")
     add("paths-within", cmd_paths_within).add_argument("task_id")
     add("doctor", cmd_doctor)
+    gp = add("guard-path", cmd_guard_path, task=True)
+    gp.add_argument("--path", required=True)
+    gp.add_argument("--project-root")
+    hk = add("hook", cmd_hook)
+    hk.add_argument("event", choices=["session-start", "pre-tool", "post-tool", "stop", "prompt-submit"])
     bd = add("bind", cmd_bind, task=True, agent=True)
     bd.add_argument("--session", required=True)
     bd.add_argument("--subagent")

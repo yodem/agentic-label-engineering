@@ -1,0 +1,22 @@
+#!/bin/sh
+ale_home=${ALE_HOME:-${HOME:-}}
+ale_maybe_bound=
+if [ "${ALE_TASK+x}" = x ] || [ "${ALE_AGENT+x}" = x ] || [ "${ALE_RUN_DIR+x}" = x ]; then
+    ale_maybe_bound=1
+fi
+if [ -z "$ale_maybe_bound" ] && [ -n "$ale_home" ]; then
+    ale_bindings_dir=$ale_home/.ale/bindings
+    if [ -d "$ale_bindings_dir" ]; then
+        for ale_binding_entry in "$ale_bindings_dir"/*; do
+            if [ -f "$ale_binding_entry" ]; then
+                ale_maybe_bound=1
+                break
+            fi
+        done
+    fi
+fi
+if [ -z "$ale_maybe_bound" ]; then
+    exit 0
+fi
+PYTHONPATH="${CLAUDE_PLUGIN_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"; export PYTHONPATH
+exec python3 -m ale hook "$@"
