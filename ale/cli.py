@@ -745,18 +745,56 @@ def cmd_dispatch(a) -> int:
 
 def cmd_integrate(a) -> int:
     c = Ctx(a)
+    if c.labels.get(a.task, {}).get("fixes"):
+        raise CliError(FAIL, "cannot integrate a fix task; integrate its parent task")
     state = c.task(a.task)
     if state.get("state") != "accepted":
         raise CliError(FAIL, "task %s is %s, not accepted" % (a.task, state.get("state")))
     event = _latest_spawn(c, a.task)
     if event is None or not event.get("branch"):
         raise CliError(FAIL, "task %s has no recorded branch" % a.task)
-    checkout = os.path.abspath(a.cwd or os.getcwd())
-    status = subprocess.run(["git", "status", "--porcelain"], cwd=checkout,
-                            capture_output=True, text=True)
+    worktree = event.get("worktree")
+    if not worktree:
+        raise CliError(FAIL, "task %s has no recorded worktree" % a.task)
+    status = subprocess.run(["git", "status", "--porcelain", "-z", "--untracked-files=all"],
+                            cwd=worktree, capture_output=True)
     if status.returncode != 0:
-        raise CliError(FAIL, status.stderr.strip() or "git status failed")
-    if status.stdout.strip():
+        raise CliError(FAIL, "cannot inspect task worktree")
+    changed = []
+    records = status.stdout.decode("utf-8", "replace").split("\0")
+    for record in records:
+        if not record:
+            continue
+        path = record[3:] if len(record) >= 4 else ""
+        if not path or "__pycache__" in path or path.endswith(".pyc"):
+            continue
+        if path not in changed:
+            changed.append(path)
+    outside = V.paths_within(changed, c.labels[a.task].get("context", {}).get("allowed_paths", []))
+    if outside:
+        raise CliError(FAIL, "changed path outside allowed_paths: %s" % outside[0])
+    if changed:
+        added = subprocess.run(["git", "add", "--"] + changed, cwd=worktree,
+                               capture_output=True, text=True)
+        if added.returncode != 0:
+            raise CliError(FAIL, added.stderr.strip() or "git add failed")
+        identity_name = subprocess.run(["git", "config", "--get", "user.name"], cwd=worktree,
+                                       capture_output=True, text=True)
+        identity_email = subprocess.run(["git", "config", "--get", "user.email"], cwd=worktree,
+                                        capture_output=True, text=True)
+        commit_command = ["git"]
+        if not identity_name.stdout.strip() and not identity_email.stdout.strip():
+            commit_command += ["-c", "user.name=ale", "-c", "user.email=ale@localhost"]
+        commit_command += ["commit", "-m", "ale: %s %s" % (a.task, c.labels[a.task].get("title", a.task))]
+        committed = subprocess.run(commit_command, cwd=worktree, capture_output=True, text=True)
+        if committed.returncode != 0:
+            raise CliError(FAIL, committed.stderr.strip() or "git commit failed")
+    checkout = os.path.abspath(a.cwd or os.getcwd())
+    base_status = subprocess.run(["git", "status", "--porcelain"], cwd=checkout,
+                                 capture_output=True, text=True)
+    if base_status.returncode != 0:
+        raise CliError(FAIL, base_status.stderr.strip() or "git status failed")
+    if base_status.stdout.strip():
         raise CliError(FAIL, "checkout has uncommitted changes")
     merge = subprocess.run(["git", "merge", "--no-ff", "--no-edit", event["branch"]],
                            cwd=checkout, capture_output=True, text=True)
@@ -768,15 +806,14 @@ def cmd_integrate(a) -> int:
         return FAIL
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip()
     c.emit("integrated", a.task, None, state.get("attempt", 1), commit=commit)
-    if event.get("worktree"):
-        removed = subprocess.run(["git", "worktree", "remove", event["worktree"]],
-                                 cwd=checkout, capture_output=True, text=True)
-        if removed.returncode != 0:
-            raise CliError(FAIL, removed.stderr.strip() or "git worktree remove failed")
+    removed = subprocess.run(["git", "worktree", "remove", "--force", worktree],
+                             cwd=checkout, capture_output=True, text=True)
+    if removed.returncode != 0:
+        print(removed.stderr.strip() or "git worktree remove failed", file=sys.stderr)
     deleted = subprocess.run(["git", "branch", "-d", event["branch"]], cwd=checkout,
                              capture_output=True, text=True)
     if deleted.returncode != 0:
-        raise CliError(FAIL, deleted.stderr.strip() or "git branch delete failed")
+        print(deleted.stderr.strip() or "git branch delete failed", file=sys.stderr)
     return OK
 
 
@@ -1532,6 +1569,9 @@ def cmd_plan_bake(a) -> int:
     try:
         labels, shadow = _plan_labels(text, a.plan_path, _plan_run_id(a.plan_path, a.run_id),
                                       roster, a.no_judge)
+        if a.run_id is not None:
+            for label in labels.values():
+                label["_render_run_id"] = a.run_id
         baked = bake(text, labels)
     except (PlanParseError, ValueError) as exc:
         raise CliError(FAIL, str(exc))
@@ -1568,7 +1608,7 @@ def _compile_plan_to_run(path: str, run_dir: str, roster: dict) -> dict:
     with open(path, encoding="utf-8") as handle:
         text = handle.read()
     try:
-        labels = compile_plan(text)
+        labels = compile_plan(text, _plan_run_id(path, None))
     except (BakeError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return None
@@ -1590,14 +1630,21 @@ def _compile_plan_to_run(path: str, run_dir: str, roster: dict) -> dict:
 
 def cmd_plan_compile(a) -> int:
     roster = _plan_roster(a)
-    return OK if _compile_plan_to_run(a.plan_path, a.run_dir, roster) is not None else FAIL
+    run_dir = a.run_dir or os.environ.get("ALE_RUN_DIR")
+    if not run_dir:
+        raise CliError(USAGE, "--run-dir or ALE_RUN_DIR is required")
+    return OK if _compile_plan_to_run(a.plan_path, run_dir, roster) is not None else FAIL
 
 
 def cmd_init_run_plan(a) -> int:
     if not a.plan:
         return cmd_init_run(a)
     roster = _plan_roster(a)
-    if _compile_plan_to_run(a.plan, a.run_dir, roster) is None:
+    run_dir = a.run_dir or os.environ.get("ALE_RUN_DIR")
+    if not run_dir:
+        raise CliError(USAGE, "--run-dir or ALE_RUN_DIR is required")
+    a.run_dir = run_dir
+    if _compile_plan_to_run(a.plan, run_dir, roster) is None:
         return FAIL
     c = Ctx(a)
     errors = L.check_labelset(c.labels, c.roster)
@@ -1657,7 +1704,7 @@ def _parser() -> argparse.ArgumentParser:
     plan_compile = plan_sub.add_parser("compile")
     plan_compile.set_defaults(fn=cmd_plan_compile)
     plan_compile.add_argument("plan_path")
-    plan_compile.add_argument("--run-dir", required=True)
+    plan_compile.add_argument("--run-dir")
     plan_compile.add_argument("--roster")
     dispatch = add("dispatch", cmd_dispatch)
     dispatch.add_argument("--json", action="store_true")

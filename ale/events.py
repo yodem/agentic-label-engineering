@@ -168,7 +168,7 @@ def _apply(st: dict, ev: dict, tasks: Dict[str, dict], labels: Dict[str, dict]) 
 def reduce_run(events: List[dict], labels: Dict[str, dict]) -> dict:
     tasks = {tid: _new_task() for tid in labels}
     run = {"tokens": 0, "cost_usd": 0.0, "started_ts": None, "finished": False, "breaches_seen": []}
-    for ev in events:
+    for index, ev in enumerate(events):
         kind = ev["type"]
         if kind == "run_started":
             run["started_ts"] = ev["ts"]
@@ -184,6 +184,12 @@ def reduce_run(events: List[dict], labels: Dict[str, dict]) -> dict:
             continue
         st = tasks.get(ev.get("task_id"))
         if st is not None:
+            if ev.get("type") == "accepted" and st.get("state") == "rejected":
+                fixed = any(label.get("fixes") == ev.get("task_id") and earlier.get("type") == "accepted"
+                            for fix_id, label in labels.items()
+                            for earlier in events[:index] if fix_id == earlier.get("task_id"))
+                if fixed:
+                    st["state"] = "submitted"
             _apply(st, ev, tasks, labels)
     for tid, st in tasks.items():
         missing = [dep for dep in labels[tid].get("context", {}).get("depends_on", []) if dep not in tasks]
@@ -204,6 +210,7 @@ def reduce_run(events: List[dict], labels: Dict[str, dict]) -> dict:
                                  if event.get("task_id") == parent and event.get("type") == "rejected"]
             fix_accepts = [i for i, event in enumerate(events)
                            if event.get("task_id") == tid and event.get("type") == "accepted"]
-            if fix_accepts and (not parent_rejections or max(fix_accepts) > max(parent_rejections)):
+            if (tasks[parent]["state"] != "accepted" and fix_accepts
+                    and (not parent_rejections or max(fix_accepts) > max(parent_rejections))):
                 tasks[parent]["state"] = "submitted"
     return {"tasks": tasks, "run": run}

@@ -136,7 +136,8 @@ def test_compile_preserves_existing_plan_labels(tmp_path):
 def test_plan_compile_rejects_unsafe_run_id(tmp_path):
     roster = _roster(tmp_path)
     plan = _valid_plan(tmp_path, roster)
-    plan.write_text(plan.read_text().replace('"run_id": "plan-run"', '"run_id": "../unsafe"'))
+    plan.write_text(plan.read_text().replace('"task_id": "T1"',
+                                             '"run_id": "../unsafe",\n "task_id": "T1"', 1))
     run_dir = tmp_path / "run"
     assert main(["plan", "compile", str(plan), "--run-dir", str(run_dir), "--roster", roster]) == 1
     assert not (run_dir / "labels").exists()

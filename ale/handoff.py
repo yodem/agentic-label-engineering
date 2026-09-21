@@ -54,7 +54,7 @@ def render(task_id: str, agent_id: str, label: dict, st: dict) -> str:
 
 
 def write_atomic(path: str, text: str) -> None:
-    directory = os.path.dirname(path)
+    directory = os.path.dirname(path) or "."
     os.makedirs(directory, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=directory, prefix=".tmp-")
     try:

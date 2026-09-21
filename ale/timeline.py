@@ -22,6 +22,11 @@ def _value(event: dict, keys: Tuple[str, ...]) -> int:
 
 def _changed(event: dict) -> str:
     kind = event.get("type", "")
+    if kind in ("verified", "accepted", "rejected"):
+        results = (event.get("evidence") or {}).get("results", [])
+        if results:
+            return ", ".join("%s %s" % (item.get("id", "?"), "ok" if item.get("ok") else "FAIL")
+                              for item in results)
     if kind == "task_added":
         return "added %s" % event.get("label_file", "")
     if kind == "label_changed":
@@ -63,15 +68,16 @@ def format_timeline(rows: List[dict]) -> List[str]:
     lines = []
     for row in rows:
         elapsed = row.get("relative_time", row.get("ts", 0))
-        if isinstance(elapsed, float) and elapsed.is_integer():
-            elapsed = int(elapsed)
-        lines.append(("+%ss %s %s %s %s" % (
+        if isinstance(elapsed, (float, int)):
+            elapsed = ("%s" % int(elapsed)) if float(elapsed).is_integer() else ("%.3f" % elapsed).rstrip("0").rstrip(".")
+        line = ("+%ss %s %s %s %s" % (
             elapsed,
             row.get("type", ""),
             row.get("task") or "-",
             row.get("agent") or "-",
             row.get("changed", ""),
-        )).rstrip())
+        )).rstrip()
+        lines.append(line[:160])
     return lines
 
 

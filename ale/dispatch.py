@@ -9,6 +9,9 @@ from .labelset import globs_overlap
 from .roster import resolve
 
 
+SPAWN_EXECUTORS = ("herdr-pane", "claude-headless", "codex-exec", "pi-print", "claude-subagent")
+
+
 def _assignments(label: dict) -> List[dict]:
     assignments = label.get("assignments")
     if assignments:
@@ -108,11 +111,13 @@ def due_assignments(run_state: dict, labels: Dict[str, dict], roster: dict) -> L
             instance = _trigger_instance(assignment, task_id, state, breaches)
             if instance is None or (task_id, kind, instance) in spawned:
                 continue
+            requested_executor = assignment.get("executor")
             routing = resolve(roster, assignment.get("role", label.get("labels", {}).get("role")),
-                              assignment.get("model_tier", label.get("labels", {}).get("model_tier")))
+                              assignment.get("model_tier", label.get("labels", {}).get("model_tier")),
+                              executor=requested_executor)
             candidates.append({"task_id": task_id, "kind": kind, "role": assignment.get("role", label.get("labels", {}).get("role")),
                               "model_tier": assignment.get("model_tier", label.get("labels", {}).get("model_tier")),
-                              "executor": assignment.get("executor") or routing["executor"], "model": routing["model"],
+                              "executor": requested_executor or routing["executor"], "model": routing["model"],
                               "trigger": trigger, "trigger_instance": instance,
                               "breach": next((b for b in reversed(breaches) if b.get("task_id") == task_id), None) if trigger == "on_breach" else None})
     cap = roster.get("cost_gate", {}).get("max_parallel", roster.get("cost_gate", {}).get("max_concurrent", 3))

@@ -16,6 +16,8 @@ ale dispatch --spawn
 
 Dispatch creates the default per-task worktree for a write task. An executor claims its task, sends heartbeats, submits, and runs the label's acceptance through `ale verify`. A rejection creates a focused fix task with `ale fix --task TASK`. After the fix is accepted, verify the parent's full acceptance again. Integrate an accepted branch with `ale integrate --task TASK`.
 
+Executors never commit. `ale integrate` checks and commits the executor's allowed changes before merging them. `ale dispatch --json` prints one JSON object per line, one spawn request per line.
+
 Use `ale timeline [--task TASK] [--json]` for the event stream. Use `ale meta [--json]` for per-task, per-agent, and run usage metadata; add `--csv` for CSV output.
 
 The normal loop is:
@@ -117,6 +119,22 @@ The label-layer events are `task_added`, `label_changed`, `label_removed`, `spaw
 ````
 
 `ale plan bake` produces this canonical schema shape.
+
+The baked block is compact and leaves defaults out while keeping the fields a planner fills:
+
+````markdown
+```ale-label
+{
+ "acceptance": [{"cmd": "pytest -q", "expect": "exit0", "id": "A1"}],
+ "assignments": [{"executor": null, "kind": "executor", "model_tier": "standard", "role": "backend", "trigger": "ready"}],
+ "context": {"allowed_paths": ["src/health.py"], "depends_on": [], "worktree": {"mode": "per_task"}},
+ "labels": {"effort": "M", "lane": "pane", "model_tier": "standard", "risk": "low", "role": "backend"},
+ "provenance": {"lane_reason": "Unattended implementation needs a pane."},
+ "task_id": "T1",
+ "title": "Add a health endpoint"
+}
+```
+````
 
 ## Herdr sidebar
 

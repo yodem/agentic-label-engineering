@@ -76,11 +76,19 @@ def check_label(label: dict, roster: dict) -> List[str]:
     if errs:
         return errs
     tid = effective["task_id"]
+    from .dispatch import SPAWN_EXECUTORS
+    for row in roster.get("routing", []):
+        if row.get("executor") not in SPAWN_EXECUTORS and row.get("executor") != "claude_code":
+            errs.append("%s: unsupported routing executor=%r" % (tid, row.get("executor")))
     assignments = effective["assignments"]
     executors = [a for a in assignments if a["kind"] == "executor"]
     if len(executors) != 1:
         errs.append("%s: assignments must contain exactly one executor" % tid)
     for assignment in assignments:
+        if assignment["executor"] is not None:
+            from .dispatch import SPAWN_EXECUTORS
+            if assignment["executor"] not in SPAWN_EXECUTORS:
+                errs.append("%s: unsupported assignment executor=%r" % (tid, assignment["executor"]))
         if assignment["role"] not in roster["vocab"]["role"] and assignment["role"] != "fixer":
             errs.append("%s: assignment role=%r is not in the roster vocabulary" %
                         (tid, assignment["role"]))

@@ -41,6 +41,7 @@ if [ -n "$ale_task" ]; then ALE_TASK=$ale_task; export ALE_TASK; fi
 if [ -n "$ale_agent" ]; then ALE_AGENT=$ale_agent; export ALE_AGENT; fi
 if [ -n "$ale_run_dir" ]; then ALE_RUN_DIR=$ale_run_dir; export ALE_RUN_DIR; fi
 if [ -n "$ale_roster" ]; then ALE_ROSTER=$ale_roster; export ALE_ROSTER; fi
+if [ -n "$ale_model" ]; then ALE_MODEL=$ale_model; export ALE_MODEL; fi
 
 print_argv() {
     printf '%s' "$1"
@@ -91,16 +92,24 @@ case "$ale_executor" in
                 ;;
             codex-exec)
                 if [ -n "$prefix" ]; then
-                    run_argv "$prefix" --task "$ale_task" --agent "$ale_agent" -- codex exec --model "$ale_model" "$prompt_text"
+                    if [ -n "$ale_model" ]; then
+                        run_argv "$prefix" --task "$ale_task" --agent "$ale_agent" --usage-from codex-json -- codex exec --json --model "$ale_model" "$prompt_text"
+                    else
+                        run_argv "$prefix" --task "$ale_task" --agent "$ale_agent" --usage-from codex-json -- codex exec --json "$prompt_text"
+                    fi
                 else
-                    run_argv codex exec --model "$ale_model" "$prompt_text"
+                    if [ -n "$ale_model" ]; then
+                        run_argv codex exec --json --model "$ale_model" "$prompt_text"
+                    else
+                        run_argv codex exec --json "$prompt_text"
+                    fi
                 fi
                 ;;
             pi-print)
                 if [ -n "$prefix" ]; then
-                    run_argv "$prefix" --task "$ale_task" --agent "$ale_agent" -- pi -p "$prompt_text"
+                    run_argv "$prefix" --task "$ale_task" --agent "$ale_agent" --usage-from pi-json -- pi --mode json -p "$prompt_text"
                 else
-                    run_argv pi -p "$prompt_text"
+                    run_argv pi --mode json -p "$prompt_text"
                 fi
                 ;;
         esac

@@ -132,7 +132,50 @@ def skeleton_label(task: dict, run_id: str, votes: dict) -> dict:
 
 
 def render_block(label: dict) -> str:
-    return "```ale-label\n%s\n```\n" % json.dumps(label, sort_keys=True, indent=1)
+    if not all(key in label for key in ("acceptance", "context", "assignments", "provenance")):
+        return "```ale-label\n%s\n```\n" % json.dumps(label, sort_keys=True, indent=1)
+    compact = {}
+    labels = label.get("labels", {})
+    compact_labels = {key: value for key, value in labels.items()
+                      if value is not None or key == "lane"}
+    for key in ("lane",):
+        if key not in compact_labels:
+            compact_labels[key] = None
+    compact["labels"] = compact_labels
+    context = label.get("context", {})
+    compact_context = {}
+    for key in ("spec_path", "pointers"):
+        if context.get(key):
+            compact_context[key] = context[key]
+    compact_context["allowed_paths"] = context.get("allowed_paths", [])
+    compact_context["depends_on"] = context.get("depends_on", [])
+    worktree = context.get("worktree")
+    if worktree is not None:
+        compact_context["worktree"] = {"mode": worktree.get("mode")}
+    compact["context"] = compact_context
+    compact["acceptance"] = label.get("acceptance", [])
+    compact["assignments"] = label.get("assignments", [])
+    provenance = {"lane_reason": label.get("provenance", {}).get("lane_reason")}
+    for key, value in label.get("provenance", {}).items():
+        if key == "lane_reason":
+            continue
+        if not (value.get("by") == "default" and
+                all(v.get("by") == "default" for v in value.get("votes", []))):
+            provenance[key] = value
+    compact["provenance"] = provenance
+    routing = label.get("routing")
+    if routing and any(value is not None for value in routing.values()):
+        compact["routing"] = routing
+    watch = label.get("watch")
+    if watch:
+        compact["watch"] = watch
+    if label.get("fixes") is not None:
+        compact["fixes"] = label["fixes"]
+    if label.get("_render_run_id") is not None:
+        compact["run_id"] = label["_render_run_id"]
+    compact["task_id"] = label.get("task_id")
+    compact["title"] = label.get("title")
+    return "```ale-label\n%s\n```\n" % json.dumps(compact, indent=1)
 
 
 def extract_blocks(text: str) -> List[Tuple[int, dict]]:
@@ -202,10 +245,20 @@ def bake(text: str, labels) -> str:
     return "".join(lines)
 
 
-def compile_plan(text: str) -> Dict[str, dict]:
+def compile_plan(text: str, run_id: str = "run-1") -> Dict[str, dict]:
     blocks = extract_blocks(text)
     labels = {}
     for _, label in blocks:
+        label.setdefault("schema_version", "1.0")
+        label.setdefault("run_id", run_id)
+        routing = label.setdefault("routing", {"executor": None, "model": None, "resolved_from": None})
+        for key in ("executor", "model", "resolved_from"):
+            routing.setdefault(key, None)
+        worktree = label.get("context", {}).get("worktree")
+        label.setdefault("context", {}).setdefault("pointers", [])
+        if worktree is not None:
+            for key in ("branch", "base", "worktree_reason"):
+                worktree.setdefault(key, None)
         task_id = label.get("task_id")
         if not task_id:
             raise BakeError("ale-label block has no task_id")
