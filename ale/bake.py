@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import re
+import re
 from typing import Dict, List, Tuple
 
 from .labeling.merge import LaneVoteError
@@ -250,6 +251,7 @@ def bake(text: str, labels) -> str:
 
 def compile_plan(text: str, run_id: str = "run-1", provenance: dict = None) -> Dict[str, dict]:
     blocks = extract_blocks(text)
+    parsed_tasks = {task["task_id"]: task for task in parse_plan(text)}
     labels = {}
     for _, compact in blocks:
         if "run_id" in compact:
@@ -262,7 +264,10 @@ def compile_plan(text: str, run_id: str = "run-1", provenance: dict = None) -> D
             "context": {"spec_path": compact.get("spec_path", "plan"),
                          "pointers": list(compact.get("pointers", [])),
                          "allowed_paths": list(compact.get("allowed_paths", [])),
-                         "depends_on": list(compact.get("depends_on", []))},
+                         "depends_on": list(compact.get("depends_on", [])),
+                         "spec_text": re.sub(r"\n?```ale-label\s*\n.*?\n```", "",
+                                             parsed_tasks.get(compact.get("task_id"), {}).get("body", ""),
+                                             flags=re.DOTALL).strip()[:4000]},
             "acceptance": list(compact.get("acceptance", [])),
             "assignments": list(compact.get("assignments", [])),
             "provenance": {},
@@ -275,6 +280,9 @@ def compile_plan(text: str, run_id: str = "run-1", provenance: dict = None) -> D
             mode, reason = worktree, None
         label["context"]["worktree"] = {"mode": mode, "branch": None, "base": None,
                                           "worktree_reason": reason}
+        spec_text = label["context"].get("spec_text", "")
+        if not spec_text:
+            label["context"].pop("spec_text", None)
         if compact.get("fixes") is not None:
             label["fixes"] = compact["fixes"]
         if compact.get("watch") is not None:

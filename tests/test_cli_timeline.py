@@ -83,4 +83,5 @@ def test_status_plain_includes_worktree_and_integrated(tmp_path, capsys):
     _event(run, "integrated", 2, commit="abc")
     assert main(["status", "--run-dir", str(run), "--roster", str(roster)]) == 0
     output = capsys.readouterr().out
-    assert "wt=/tmp/wt/T01" in output and "branch=ale/run-1/T01" in output and "integrated=yes" in output
+    assert "wt=" + os.path.relpath("/tmp/wt/T01", str(run)) in output
+    assert "branch=ale/run-1/T01" in output and "integrated=yes" in output

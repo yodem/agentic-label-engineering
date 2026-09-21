@@ -159,6 +159,7 @@ def render_prompt(label: dict, request: Optional[dict] = None) -> str:
     payload = {
         "task_id": label.get("task_id"), "title": label.get("title"),
         "goal": label.get("title"), "spec_path": label.get("context", {}).get("spec_path"),
+        "spec_text": label.get("context", {}).get("spec_text", ""),
         "allowed_paths": label.get("context", {}).get("allowed_paths", []),
         "acceptance": label.get("acceptance", []),
         "commands": ["ale status", "ale heartbeat", "ale submit", "ale usage"],

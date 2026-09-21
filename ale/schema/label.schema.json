@@ -38,6 +38,7 @@
         "pointers": {"type": "array", "items": {"type": "string"}},
         "allowed_paths": {"type": "array", "items": {"type": "string", "minLength": 1}},
         "depends_on": {"type": "array", "items": {"type": "string"}},
+        "spec_text": {"type": "string", "maxLength": 4000},
         "worktree": {
           "type": "object",
           "additionalProperties": false,

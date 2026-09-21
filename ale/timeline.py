@@ -38,7 +38,16 @@ def _changed(event: dict) -> str:
             event.get("model", ""), event.get("assignment_kind", ""), event.get("executor", "")
         )
     if kind == "integrated":
-        return "integrated: %s" % event.get("branch", event.get("result", ""))
+        commit = event.get("commit", "")
+        return "integrated: %s" % (commit[:7] if commit else event.get("branch", event.get("result", "")))
+    if kind == "labeled":
+        labels = event.get("labels") or {}
+        return "labels: %s" % ", ".join(str(labels.get(key, "")) for key in
+                                           ("role", "model_tier", "lane", "risk", "effort"))
+    if kind == "usage":
+        return "in=%s out=%s model=%s" % (
+            event.get("gen_ai.usage.input_tokens", 0), event.get("gen_ai.usage.output_tokens", 0),
+            event.get("gen_ai.request.model", event.get("model", "")))
     changed = [(key, value) for key, value in event.items() if key not in _META_KEYS]
     if not changed:
         return ""
@@ -120,6 +129,9 @@ def _wall_seconds(events: List[dict], task_id: str) -> dict:
     changes = _state_changes(events, task_id)
     if not changes:
         return {}
+    run_starts = [float(e.get("ts", 0)) for e in events if e.get("type") == "run_started"]
+    start_ts = min(run_starts) if run_starts else changes[0][0]
+    changes[0] = (start_ts, changes[0][1])
     end = max([float(e.get("ts", 0)) for e in events] or [changes[0][0]])
     out = defaultdict(float)
     for (start, state), (finish, _) in zip(changes, changes[1:] + [(end, None)]):
@@ -153,11 +165,24 @@ def task_metadata(events: List[dict], labels: Dict[str, dict], roster: dict,
         files = []
         for event in task_events[tid]:
             evidence = event.get("evidence") or {}
-            for path in evidence.get("files_touched", evidence.get("files_modified", [])):
+            paths = evidence.get("files", evidence.get("files_touched", evidence.get("files_modified", [])))
+            for path in paths:
+                if path not in files:
+                    files.append(path)
+            for path in event.get("files", []):
                 if path not in files:
                     files.append(path)
         summary["files_touched"] = files
     for event in events:
+        agent_id = event.get("agent_id") or event.get("agent_id_minted")
+        if event.get("type") == "spawned" and agent_id:
+            agent = agents.setdefault(agent_id, _new_summary())
+            agent["model"] = event.get("model") or agent.get("model")
+            agent["executor"] = event.get("executor") or agent.get("executor")
+            agent["attempts"] = max(agent.get("attempts", 0), int(event.get("attempt") or 1))
+        elif event.get("type") == "claimed" and agent_id:
+            agent = agents.setdefault(agent_id, _new_summary())
+            agent["attempts"] = max(agent.get("attempts", 0), int(event.get("attempt") or 1))
         if event.get("type") != "usage":
             continue
         tid, aid = event.get("task_id"), event.get("agent_id")

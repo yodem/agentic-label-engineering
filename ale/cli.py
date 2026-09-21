@@ -208,9 +208,13 @@ def cmd_status(a) -> int:
         for tid in sorted(state["tasks"]):
             st = state["tasks"][tid]
             spawn = _latest_spawn(c, tid)
+            worktree = (spawn or {}).get("worktree", "-")
+            if worktree != "-":
+                worktree = os.path.relpath(worktree, c.run_dir)
+            step = (st["last_step"] or "-")[:24]
             print("%-8s %-15s attempt=%d owner=%s tokens=%d step=%s wt=%s branch=%s integrated=%s" % (
                 tid, st["state"], st["attempt"], st["owner"] or "-", st["tokens"],
-                st["last_step"] or "-", (spawn or {}).get("worktree", "-"),
+                step, worktree,
                 (spawn or {}).get("branch", "-"), "yes" if st.get("integrated") else "no"))
     return OK
 
@@ -308,9 +312,12 @@ def cmd_verify(a) -> int:
     label, owner, attempt = c.labels[a.task], st["owner"], st["attempt"]
     cwd = _task_project_root(c, a.task, a.cwd)
     evidence = V.run_acceptance(label, cwd)
+    evidence.setdefault("files", [])
     reason = None
     if a.base:
-        bad = V.paths_within(_changed_files(cwd, a.base), label["context"]["allowed_paths"])
+        changed = _changed_files(cwd, a.base)
+        evidence["files"] = changed
+        bad = V.paths_within(changed, label["context"]["allowed_paths"])
         evidence["path_violations"] = bad[:20]
         if bad:
             reason = "path_violation: %s" % ", ".join(bad[:5])
@@ -805,7 +812,7 @@ def cmd_integrate(a) -> int:
             print(message, file=sys.stderr)
         return FAIL
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip()
-    c.emit("integrated", a.task, None, state.get("attempt", 1), commit=commit)
+    c.emit("integrated", a.task, None, state.get("attempt", 1), commit=commit, files=changed)
     removed = subprocess.run(["git", "worktree", "remove", "--force", worktree],
                              cwd=checkout, capture_output=True, text=True)
     if removed.returncode != 0:
@@ -1550,7 +1557,9 @@ def _write_shadow(path: str, rows: List[dict]) -> None:
 def _write_provenance(path: str, labels: dict) -> None:
     values = {task_id: {"provenance": label.get("provenance", {}),
                         "routing": label.get("routing")} for task_id, label in labels.items()}
-    H.write_atomic(path + ".ale-provenance.json", json.dumps(values, indent=2, sort_keys=True) + "\n")
+    run_ids = {label.get("run_id") for label in labels.values()}
+    payload = {"run_id": next(iter(run_ids)) if len(run_ids) == 1 else None, "tasks": values}
+    H.write_atomic(path + ".ale-provenance.json", json.dumps(payload, indent=2, sort_keys=True) + "\n")
 
 
 def _plan_print_gaps(labels: dict) -> List[str]:
@@ -1629,16 +1638,23 @@ def _compile_plan_to_run(path: str, run_dir: str, roster: dict, run_id: Optional
     with open(path, encoding="utf-8") as handle:
         text = handle.read()
     provenance = {}
+    sidecar_run_id = None
     sidecar = path + ".ale-provenance.json"
     if os.path.exists(sidecar):
         try:
             with open(sidecar, encoding="utf-8") as handle:
-                provenance = json.load(handle)
+                payload = json.load(handle)
+                if isinstance(payload, dict) and "tasks" in payload:
+                    sidecar_run_id = payload.get("run_id")
+                    provenance = payload.get("tasks") or {}
+                else:
+                    provenance = payload
         except (OSError, ValueError) as exc:
             print("cannot read provenance sidecar: %s" % exc, file=sys.stderr)
             return None
     try:
-        labels = compile_plan(text, _plan_run_id(path, run_id), provenance=provenance)
+        chosen_run_id = run_id if run_id is not None else sidecar_run_id
+        labels = compile_plan(text, _plan_run_id(path, chosen_run_id), provenance=provenance)
     except (BakeError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return None
@@ -1686,7 +1702,9 @@ def cmd_init_run_plan(a) -> int:
         raise CliError(FAIL, "run already initialised: %s" % c.events_path)
     with open(a.plan, "rb") as handle:
         plan_sha256 = __import__("hashlib").sha256(handle.read()).hexdigest()
-    c.emit("run_started", plan_sha256=plan_sha256)
+    run_id_from = "explicit" if a.run_id is not None else (
+        "provenance" if os.path.exists(a.plan + ".ale-provenance.json") else "plan-stem")
+    c.emit("run_started", plan_sha256=plan_sha256, run_id_from=run_id_from)
     rhash = R.roster_hash(c.roster)
     for task_id, label in c.labels.items():
         c.emit("labeled", task_id, None, 1, labels=label["labels"], roster_hash=rhash)
