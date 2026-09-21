@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import glob
 import json
 import os
@@ -11,6 +12,7 @@ import time
 from typing import List, Optional
 
 from . import events as E
+from .herdr_token import token_text
 from . import handoff as H
 from . import labelset as L
 from . import lifecycle as LC
@@ -20,6 +22,7 @@ from . import watchdog as W
 from . import binding as B
 from . import hooks as HK
 from . import usage_transcript as UT
+from . import timeline as TL
 from . import dynamic as D
 from .labeling import cascade as CAS
 from .labeling import truth as TRUTH
@@ -28,6 +31,9 @@ from .evalharness import corpus as CORPUS
 from .evalharness import goldset as GOLDSET
 from .evalharness import jevrun as JEVRUN
 from .evalharness import report as REPORT
+
+
+_HERDR_RUNNER = subprocess.run
 
 OK, FAIL, USAGE, CLAIM_LOST, LEASE_LOST, SIGNOFF, BREACH = 0, 1, 2, 3, 4, 5, 6
 TEXT_MAX = 1000
@@ -78,7 +84,38 @@ class Ctx:
 
     def emit(self, kind: str, task_id: Optional[str] = None, agent_id: Optional[str] = None,
              attempt: Optional[int] = None, **extra) -> None:
+        pane = os.environ.get("HERDR_PANE_ID")
+        if kind in ("claimed", "spawned") and pane:
+            extra["pane"] = pane
         E.append_event(self.events_path, E.make_event(kind, self.run_id, self.now, task_id, agent_id, attempt, **extra))
+        self._publish(task_id)
+
+    def _publish(self, task_id: Optional[str]) -> None:
+        if os.environ.get("ALE_HERDR") != "1" or not task_id:
+            return
+        events = E.read_events(self.events_path)
+        pane = None
+        for event in events:
+            if event.get("task_id") == task_id and event.get("pane"):
+                pane = event["pane"]
+        if not pane or task_id not in self.labels:
+            return
+        try:
+            text = token_text(task_id, self.labels[task_id], self.state()["tasks"][task_id])
+            result = _HERDR_RUNNER(
+                ["herdr", "pane", "report-metadata", pane, "--source", "ale",
+                 "--token", "ale=" + text, "--ttl-ms", "900000"],
+                timeout=2, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if getattr(result, "returncode", 0) != 0:
+                raise RuntimeError("herdr exited with %s" % result.returncode)
+        except Exception:
+            path = os.path.join(self.run_dir, "herdr-failures.count")
+            try:
+                with open(path, encoding="utf-8") as f:
+                    count = int(f.read().strip() or "0")
+            except (OSError, ValueError):
+                count = 0
+            H.write_atomic(path, str(count + 1) + "\n")
 
     def task(self, task_id: str) -> dict:
         if task_id not in self.labels:
@@ -158,10 +195,14 @@ def cmd_status(a) -> int:
                         st["assignees"].append(event["agent_id_minted"])
         print(json.dumps(state, sort_keys=True))
     else:
+        events = E.read_events(c.events_path)
         for tid in sorted(state["tasks"]):
             st = state["tasks"][tid]
-            print("%-8s %-15s attempt=%d owner=%s tokens=%d step=%s" % (
-                tid, st["state"], st["attempt"], st["owner"] or "-", st["tokens"], st["last_step"] or "-"))
+            spawn = _latest_spawn(c, tid)
+            print("%-8s %-15s attempt=%d owner=%s tokens=%d step=%s wt=%s branch=%s integrated=%s" % (
+                tid, st["state"], st["attempt"], st["owner"] or "-", st["tokens"],
+                st["last_step"] or "-", (spawn or {}).get("worktree", "-"),
+                (spawn or {}).get("branch", "-"), "yes" if st.get("integrated") else "no"))
     return OK
 
 
@@ -178,7 +219,12 @@ def cmd_claim(a) -> int:
     if a.task not in c.labels:
         raise CliError(FAIL, "unknown task %s" % a.task)
     cap = L.effective_watch(c.labels[a.task], c.roster)["max_attempts"]
-    if not LC.try_claim(c.events_path, c.labels, c.run_id, a.task, a.agent, c.now, cap):
+    state = c.state()
+    if not state["tasks"][a.task]["claimable"] or state["tasks"][a.task]["attempt"] > cap:
+        print("claim lost: %s" % a.task, file=sys.stderr)
+        return CLAIM_LOST
+    c.emit("claimed", a.task, a.agent, state["tasks"][a.task]["attempt"])
+    if c.state()["tasks"][a.task]["owner"] != a.agent:
         print("claim lost: %s" % a.task, file=sys.stderr)
         return CLAIM_LOST
     c.render(a.task, a.agent)
@@ -798,9 +844,77 @@ def cmd_doctor(a) -> int:
         for tid in sorted(labeled_ids):
             if tid not in c.labels:
                 problems.append("%s: labeled in the log but its label file is missing" % tid)
+    failure_path = os.path.join(c.run_dir, "herdr-failures.count")
+    try:
+        with open(failure_path, encoding="utf-8") as f:
+            failure_count = int(f.read().strip() or "0")
+    except (OSError, ValueError):
+        failure_count = 0
+    if failure_count:
+        problems.append("herdr metadata failures: %d" % failure_count)
     for p in problems:
         print(p, file=sys.stderr)
     return FAIL if problems else OK
+
+
+def cmd_timeline(a) -> int:
+    c = Ctx(a)
+    events = E.read_events(c.events_path)
+    if a.task:
+        events = [event for event in events if event.get("task_id") == a.task]
+    rows = TL.timeline(events, c.labels)
+    if a.json:
+        print(json.dumps(rows, sort_keys=True))
+    else:
+        for line in TL.format_timeline(rows):
+            print(line)
+    return OK
+
+
+def _meta_prices(roster: dict) -> Optional[dict]:
+    prices = roster.get("prices") if isinstance(roster, dict) else None
+    return prices if isinstance(prices, dict) else None
+
+
+def _meta_csv(meta: dict) -> None:
+    fields = ["kind", "id", "input", "output", "cache_read", "cache_write",
+              "wall_seconds", "attempts", "breaches", "model", "executor",
+              "files_touched", "cost"]
+    writer = csv.DictWriter(sys.stdout, fieldnames=fields, lineterminator="\n")
+    writer.writeheader()
+    for kind in ("task", "agent"):
+        for ident, summary in sorted(meta[kind + "s"].items()):
+            row = {"kind": kind, "id": ident}
+            row.update({key: summary.get(key) for key in fields if key in summary})
+            row["wall_seconds"] = json.dumps(summary.get("wall_seconds", {}), sort_keys=True)
+            row["breaches"] = json.dumps(summary.get("breaches", []), sort_keys=True)
+            row["files_touched"] = json.dumps(summary.get("files_touched", []), sort_keys=True)
+            row["input"] = summary["tokens"]["input"]
+            row["output"] = summary["tokens"]["output"]
+            row["cache_read"] = summary["tokens"]["cache_read"]
+            row["cache_write"] = summary["tokens"]["cache_write"]
+            writer.writerow(row)
+    summary = meta["totals"]
+    row = {"kind": "total", "id": "totals"}
+    row["input"] = summary["tokens"]["input"]
+    row["output"] = summary["tokens"]["output"]
+    row["cache_read"] = summary["tokens"]["cache_read"]
+    row["cache_write"] = summary["tokens"]["cache_write"]
+    row["cost"] = summary.get("cost")
+    writer.writerow(row)
+
+
+def cmd_meta(a) -> int:
+    c = Ctx(a)
+    meta = TL.task_metadata(E.read_events(c.events_path), c.labels, c.roster,
+                            _meta_prices(c.roster))
+    if a.csv:
+        _meta_csv(meta)
+    elif a.json:
+        print(json.dumps(meta, sort_keys=True))
+    else:
+        print(json.dumps(meta, sort_keys=True, indent=2))
+    return OK
 
 
 def _binding_home(a) -> str:
@@ -886,12 +1000,13 @@ def cmd_label(a) -> int:
         H.write_atomic(os.path.join(run_dir, "labels", "%s.json" % tid),
                        json.dumps(final, indent=2, sort_keys=True))
         run_id = draft.get("run_id", "")
+        label_ctx = Ctx(a)
         for v in votes:
             extra = {"field": v["field"], "by": v["by"], "value": v["value"], "confidence": v["confidence"]}
             err = (v.get("detail") or {}).get("error")
             if err:
                 extra["error"] = str(err)[:200]
-            E.append_event(events_path, E.make_event("label_vote", run_id, now, tid, None, 1, **extra))
+            label_ctx.emit("label_vote", tid, None, 1, **extra)
             total_votes += 1
             if v["by"].startswith("judge:"):
                 if v["value"] is None:
@@ -1536,6 +1651,12 @@ def _parser() -> argparse.ArgumentParser:
     integrate = add("integrate", cmd_integrate, task=True)
     integrate.add_argument("--cwd")
     add("status", cmd_status).add_argument("--json", action="store_true")
+    timeline = add("timeline", cmd_timeline)
+    timeline.add_argument("--task")
+    timeline.add_argument("--json", action="store_true")
+    meta = add("meta", cmd_meta)
+    meta.add_argument("--json", action="store_true")
+    meta.add_argument("--csv", action="store_true")
     add("ready", cmd_ready)
     add("claim", cmd_claim, task=True, agent=True)
     hb = add("heartbeat", cmd_heartbeat, task=True, agent=True)
