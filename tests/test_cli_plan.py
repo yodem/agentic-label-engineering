@@ -133,6 +133,15 @@ def test_compile_preserves_existing_plan_labels(tmp_path):
     assert plan.read_bytes() == before
 
 
+def test_plan_compile_rejects_unsafe_run_id(tmp_path):
+    roster = _roster(tmp_path)
+    plan = _valid_plan(tmp_path, roster)
+    plan.write_text(plan.read_text().replace('"run_id": "plan-run"', '"run_id": "../unsafe"'))
+    run_dir = tmp_path / "run"
+    assert main(["plan", "compile", str(plan), "--run-dir", str(run_dir), "--roster", roster]) == 1
+    assert not (run_dir / "labels").exists()
+
+
 def test_bake_accepts_run_id(tmp_path):
     plan = tmp_path / "plan.md"
     plan.write_text(open(PLAN, encoding="utf-8").read())

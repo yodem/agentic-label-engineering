@@ -144,3 +144,8 @@ def test_large_plan_is_parsed():
 
     assert len(tasks) == 2500
     assert tasks[-1]["task_id"] == "T2500"
+
+
+def test_headings_inside_backtick_or_tilde_fences_are_ignored():
+    text = "## Task 1: One\n~~~\n## Task 9: Nested\n~~~\n## Task 2: Two\n"
+    assert [task["task_id"] for task in parse_plan(text)] == ["T1", "T2"]

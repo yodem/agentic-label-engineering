@@ -17,8 +17,34 @@ class BakeError(ValueError):
 
 
 _OPEN = re.compile(r"^```ale-label\s*$")
-_CLOSE = re.compile(r"^```\s*$")
+_FENCE = re.compile(r"^\s*([`~]{3,})(.*)$")
 _GLOB = re.compile(r"[*?\[]")
+
+
+def _fence_states(lines: List[str]) -> List[Tuple[str, int]]:
+    state = None
+    result = []
+    for line in lines:
+        result.append(state)
+        match = _FENCE.match(line)
+        if not match:
+            continue
+        marker, suffix = match.groups()
+        suffix = suffix.strip()
+        char = marker[0]
+        if state is None:
+            state = (char, len(marker))
+        elif char == state[0] and len(marker) >= state[1] and not suffix:
+            state = None
+    return result
+
+
+def _line_open(line: str) -> bool:
+    return bool(_OPEN.match(line))
+
+
+def _line_close(line: str) -> bool:
+    return bool(re.match(r"^```\s*$", line))
 
 
 def _vote(votes: dict, field: str):
@@ -111,16 +137,17 @@ def render_block(label: dict) -> str:
 
 def extract_blocks(text: str) -> List[Tuple[int, dict]]:
     lines = text.splitlines()
+    states = _fence_states(lines)
     blocks = []
     index = 0
     while index < len(lines):
-        if not _OPEN.match(lines[index]):
+        if states[index] is not None or not _line_open(lines[index]):
             index += 1
             continue
         opening_line = index + 1
         index += 1
         content = []
-        while index < len(lines) and not _CLOSE.match(lines[index]):
+        while index < len(lines) and not _line_close(lines[index]):
             content.append(lines[index])
             index += 1
         if index == len(lines):
@@ -146,6 +173,9 @@ def bake(text: str, labels) -> str:
     label_map = _label_map(labels)
     tasks = parse_plan(text)
     lines = text.splitlines(keepends=True)
+    states = _fence_states([line.rstrip("\r\n") for line in lines])
+    crlf = text.count("\r\n") > text.count("\n") - text.count("\r\n")
+    newline = "\r\n" if crlf else "\n"
     starts = [task["line"] - 1 for task in tasks]
     for position in range(len(tasks) - 1, -1, -1):
         task = tasks[position]
@@ -153,11 +183,12 @@ def bake(text: str, labels) -> str:
         if label is None:
             continue
         start = starts[position]
-        replacement = render_block(label).splitlines(keepends=True)
+        replacement = render_block(label).replace("\n", newline).splitlines(keepends=True)
         block_start = start + 1
-        if block_start < len(lines) and _OPEN.match(lines[block_start].rstrip("\r\n")):
+        if (block_start < len(lines) and states[block_start] is None
+                and _line_open(lines[block_start].rstrip("\r\n"))):
             block_end = block_start + 1
-            while block_end < len(lines) and not _CLOSE.match(lines[block_end].rstrip("\r\n")):
+            while block_end < len(lines) and not _line_close(lines[block_end].rstrip("\r\n")):
                 block_end += 1
             if block_end < len(lines):
                 block_end += 1
@@ -166,7 +197,7 @@ def bake(text: str, labels) -> str:
         if lines[start].endswith(("\n", "\r")):
             lines[block_start:block_start] = replacement
         else:
-            lines[start] = lines[start] + "\n"
+            lines[start] = lines[start] + newline
             lines[block_start:block_start] = replacement
     return "".join(lines)
 

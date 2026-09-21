@@ -75,7 +75,14 @@ class Ctx:
                 raise CliError(USAGE, "--now must be a number, got %r" % (raw_now,))
 
     def _load_added(self, label_file: str) -> dict:
-        path = label_file if os.path.isabs(label_file) else os.path.join(self.run_dir, "labels", label_file)
+        if (not isinstance(label_file, str) or os.path.basename(label_file) != label_file
+                or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*\.json", label_file)):
+            raise ValueError("unsafe label_file")
+        labels_dir = os.path.realpath(os.path.join(self.run_dir, "labels"))
+        path = os.path.join(labels_dir, label_file)
+        resolved = os.path.realpath(path)
+        if os.path.commonpath([labels_dir, resolved]) != labels_dir:
+            raise ValueError("label_file escapes labels directory")
         with open(path, encoding="utf-8") as f:
             return json.load(f)
 
@@ -155,6 +162,8 @@ def cmd_validate(a) -> int:
 
 def cmd_init_run(a) -> int:
     c = Ctx(a)
+    if not H.is_safe_id(c.run_id):
+        raise CliError(USAGE, "unsafe run_id: %s" % c.run_id)
     errs = L.check_labelset(c.labels, c.roster)
     if errs:
         for e in errs:
@@ -781,6 +790,10 @@ def cmd_fix(a) -> int:
     parent = c.task(a.task)
     if parent.get("state") != "rejected":
         raise CliError(FAIL, "task %s is %s, not rejected" % (a.task, parent.get("state")))
+    if c.labels[a.task].get("fixes"):
+        c.emit("breach", a.task, None, parent.get("attempt"), breach="attempts_exhausted",
+               detail="fix tasks cannot create another fix task")
+        raise CliError(BREACH, "attempts_exhausted")
     existing = sorted(tid for tid, label in c.labels.items() if label.get("fixes") == a.task)
     if len(existing) >= 2:
         c.emit("breach", a.task, None, parent.get("attempt"), breach="attempts_exhausted", detail="two fix tasks already exist")
@@ -1380,8 +1393,8 @@ def _plan_roster(a):
 
 
 def _plan_run_id(path: str, supplied: Optional[str]) -> str:
-    value = supplied or os.path.splitext(os.path.basename(path))[0]
-    value = re.sub(r"[^A-Za-z0-9._-]", "-", value)
+    value = supplied if supplied is not None else re.sub(
+        r"[^A-Za-z0-9._-]", "-", os.path.splitext(os.path.basename(path))[0])
     if not H.is_safe_id(value):
         raise CliError(USAGE, "plan run id is unsafe: %s" % value)
     return value
@@ -1560,6 +1573,9 @@ def _compile_plan_to_run(path: str, run_dir: str, roster: dict) -> dict:
         print(str(exc), file=sys.stderr)
         return None
     errors = _plan_check_labels(labels, roster)
+    for task_id, label in labels.items():
+        if not H.is_safe_id(label.get("run_id")):
+            errors.append("unsafe run_id: %s" % label.get("run_id"))
     if errors:
         for error in errors:
             print(error, file=sys.stderr)

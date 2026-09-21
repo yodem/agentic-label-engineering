@@ -15,7 +15,7 @@ _HEADING = re.compile(
 )
 _NUMBERED = re.compile(r"^(\d+)\.\s+(.*)$")
 _CHECKBOX = re.compile(r"^- \[ \]\s+(.*)$")
-_FENCE = re.compile(r"^\s*```\s*([^\s`]*)")
+_FENCE = re.compile(r"^\s*([`~]{3,})(.*)$")
 _FILE_LINE = re.compile(r"^(?:\*\*Files:\*\*|Create:|Modify:|Test:)")
 _BACKTICK = re.compile(r"`([^`]+)`")
 _COMMAND = re.compile(r"Run:\s*`([^`]+)`")
@@ -25,12 +25,18 @@ _GIT_WRITE = re.compile(r"^git\s+(?:add|commit|push)(?:\s|$)", re.I)
 
 
 def _fenced_lines(lines: List[str]) -> List[bool]:
-    fenced = False
+    fence = None
     result = []
     for line in lines:
-        result.append(fenced)
-        if _FENCE.match(line):
-            fenced = not fenced
+        result.append(fence is not None)
+        match = _FENCE.match(line)
+        if not match:
+            continue
+        marker, suffix = match.groups()
+        if fence is None:
+            fence = (marker[0], len(marker))
+        elif marker[0] == fence[0] and len(marker) >= fence[1] and not suffix.strip():
+            fence = None
     return result
 
 
@@ -81,7 +87,8 @@ def _task_fields(lines: List[str], start: int, end: int) -> Tuple[List[str], Lis
             dependencies.extend(match.group(1) for match in _CONSUMES.finditer(line))
 
         fence = _FENCE.match(line)
-        if fence and fence.group(1).lower() in ("bash", "sh"):
+        info = fence.group(2).strip().split()[0].lower() if fence and fence.group(2).strip() else ""
+        if fence and info in ("bash", "sh"):
             previous = lines[index - 1] if index > start else ""
             if re.search(r"\b(?:Run|Verify)\b", previous, re.I):
                 index += 1

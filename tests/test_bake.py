@@ -138,3 +138,20 @@ def test_directory_entries_become_globs(roster):
     assert skeleton_label(task, "run-1", _votes(
         roster, role="backend", effort="M", risk="low", model_tier="standard"
     ))["context"]["allowed_paths"] == ["src/auth/*", "README.md", "assets/*"]
+
+
+def test_nested_label_fence_is_not_an_embedded_block(roster):
+    nested = ('## Task 1: One\n~~~\n```ale-label\n{"task_id":"T1"}\n```\n~~~\n'
+              '## Task 2: Two\n')
+    assert extract_blocks(nested) == []
+    with pytest.raises(BakeError, match="T1"):
+        compile_plan(nested)
+    baked = bake(nested, {"T1": _label(roster), "T2": _label(roster, "T2")})
+    assert '~~~\n```ale-label\n{"task_id":"T1"}\n```\n~~~' in baked
+    assert baked.count("```ale-label") == 3
+
+
+def test_bake_uses_dominant_crlf_line_endings(roster):
+    text = "## Task 1: One\r\n## Task 2: Two\r\n"
+    baked = bake(text, {"T1": _label(roster), "T2": _label(roster, "T2")})
+    assert all(line.endswith("\r\n") for line in baked.splitlines(keepends=True))

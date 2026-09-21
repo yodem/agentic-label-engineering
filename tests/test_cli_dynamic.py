@@ -163,3 +163,42 @@ def test_remove_live_refused_and_removed_dependency_breaches(tmp_path, capsys):
     assert _ale(run, roster, "watchdog") == 6
     # The first attempt was live, so the event log has only the later removal.
     assert sum(e["type"] == "label_removed" for e in E.read_events(str(run / "events.jsonl"))) == 1
+
+
+def test_task_added_paths_are_sandboxed(tmp_path, capsys):
+    run, roster = _run(tmp_path)
+    outside = tmp_path / "outside.json"
+    outside.write_text((run / "labels" / "T01.json").read_text(), encoding="utf-8")
+    for value in (str(outside), "../outside.json"):
+        E.append_event(str(run / "events.jsonl"), E.make_event(
+            "task_added", "example-run", 1, "T99", None, 1,
+            label_file=value, reason="test"))
+        assert _ale(run, roster, "status", "--json") == 0
+        assert "T99" not in json.loads(capsys.readouterr().out)["tasks"]
+
+
+def test_task_added_symlink_escape_is_ignored(tmp_path, capsys):
+    run, roster = _run(tmp_path)
+    outside = tmp_path / "outside.json"
+    outside.write_text((run / "labels" / "T01.json").read_text(), encoding="utf-8")
+    (run / "labels" / "T99.json").symlink_to(outside)
+    E.append_event(str(run / "events.jsonl"), E.make_event(
+        "task_added", "example-run", 1, "T99", None, 1,
+        label_file="T99.json", reason="test"))
+    assert _ale(run, roster, "status", "--json") == 0
+    assert "T99" not in json.loads(capsys.readouterr().out)["tasks"]
+
+
+def test_fix_task_cannot_create_another_fix(tmp_path):
+    run, roster = _run(tmp_path)
+    label, path = _label(run)
+    label["acceptance"][0]["cmd"] = "false"
+    label["fixes"] = "T00"
+    path.write_text(json.dumps(label), encoding="utf-8")
+    assert _ale(run, roster, "init-run") == 0
+    assert _ale(run, roster, "claim", "--task", "T01", "--agent", "a", now=1) == 0
+    assert _ale(run, roster, "submit", "--task", "T01", "--agent", "a", "--summary", "s", now=2) == 0
+    assert _ale(run, roster, "verify", "--task", "T01", "--cwd", str(run), now=3) == 1
+    assert _ale(run, roster, "fix", "--task", "T01", now=4) == 6
+    assert any(event.get("breach") == "attempts_exhausted"
+               for event in E.read_events(str(run / "events.jsonl")))
