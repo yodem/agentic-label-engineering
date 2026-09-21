@@ -1,6 +1,8 @@
 import json
 import os
+import shutil
 import subprocess
+import sys
 import textwrap
 import time
 
@@ -146,6 +148,37 @@ def test_codex_usage_event_is_recorded(harness, tmp_path):
     usage = [line for line in log_text(harness).splitlines() if line.startswith("usage ")]
     assert len(usage) == 1
     assert "24763" in usage[0] and "122" in usage[0] and "codex-test" in usage[0]
+
+
+def test_codex_usage_event_attributes_wrapper_agent(tmp_path):
+    run_dir = tmp_path / "run"
+    shutil.copytree(os.path.join(ROOT, "examples", "run"), str(run_dir))
+    roster = tmp_path / "roster.json"
+    shutil.copy(os.path.join(ROOT, "examples", "roster.json"), str(roster))
+    initialized = subprocess.run(
+        [sys.executable, "-m", "ale", "init-run", "--run-dir", str(run_dir),
+         "--roster", str(roster), "--now", "0"],
+        cwd=ROOT, text=True, capture_output=True,
+    )
+    assert initialized.returncode == 0
+
+    child = tmp_path / "child.sh"
+    event = json.dumps({"type": "turn.completed", "usage": {
+        "input_tokens": 10, "output_tokens": 3,
+    }})
+    child.write_text("#!/bin/sh\nprintf '%s\\n' '%s'\n" % (event, event))
+    child.chmod(0o755)
+    env = os.environ.copy()
+    env.update({"ALE_RUN_DIR": str(run_dir), "ALE_ROSTER": str(roster), "ALE_MODEL": "codex-test"})
+    proc = subprocess.run(
+        [WRAPPER, "--task", "T01", "--agent", "codex-worker", "--usage-from", "codex-json",
+         "--", str(child)],
+        cwd=ROOT, env=env, text=True, capture_output=True,
+    )
+    assert proc.returncode == 0
+    events = [json.loads(line) for line in (run_dir / "events.jsonl").read_text().splitlines()]
+    usage = [event for event in events if event["type"] == "usage"]
+    assert len(usage) == 1 and usage[0]["agent_id"] == "codex-worker"
 
 
 def test_term_wrapper_terminates_child(harness, tmp_path):
