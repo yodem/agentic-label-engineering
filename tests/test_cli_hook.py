@@ -270,3 +270,43 @@ def test_subagent_stop_uses_agent_transcript(fixture, monkeypatch):
     transcript = tmp_path / "agent.jsonl"
     transcript.write_text("{}\n")
     assert call_hook(monkeypatch, "stop", agent_id="ag1", agent_transcript_path=str(transcript), transcript_path="missing") == 0
+
+
+def test_pre_tool_denies_symlinked_file_outside_project(fixture, monkeypatch, capsys):
+    tmp_path, run_dir, roster, home = fixture
+    bind(home, run_dir, roster)
+    project = tmp_path / "project"
+    (project / "src" / "auth").mkdir(parents=True)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("secret")
+    (project / "src" / "auth" / "link.py").symlink_to(outside)
+    assert main(["claim", "--task", "T01", "--agent", "a1", "--run-dir", str(run_dir), "--roster", str(roster), "--now", "1"]) == 0
+    assert call_hook(monkeypatch, "pre-tool", cwd=str(project), tool_name="Write",
+                     tool_input={"file_path": "src/auth/link.py"}) == 2
+    assert "allowed" in capsys.readouterr().err
+
+
+def test_pre_tool_denies_symlinked_directory_outside_project(fixture, monkeypatch, capsys):
+    tmp_path, run_dir, roster, home = fixture
+    bind(home, run_dir, roster)
+    project = tmp_path / "project"
+    (project / "src" / "auth").mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (project / "src" / "auth" / "linked").symlink_to(outside, target_is_directory=True)
+    assert main(["claim", "--task", "T01", "--agent", "a1", "--run-dir", str(run_dir), "--roster", str(roster), "--now", "1"]) == 0
+    assert call_hook(monkeypatch, "pre-tool", cwd=str(project), tool_name="Write",
+                     tool_input={"file_path": "src/auth/linked/new.py"}) == 2
+    assert "allowed" in capsys.readouterr().err
+
+
+def test_pre_tool_allows_project_root_reached_through_symlink(fixture, monkeypatch):
+    tmp_path, run_dir, roster, home = fixture
+    bind(home, run_dir, roster)
+    real_project = tmp_path / "project"
+    (real_project / "src" / "auth").mkdir(parents=True)
+    linked_project = tmp_path / "project-link"
+    linked_project.symlink_to(real_project, target_is_directory=True)
+    assert main(["claim", "--task", "T01", "--agent", "a1", "--run-dir", str(run_dir), "--roster", str(roster), "--now", "1"]) == 0
+    assert call_hook(monkeypatch, "pre-tool", cwd=str(linked_project), tool_name="Write",
+                     tool_input={"file_path": "src/auth/new.py"}) == 0

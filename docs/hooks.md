@@ -30,3 +30,8 @@ The detailed harness facts and versions are recorded in
 `docs/harness-facts.md`. The shipped Codex file contains only its PreToolUse
 entry; the wrapper and Pi extension provide the additional capabilities shown
 above through their own execution paths.
+
+Allowed paths use Python `fnmatch`: `*` crosses `/`, so `src/*` also matches
+`src/auth/session.py`. Use a specific glob such as `src/auth/**` when that
+boundary is intentional; a bare directory entry such as `src/auth` matches
+nothing and is rejected by `ale validate`.

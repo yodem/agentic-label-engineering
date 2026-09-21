@@ -63,6 +63,18 @@ loop_pid=
 cleanup() {
     rc=$?
     trap - EXIT INT TERM
+    if [ -n "$child_pid" ]; then
+        kill -TERM "$child_pid" 2>/dev/null || true
+        n=0
+        while kill -0 "$child_pid" 2>/dev/null && [ "$n" -lt 10 ]; do
+            sleep 1
+            n=$((n + 1))
+        done
+        if kill -0 "$child_pid" 2>/dev/null; then
+            kill -KILL "$child_pid" 2>/dev/null || true
+        fi
+        wait "$child_pid" 2>/dev/null || true
+    fi
     if [ -n "$loop_pid" ]; then
         kill "$loop_pid" 2>/dev/null || true
         wait "$loop_pid" 2>/dev/null || true

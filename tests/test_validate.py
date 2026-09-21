@@ -1,6 +1,14 @@
+import json
+import os
+import shutil
+
 import pytest
 
+from ale.cli import main
 from ale.validate import load_schema, validate
+
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def test_example_label_is_valid(label_t01):
@@ -60,3 +68,30 @@ def test_pattern_dollar_does_not_accept_trailing_newline(label_t01):
     assert validate(label_t01, load_schema("label.schema.json")) != []
     assert validate("exit0\n", {"type": "string", "pattern": "^exit(0|:[0-9]{1,3})$"}) != []
     assert validate("exit0", {"type": "string", "pattern": "^exit(0|:[0-9]{1,3})$"}) == []
+
+
+def test_validate_rejects_directory_allowed_path(tmp_path, capsys):
+    run_dir = tmp_path / "run"
+    shutil.copytree(os.path.join(ROOT, "examples", "run"), str(run_dir))
+    roster = tmp_path / "roster.json"
+    shutil.copy(os.path.join(ROOT, "examples", "roster.json"), str(roster))
+    (run_dir / "src" / "auth").mkdir(parents=True)
+    label_path = run_dir / "labels" / "T01.json"
+    label = json.loads(label_path.read_text())
+    label["context"]["allowed_paths"] = ["src/auth"]
+    label_path.write_text(json.dumps(label))
+    assert main(["validate", "--run-dir", str(run_dir), "--roster", str(roster), "--cwd", str(run_dir)]) == 1
+    assert 'allowed_paths entry "src/auth" is a directory: write "src/auth/*"' in capsys.readouterr().err
+
+
+def test_validate_rejects_trailing_slash_allowed_path(tmp_path, capsys):
+    run_dir = tmp_path / "run"
+    shutil.copytree(os.path.join(ROOT, "examples", "run"), str(run_dir))
+    roster = tmp_path / "roster.json"
+    shutil.copy(os.path.join(ROOT, "examples", "roster.json"), str(roster))
+    label_path = run_dir / "labels" / "T01.json"
+    label = json.loads(label_path.read_text())
+    label["context"]["allowed_paths"] = ["src/auth/"]
+    label_path.write_text(json.dumps(label))
+    assert main(["validate", "--run-dir", str(run_dir), "--roster", str(roster), "--cwd", str(run_dir)]) == 1
+    assert 'allowed_paths entry "src/auth/" is a directory: write "src/auth//*"' in capsys.readouterr().err

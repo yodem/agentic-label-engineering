@@ -93,6 +93,12 @@ def _owned(c: Ctx, a: argparse.Namespace, kind: str, **extra) -> int:
 def cmd_validate(a) -> int:
     c = Ctx(a)
     errs = L.check_labelset(c.labels, c.roster)
+    cwd = os.path.abspath(a.cwd or os.getcwd())
+    for label in c.labels.values():
+        for entry in label["context"]["allowed_paths"]:
+            if entry.endswith("/") or (not re.search(r"[*?\[]", entry)
+                                        and os.path.isdir(os.path.join(cwd, entry))):
+                errs.append('allowed_paths entry "%s" is a directory: write "%s/*"' % (entry, entry))
     for e in errs:
         print(e, file=sys.stderr)
     return FAIL if errs else OK
@@ -311,6 +317,35 @@ def _hook_binding(data: dict) -> Optional[dict]:
     return B.resolve(os.environ, _hook_home(), session_id, data.get("agent_id"))
 
 
+def _resolved_hook_input(tool_name: str, tool_input: dict, project_root: str) -> dict:
+    result = dict(tool_input)
+    root = os.path.realpath(project_root)
+
+    def resolve_path(path: str) -> str:
+        raw = path if os.path.isabs(path) else os.path.join(project_root, path)
+        candidate = os.path.join(os.path.realpath(os.path.dirname(raw)), os.path.basename(raw))
+        if os.path.exists(raw):
+            candidate = os.path.realpath(raw)
+        return os.path.relpath(candidate, root)
+
+    key = "notebook_path" if tool_name == "NotebookEdit" else "file_path"
+    if isinstance(result.get(key), str):
+        result[key] = resolve_path(result[key])
+    edits = result.get("edits")
+    if isinstance(edits, list):
+        copied = []
+        for edit in edits:
+            if not isinstance(edit, dict):
+                copied.append(edit)
+                continue
+            item = dict(edit)
+            if isinstance(item.get(key), str):
+                item[key] = resolve_path(item[key])
+            copied.append(item)
+        result["edits"] = copied
+    return result
+
+
 def _hook_orchestrator(data: dict) -> int:
     run_dir = os.environ.get("ALE_ORCHESTRATOR_RUN_DIR")
     if not run_dir:
@@ -390,7 +425,10 @@ def cmd_hook(a) -> int:
             print(HK.session_context(label, handoff, decisions))
             return OK
         if event == "pre-tool":
-            result = HK.decide_pre_tool(binding, label, state, data.get("tool_name", ""), data.get("tool_input") or {}, data.get("cwd") or os.getcwd())
+            project_root = data.get("cwd") or os.getcwd()
+            tool_name = data.get("tool_name", "")
+            tool_input = _resolved_hook_input(tool_name, data.get("tool_input") or {}, project_root)
+            result = HK.decide_pre_tool(binding, label, state, tool_name, tool_input, project_root)
             if result["action"] == "deny":
                 print(result["reason"], file=sys.stderr)
                 return 2
@@ -943,7 +981,8 @@ def _parser() -> argparse.ArgumentParser:
             sp.add_argument("--agent", required=True)
         return sp
 
-    add("validate", cmd_validate)
+    va = add("validate", cmd_validate)
+    va.add_argument("--cwd")
     add("init-run", cmd_init_run)
     add("status", cmd_status).add_argument("--json", action="store_true")
     add("ready", cmd_ready)

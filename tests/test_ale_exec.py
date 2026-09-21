@@ -146,3 +146,30 @@ def test_codex_usage_event_is_recorded(harness, tmp_path):
     usage = [line for line in log_text(harness).splitlines() if line.startswith("usage ")]
     assert len(usage) == 1
     assert "24763" in usage[0] and "122" in usage[0] and "codex-test" in usage[0]
+
+
+def test_term_wrapper_terminates_child(harness, tmp_path):
+    pid_file = tmp_path / "pid"
+    child = tmp_path / "child.sh"
+    child.write_text("#!/bin/sh\necho $$ > '%s'\nsleep 30\n" % pid_file)
+    child.chmod(0o755)
+    env = os.environ.copy()
+    env.update({"ALE_BIN": harness[2], "ALE_RUN_DIR": str(harness[0]),
+                "ALE_ROSTER": str(harness[0] / "roster.json"), "ALE_FAKE_LOG": str(harness[1])})
+    proc = subprocess.Popen([WRAPPER, "--task", "T1", "--agent", "agent", "--", str(child)],
+                            cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    for _ in range(100):
+        if pid_file.exists():
+            break
+        time.sleep(0.01)
+    child_pid = int(pid_file.read_text())
+    os.kill(proc.pid, 15)
+    assert proc.wait(timeout=15) in (130, 143)
+    for _ in range(100):
+        try:
+            os.kill(child_pid, 0)
+        except OSError:
+            break
+        time.sleep(0.05)
+    else:
+        pytest.fail("child process survived wrapper termination")
