@@ -8,6 +8,7 @@ Limits:
   a timer heartbeat proves the process is alive, not that it progresses
   there is no path blocking; containment is detected only at verify --base
   lease loss interrupts between heartbeats, not before an in-flight write
+  ALE_EXEC_GRACE_S overrides the child termination grace period (default: 10s)
 EOF
 }
 
@@ -58,18 +59,18 @@ lost_file=$(mktemp "$tmp_root/ale-exec-lost.XXXXXX") || exit 1
 stdout_file=
 child_pid=
 loop_pid=
+grace_s=${ALE_EXEC_GRACE_S:-10}
+signal_exit_code=
 
 # shellcheck disable=SC2329
 cleanup() {
-    rc=$?
-    trap - EXIT INT TERM
+    trap '' INT TERM
+    rc=${signal_exit_code:-${ALE_EXEC_EXIT_CODE:-0}}
     if [ -n "$child_pid" ]; then
         kill -TERM "$child_pid" 2>/dev/null || true
-        n=0
-        while kill -0 "$child_pid" 2>/dev/null && [ "$n" -lt 10 ]; do
-            sleep 1
-            n=$((n + 1))
-        done
+        if kill -0 "$child_pid" 2>/dev/null; then
+            sleep "$grace_s"
+        fi
         if kill -0 "$child_pid" 2>/dev/null; then
             kill -KILL "$child_pid" 2>/dev/null || true
         fi
@@ -81,10 +82,12 @@ cleanup() {
     fi
     [ -n "$stdout_file" ] && rm -f "$stdout_file"
     rm -f "$lost_file"
+    trap - EXIT
     exit "$rc"
 }
-trap cleanup EXIT
-trap 'exit 130' INT TERM
+trap 'ALE_EXEC_EXIT_CODE=$?; cleanup' EXIT
+trap 'signal_exit_code=130; exit 130' INT
+trap 'signal_exit_code=143; exit 143' TERM
 
 if [ "$usage_from" != none ]; then
     stdout_file=$(mktemp "$tmp_root/ale-exec-output.XXXXXX") || exit 1

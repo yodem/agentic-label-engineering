@@ -206,3 +206,29 @@ def test_term_wrapper_terminates_child(harness, tmp_path):
         time.sleep(0.05)
     else:
         pytest.fail("child process survived wrapper termination")
+
+
+def test_second_term_during_cleanup_is_ignored_and_cleanup_finishes(harness, tmp_path):
+    pid_file = tmp_path / "pid"
+    child = tmp_path / "child.sh"
+    child.write_text("#!/bin/sh\necho $$ > '%s'\ntrap '' TERM INT\nsleep 30\n" % pid_file)
+    child.chmod(0o755)
+    env = os.environ.copy()
+    env.update({"ALE_BIN": harness[2], "ALE_RUN_DIR": str(harness[0]),
+                "ALE_ROSTER": str(harness[0] / "roster.json"), "ALE_FAKE_LOG": str(harness[1]),
+                "ALE_EXEC_GRACE_S": "1"})
+    proc = subprocess.Popen([WRAPPER, "--task", "T1", "--agent", "agent", "--", str(child)],
+                            cwd=ROOT, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    for _ in range(100):
+        if pid_file.exists():
+            break
+        time.sleep(0.01)
+    assert pid_file.exists()
+    os.kill(proc.pid, 15)
+    time.sleep(0.3)
+    os.kill(proc.pid, 15)
+    assert proc.wait(timeout=5) == 143
+    child_pid = int(pid_file.read_text())
+    with pytest.raises(OSError):
+        os.kill(child_pid, 0)
+    assert subprocess.run(["pgrep", "-f", "ale-exec-heartbeat-loop"], capture_output=True).returncode != 0
