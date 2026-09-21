@@ -1,0 +1,148 @@
+import json
+import os
+import subprocess
+import textwrap
+import time
+
+import pytest
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+WRAPPER = os.path.join(ROOT, "bin", "ale-exec")
+
+
+@pytest.fixture
+def harness(tmp_path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    log = tmp_path / "ale.log"
+    fake = tmp_path / "fake-ale"
+    fake.write_text(textwrap.dedent("""
+        #!/bin/sh
+        printf '%s %s\n' "$1" "$*" >> "$ALE_FAKE_LOG"
+        case "$1" in
+          claim) [ "${ALE_FAKE_CLAIM:-ok}" = lost ] && exit 3; exit 0 ;;
+          heartbeat) [ "${ALE_FAKE_HEARTBEAT:-ok}" = lost ] && exit 4; exit 0 ;;
+          check)
+            if [ "${ALE_FAKE_CHECK:-ok}" = fail ]; then
+              printf '%s\n' 'A1 FAIL exit=1'
+              exit 1
+            fi
+            printf '%s\n' 'A1 ok exit=0'
+            exit 0
+            ;;
+          submit|input-required|usage) exit 0 ;;
+          *) exit 0 ;;
+        esac
+    """))
+    fake.chmod(0o755)
+    return run_dir, log, str(fake)
+
+
+def run_exec(harness, command, *options, **env_updates):
+    run_dir, log, fake = harness
+    env = os.environ.copy()
+    env.update({
+        "ALE_BIN": fake,
+        "ALE_RUN_DIR": str(run_dir),
+        "ALE_ROSTER": str(run_dir / "roster.json"),
+        "ALE_FAKE_LOG": str(log),
+    })
+    env.update(env_updates)
+    return subprocess.run(
+        [WRAPPER, "--task", "T1", "--agent", "agent", *options, "--", *command],
+        cwd=ROOT, env=env, text=True, capture_output=True,
+    )
+
+
+def log_text(harness):
+    return harness[1].read_text() if harness[1].exists() else ""
+
+
+def test_help_documents_three_limits():
+    proc = subprocess.run([WRAPPER, "--help"], text=True, capture_output=True)
+    assert proc.returncode == 0
+    assert "proves the process is alive" in proc.stdout
+    assert "no path blocking" in proc.stdout
+    assert "between heartbeats" in proc.stdout
+
+
+def test_claim_loss_does_not_start_child(harness, tmp_path):
+    marker = tmp_path / "started"
+    child = tmp_path / "child.sh"
+    child.write_text("#!/bin/sh\ntouch '%s'\n" % marker)
+    child.chmod(0o755)
+    proc = run_exec(harness, [str(child)], ALE_FAKE_CLAIM="lost")
+    assert proc.returncode == 3
+    assert not marker.exists()
+
+
+def test_heartbeats_arrive_and_success_submits(harness):
+    proc = run_exec(harness, ["sleep", "0.25"], "--heartbeat-s", "0.05")
+    assert proc.returncode == 0
+    lines = log_text(harness).splitlines()
+    assert sum(line.startswith("heartbeat ") for line in lines) >= 2
+    assert any(line.startswith("submit ") for line in lines)
+
+
+def test_child_exit_code_is_preserved(harness):
+    proc = run_exec(harness, ["sh", "-c", "exit 7"])
+    assert proc.returncode == 7
+    assert "submit " in log_text(harness)
+
+
+def test_no_heartbeat_process_survives_normal_child(harness):
+    proc = run_exec(harness, ["sleep", "0.05"], "--heartbeat-s", "0.01")
+    assert proc.returncode == 0
+    pgrep = subprocess.run(["pgrep", "-f", "ale-exec-heartbeat-loop"], capture_output=True)
+    assert pgrep.returncode != 0
+
+
+def test_kill_nine_child_leaves_no_heartbeat_process(harness, tmp_path):
+    pid_file = tmp_path / "pid"
+    child = tmp_path / "child.sh"
+    child.write_text("#!/bin/sh\necho $$ > '%s'\nsleep 10\n" % pid_file)
+    child.chmod(0o755)
+    env = os.environ.copy()
+    env.update({"ALE_BIN": harness[2], "ALE_RUN_DIR": str(harness[0]),
+                "ALE_ROSTER": str(harness[0] / "roster.json"), "ALE_FAKE_LOG": str(harness[1])})
+    proc = subprocess.Popen([WRAPPER, "--task", "T1", "--agent", "agent", "--heartbeat-s", "0.02", "--", str(child)],
+                            cwd=ROOT, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    for _ in range(100):
+        if pid_file.exists():
+            break
+        time.sleep(0.01)
+    os.kill(int(pid_file.read_text()), 9)
+    assert proc.wait(timeout=5) == 137
+    assert subprocess.run(["pgrep", "-f", "ale-exec-heartbeat-loop"], capture_output=True).returncode != 0
+
+
+def test_lease_loss_terminates_child_and_returns_four(harness, tmp_path):
+    child = tmp_path / "child.sh"
+    child.write_text("#!/bin/sh\nsleep 10\n")
+    child.chmod(0o755)
+    proc = run_exec(harness, [str(child)], "--heartbeat-s", "0.01", ALE_FAKE_HEARTBEAT="lost")
+    assert proc.returncode == 4
+
+
+def test_acceptance_failure_raises_input_required(harness):
+    proc = run_exec(harness, ["true"], ALE_FAKE_CHECK="fail")
+    assert proc.returncode == 0
+    log = log_text(harness)
+    assert "input-required " in log
+    assert "A1 FAIL exit=1" in log
+    assert "submit " not in log
+
+
+def test_codex_usage_event_is_recorded(harness, tmp_path):
+    child = tmp_path / "child.sh"
+    event = json.dumps({"type": "turn.completed", "usage": {
+        "input_tokens": 24763, "cached_input_tokens": 24448,
+        "output_tokens": 122, "reasoning_output_tokens": 0,
+    }})
+    child.write_text("#!/bin/sh\nprintf '%s\\n' '%s'\n" % (event.replace("'", "'\\''"), event.replace("'", "'\\''")))
+    child.chmod(0o755)
+    proc = run_exec(harness, [str(child)], "--usage-from", "codex-json", ALE_MODEL="codex-test")
+    assert proc.returncode == 0
+    usage = [line for line in log_text(harness).splitlines() if line.startswith("usage ")]
+    assert len(usage) == 1
+    assert "24763" in usage[0] and "122" in usage[0] and "codex-test" in usage[0]
