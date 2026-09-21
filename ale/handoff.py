@@ -16,12 +16,16 @@ def is_safe_id(value) -> bool:
     return bool(SAFE_ID.fullmatch(value))
 
 
-def handoff_path(run_dir: str, task_id: str, agent_id: str) -> str:
+def handoff_path(run_dir: str, task_id: str, agent_id: str, role: str = None) -> str:
     if not is_safe_id(task_id):
         raise ValueError("unsafe id: %r" % (task_id,))
     if not is_safe_id(agent_id):
         raise ValueError("unsafe id: %r" % (agent_id,))
-    return os.path.join(run_dir, "handoff", "%s.%s.md" % (task_id, agent_id))
+    if role is None:
+        return os.path.join(run_dir, "handoff", "%s.%s.md" % (task_id, agent_id))
+    if not is_safe_id(role):
+        raise ValueError("unsafe id: %r" % (role,))
+    return os.path.join(run_dir, "handoff", "%s-%s-handoff.md" % (agent_id, role))
 
 
 def _bullets(items: List[str]) -> str:
@@ -50,7 +54,7 @@ def render(task_id: str, agent_id: str, label: dict, st: dict) -> str:
 
 
 def write_atomic(path: str, text: str) -> None:
-    directory = os.path.dirname(path)
+    directory = os.path.dirname(path) or "."
     os.makedirs(directory, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=directory, prefix=".tmp-")
     try:

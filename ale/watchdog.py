@@ -17,6 +17,9 @@ def check(run_state: dict, labels: Dict[str, dict], roster: dict, now: float) ->
         watch = effective_watch(labels[tid], roster)
         found: List[dict] = []
         state, attempt = st["state"], st["attempt"]
+        missing = st.get("blocked_by") or [dep for dep in labels[tid].get("context", {}).get("depends_on", []) if dep not in run_state["tasks"]]
+        if missing:
+            found.append(_breach(tid, "orphaned_dependency", attempt, "depends on removed task(s): %s" % ", ".join(missing)))
         expired = False
         if state in ("claimed", "working") and now - st["last_heartbeat_ts"] > watch["heartbeat_timeout_s"]:
             expired = True
@@ -39,7 +42,8 @@ def check(run_state: dict, labels: Dict[str, dict], roster: dict, now: float) ->
         if state == "rejected" and attempt > watch["max_attempts"]:
             found.append(_breach(tid, "attempts_exhausted", attempt, "%d attempts used" % (attempt - 1)))
         seen = {(b, a) for b, a in st["breaches_seen"]}
-        out.extend(b for b in found if (b["breach"], b["attempt"]) not in seen)
+        out.extend(b for b in found if b["breach"] == "orphaned_dependency" or
+                   (b["breach"], b["attempt"]) not in seen)
     cap = roster["cost_gate"]["max_run_budget_tokens"]
     if run_state["run"]["tokens"] > cap and "run_budget" not in run_state["run"]["breaches_seen"]:
         out.append(_breach(None, "run_budget", None, "%d tokens > %d" % (run_state["run"]["tokens"], cap)))

@@ -1,0 +1,121 @@
+#!/bin/sh
+
+if [ "$#" -ne 1 ]; then
+    echo "usage: ale-spawn REQUEST.json" >&2
+    exit 2
+fi
+
+request=$1
+eval "$(python3 -c '
+import json
+import shlex
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    request = json.load(handle)
+env = request.get("env") or {}
+values = {
+    "ale_agent": env.get("ALE_AGENT", request.get("agent_id", "")),
+    "ale_task": env.get("ALE_TASK", ""),
+    "ale_kind": request.get("kind", ""),
+    "ale_role": request.get("role", ""),
+    "ale_executor": request.get("executor", ""),
+    "ale_model": request.get("model", ""),
+    "ale_cwd": request.get("cwd", ""),
+    "ale_prompt": request.get("prompt_file", ""),
+    "ale_run_dir": env.get("ALE_RUN_DIR", ""),
+    "ale_roster": env.get("ALE_ROSTER", ""),
+    "ale_herdr": "",
+}
+for key, value in env.items():
+    if key == "ALE_HERDR_EXEC":
+        values["ale_herdr"] = value
+for key, value in values.items():
+    print("%s=%s" % (key, shlex.quote(str(value))))
+' "$request")"
+
+safe_agent=$(printf '%s' "$ale_agent" | tr '[:upper:].' '[:lower:]-' | sed 's/[^a-z0-9_-]/-/g; s/^[^a-z]*/agent-/; s/\(.*\)\(.\{32\}\)$/\2/')
+safe_agent=$(printf '%s' "$safe_agent" | cut -c 1-32)
+
+if [ -n "$ale_task" ]; then ALE_TASK=$ale_task; export ALE_TASK; fi
+if [ -n "$ale_agent" ]; then ALE_AGENT=$ale_agent; export ALE_AGENT; fi
+if [ -n "$ale_run_dir" ]; then ALE_RUN_DIR=$ale_run_dir; export ALE_RUN_DIR; fi
+if [ -n "$ale_roster" ]; then ALE_ROSTER=$ale_roster; export ALE_ROSTER; fi
+if [ -n "$ale_model" ]; then ALE_MODEL=$ale_model; export ALE_MODEL; fi
+
+print_argv() {
+    printf '%s' "$1"
+    shift
+    for arg in "$@"; do
+        printf ' '
+        printf '%s' "$arg" | tr '\n' ' '
+    done
+    printf '\n'
+}
+
+run_argv() {
+    if [ "${ALE_SPAWN_DRY:-0}" = "1" ]; then
+        print_argv "$@"
+        return 0
+    fi
+    "$@"
+}
+
+prompt_text=
+if [ -f "$ale_prompt" ]; then
+    prompt_text=$(cat "$ale_prompt")
+fi
+
+case "$ale_executor" in
+    herdr-pane)
+        [ -n "${ALE_HERDR_EXEC:-$ale_herdr}" ] || {
+            echo "ale-spawn: ALE_HERDR_EXEC is required" >&2
+            exit 2
+        }
+        herdr_exec=${ALE_HERDR_EXEC:-$ale_herdr}
+        run_argv python3 "$herdr_exec" start --cwd "$ale_cwd" || exit $?
+        run_argv python3 "$herdr_exec" send "$safe_agent" --spec "$ale_prompt"
+        ;;
+    claude-headless|codex-exec|pi-print)
+        if [ -n "$ale_task" ]; then
+            prefix="$(dirname "$0")/ale-exec"
+        else
+            prefix=
+        fi
+        case "$ale_executor" in
+            claude-headless)
+                if [ -n "$prefix" ]; then
+                    run_argv "$prefix" --task "$ale_task" --agent "$ale_agent" -- claude -p "$prompt_text"
+                else
+                    run_argv claude -p "$prompt_text"
+                fi
+                ;;
+            codex-exec)
+                if [ -n "$prefix" ]; then
+                    if [ -n "$ale_model" ]; then
+                        run_argv "$prefix" --task "$ale_task" --agent "$ale_agent" --usage-from codex-json -- codex exec --json --model "$ale_model" "$prompt_text"
+                    else
+                        run_argv "$prefix" --task "$ale_task" --agent "$ale_agent" --usage-from codex-json -- codex exec --json "$prompt_text"
+                    fi
+                else
+                    if [ -n "$ale_model" ]; then
+                        run_argv codex exec --json --model "$ale_model" "$prompt_text"
+                    else
+                        run_argv codex exec --json "$prompt_text"
+                    fi
+                fi
+                ;;
+            pi-print)
+                if [ -n "$prefix" ]; then
+                    run_argv "$prefix" --task "$ale_task" --agent "$ale_agent" --usage-from pi-json -- pi --mode json -p "$prompt_text"
+                else
+                    run_argv pi --mode json -p "$prompt_text"
+                fi
+                ;;
+        esac
+        ;;
+    *)
+        echo "ale-spawn: unknown executor: $ale_executor" >&2
+        exit 2
+        ;;
+esac

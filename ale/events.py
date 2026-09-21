@@ -14,7 +14,15 @@ LIVE = ("claimed", "working", "input-required")
 TERMINAL = ("accepted", "failed", "canceled")
 _OPEN = ("planned", "released", "rejected")
 _NEEDS_EVIDENCE = ("verified", "accepted", "rejected")
-_AUTHORITY = ("verified", "accepted", "rejected", "failed", "canceled", "lease_expired", "released", "input_answered")
+_AUTHORITY = ("verified", "accepted", "rejected", "failed", "canceled", "lease_expired", "released", "input_answered",
+              "task_added", "label_changed", "label_removed", "spawned", "integrated")
+_DYNAMIC_EVENT_FIELDS = {
+    "task_added": ("label_file", "reason"),
+    "label_changed": ("field", "old", "new", "reason"),
+    "label_removed": ("reason",),
+    "spawned": ("agent_id_minted", "assignment_kind", "executor", "model"),
+    "integrated": ("commit",),
+}
 
 
 class EventError(Exception):
@@ -39,6 +47,9 @@ def check_event(ev: dict) -> List[str]:
     if errs:
         return errs
     for key in _schema("event_types.json").get(ev["type"], []):
+        if key not in ev:
+            errs.append("event %s: missing key %r" % (ev["type"], key))
+    for key in _DYNAMIC_EVENT_FIELDS.get(ev["type"], []):
         if key not in ev:
             errs.append("event %s: missing key %r" % (ev["type"], key))
     if ev["type"] in _NEEDS_EVIDENCE and not ev.get("evidence"):
@@ -77,7 +88,7 @@ def _new_task() -> dict:
             "last_heartbeat_ts": None, "submitted_ts": None, "last_step": None, "step_changed_ts": None, "steps": [],
             "files_modified": [], "pending": [], "next_steps": [], "waiting_on": None, "summary": None,
             "notes": [], "tokens": 0, "cost_usd": 0.0, "rejections": 0, "last_reject_reason": None,
-            "evidence": None, "breaches_seen": []}
+            "evidence": None, "breaches_seen": [], "assignees": [], "integrated": False, "blocked_by": []}
 
 
 def _deps_ok(task_id: str, tasks: Dict[str, dict], labels: Dict[str, dict]) -> bool:
@@ -94,6 +105,8 @@ def _apply(st: dict, ev: dict, tasks: Dict[str, dict], labels: Dict[str, dict]) 
                 and _deps_ok(ev["task_id"], tasks, labels)):
             st.update(state="claimed", owner=agent, started_ts=ts, last_heartbeat_ts=ts, step_changed_ts=ts,
                       submitted_ts=None)
+            if agent and agent not in st["assignees"]:
+                st["assignees"].append(agent)
     elif kind == "heartbeat":
         if is_owner and st["state"] in LIVE:
             if st["state"] != "input-required":
@@ -144,12 +157,18 @@ def _apply(st: dict, ev: dict, tasks: Dict[str, dict], labels: Dict[str, dict]) 
         st["cost_usd"] += ev.get("cost_usd") or 0.0
     elif kind == "breach":
         st["breaches_seen"].append([ev["breach"], st["attempt"]])
+    elif kind == "spawned":
+        minted = ev.get("agent_id_minted")
+        if minted and minted not in st["assignees"]:
+            st["assignees"].append(minted)
+    elif kind == "integrated":
+        st["integrated"] = True
 
 
 def reduce_run(events: List[dict], labels: Dict[str, dict]) -> dict:
     tasks = {tid: _new_task() for tid in labels}
     run = {"tokens": 0, "cost_usd": 0.0, "started_ts": None, "finished": False, "breaches_seen": []}
-    for ev in events:
+    for index, ev in enumerate(events):
         kind = ev["type"]
         if kind == "run_started":
             run["started_ts"] = ev["ts"]
@@ -165,9 +184,33 @@ def reduce_run(events: List[dict], labels: Dict[str, dict]) -> dict:
             continue
         st = tasks.get(ev.get("task_id"))
         if st is not None:
+            if ev.get("type") == "accepted" and st.get("state") == "rejected":
+                fixed = any(label.get("fixes") == ev.get("task_id") and earlier.get("type") == "accepted"
+                            for fix_id, label in labels.items()
+                            for earlier in events[:index] if fix_id == earlier.get("task_id"))
+                if fixed:
+                    st["state"] = "submitted"
             _apply(st, ev, tasks, labels)
     for tid, st in tasks.items():
-        st["claimable"] = st["owner"] is None and st["state"] in _OPEN and _deps_ok(tid, tasks, labels)
+        missing = [dep for dep in labels[tid].get("context", {}).get("depends_on", []) if dep not in tasks]
+        st["blocked_by"] = missing
+        if missing:
+            st["claimable"] = False
+            st["breaches_seen"].append(["orphaned_dependency", st["attempt"]])
+        else:
+            st["claimable"] = st["owner"] is None and st["state"] in _OPEN and _deps_ok(tid, tasks, labels)
         if st["state"] == "planned" and st["claimable"]:
             st["state"] = "ready"
+    for tid, label in labels.items():
+        parent = label.get("fixes")
+        if parent in tasks and tasks[tid]["state"] != "accepted":
+            tasks[parent]["state"] = "fixing"
+        elif parent in tasks and tasks[tid]["state"] == "accepted":
+            parent_rejections = [i for i, event in enumerate(events)
+                                 if event.get("task_id") == parent and event.get("type") == "rejected"]
+            fix_accepts = [i for i, event in enumerate(events)
+                           if event.get("task_id") == tid and event.get("type") == "accepted"]
+            if (tasks[parent]["state"] != "accepted" and fix_accepts
+                    and (not parent_rejections or max(fix_accepts) > max(parent_rejections))):
+                tasks[parent]["state"] = "submitted"
     return {"tasks": tasks, "run": run}

@@ -4,6 +4,7 @@ import glob
 import json
 import os
 import re
+import copy
 from typing import Dict, List, Set
 
 from .roster import RosterError, resolve
@@ -46,12 +47,58 @@ def globs_overlap(a: str, b: str) -> bool:
 
 
 def check_label(label: dict, roster: dict) -> List[str]:
-    errs = validate(label, load_schema("label.schema.json"))
+    effective = copy.deepcopy(label)
+    context = effective.setdefault("context", {})
+    if "worktree" not in context:
+        allowed = context.get("allowed_paths", [])
+        context["worktree"] = {
+            "mode": "per_task" if allowed else "none",
+            "branch": None,
+            "base": None,
+            "worktree_reason": None,
+        }
+    if "assignments" not in effective:
+        labels = effective.get("labels", {})
+        effective["assignments"] = [{
+            "kind": "executor",
+            "role": labels.get("role"),
+            "model_tier": labels.get("model_tier"),
+            "executor": None,
+            "trigger": "ready",
+        }]
+    errs = validate(effective, load_schema("label.schema.json"))
+    try:
+        from .bake import gaps
+        task_id = effective.get("task_id", "label")
+        errs.extend("%s: gap: %s" % (task_id, gap) for gap in gaps(effective))
+    except ImportError:
+        pass
     if errs:
         return errs
-    tid = label["task_id"]
+    tid = effective["task_id"]
+    from .dispatch import SPAWN_EXECUTORS
+    for row in roster.get("routing", []):
+        if row.get("executor") not in SPAWN_EXECUTORS and row.get("executor") != "claude_code":
+            errs.append("%s: unsupported routing executor=%r" % (tid, row.get("executor")))
+    assignments = effective["assignments"]
+    executors = [a for a in assignments if a["kind"] == "executor"]
+    if len(executors) != 1:
+        errs.append("%s: assignments must contain exactly one executor" % tid)
+    for assignment in assignments:
+        if assignment["executor"] is not None:
+            from .dispatch import SPAWN_EXECUTORS
+            if assignment["executor"] not in SPAWN_EXECUTORS:
+                errs.append("%s: unsupported assignment executor=%r" % (tid, assignment["executor"]))
+        if assignment["role"] not in roster["vocab"]["role"] and assignment["role"] != "fixer":
+            errs.append("%s: assignment role=%r is not in the roster vocabulary" %
+                        (tid, assignment["role"]))
+        if assignment["kind"] == "monitor" and assignment["trigger"] == "ready":
+            errs.append("%s: monitor assignments cannot use trigger ready" % tid)
+    worktree = effective["context"]["worktree"]
+    if worktree["mode"] == "shared" and not worktree["worktree_reason"]:
+        errs.append("%s: shared worktree requires worktree_reason" % tid)
     for field in _VOCAB_FIELDS:
-        value = label["labels"][field]
+        value = effective["labels"][field]
         if value not in roster["vocab"][field]:
             errs.append("%s: labels.%s=%r is not in the roster vocabulary" % (tid, field, value))
     if not errs:

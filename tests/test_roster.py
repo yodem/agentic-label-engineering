@@ -5,12 +5,17 @@ import pytest
 from ale.roster import RosterError, load_roster, resolve, roster_hash
 
 
-def test_resolve_wildcard_row(roster):
-    assert resolve(roster, "backend", "standard") == {"executor": "claude_code", "model": "claude-sonnet-5"}
+def test_resolve_wildcard_row():
+    roster = {"routing": [{"role": "*", "model_tier": "standard",
+                            "executor": "claude-headless", "model": "claude-sonnet-5"}]}
+    assert resolve(roster, "backend", "standard") == {"executor": "claude-headless", "model": "claude-sonnet-5"}
 
 
-def test_exact_row_beats_wildcard(roster):
-    roster["routing"].append({"role": "backend", "model_tier": "standard", "executor": "pi", "model": "openrouter/x"})
+def test_exact_row_beats_wildcard():
+    roster = {"routing": [
+        {"role": "*", "model_tier": "standard", "executor": "claude-headless", "model": "claude-sonnet-5"},
+        {"role": "backend", "model_tier": "standard", "executor": "pi", "model": "openrouter/x"},
+    ]}
     assert resolve(roster, "backend", "standard")["executor"] == "pi"
 
 
