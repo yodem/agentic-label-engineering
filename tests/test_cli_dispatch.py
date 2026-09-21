@@ -203,6 +203,78 @@ def test_integrate_merges_and_removes_worktree(tmp_path, monkeypatch):
     assert events[-1]["type"] == "integrated"
 
 
+def test_integrate_twice_refuses_without_appending(tmp_path, capsys):
+    roster = _roster(tmp_path)
+    run = _run(tmp_path, {"T1": _label(mode="per_task")})
+    events_path = run / "events.jsonl"
+    rows = [
+        make_event("spawned", "run-1", 1, "T1", None, 1, agent_id_minted="a1",
+                   assignment_kind="executor", executor="claude-headless", model="m",
+                   worktree=str(run / "wt" / "T1"), branch="ale/run-1/T1"),
+        make_event("claimed", "run-1", 2, "T1", "a1", 1),
+        make_event("submitted", "run-1", 3, "T1", "a1", 1, summary="done"),
+        make_event("accepted", "run-1", 4, "T1", None, 1, evidence={"passed": True}),
+        make_event("integrated", "run-1", 5, "T1", None, 1, commit="abcdef1234567890"),
+    ]
+    events_path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    before = events_path.read_bytes()
+
+    assert main(["integrate", "--task", "T1", "--run-dir", str(run), "--roster", roster,
+                 "--cwd", str(tmp_path)]) == 1
+    assert events_path.read_bytes() == before
+    assert "task T1 is already integrated (abcdef1)" in capsys.readouterr().err
+
+
+def test_integrate_missing_worktree_is_clean_error(tmp_path, capsys):
+    roster = _roster(tmp_path)
+    run = _run(tmp_path, {"T1": _label(mode="per_task")})
+    missing = run / "missing-worktree"
+    events_path = run / "events.jsonl"
+    rows = [
+        make_event("spawned", "run-1", 1, "T1", None, 1, agent_id_minted="a1",
+                   assignment_kind="executor", executor="claude-headless", model="m",
+                   worktree=str(missing), branch="ale/run-1/T1"),
+        make_event("claimed", "run-1", 2, "T1", "a1", 1),
+        make_event("submitted", "run-1", 3, "T1", "a1", 1, summary="done"),
+        make_event("accepted", "run-1", 4, "T1", None, 1, evidence={"passed": True}),
+    ]
+    events_path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+
+    assert main(["integrate", "--task", "T1", "--run-dir", str(run), "--roster", roster,
+                 "--cwd", str(tmp_path)]) == 1
+    err = capsys.readouterr().err
+    assert str(missing) in err and "Traceback" not in err
+
+
+def test_integrate_fills_only_missing_git_identity(tmp_path, monkeypatch):
+    repo = _git_repo(tmp_path)
+    roster = _roster(tmp_path)
+    run = _run(tmp_path, {"T1": _label(mode="per_task", paths=["change.txt"])})
+    monkeypatch.setenv("ALE_SPAWN_DRY", "1")
+    assert main(_dispatch_args(run, roster, "--spawn", "--cwd", str(repo))) == 0
+    worktree = run / "wt" / "T1"
+    (worktree / "change.txt").write_text("change\n")
+    original_run = subprocess.run
+
+    def report_missing_email(args, *positional, **kwargs):
+        if args[:4] == ["git", "config", "--get", "user.email"]:
+            return subprocess.CompletedProcess(args, 1, stdout="", stderr="")
+        return original_run(args, *positional, **kwargs)
+
+    monkeypatch.setattr("ale.cli.subprocess.run", report_missing_email)
+    events_path = run / "events.jsonl"
+    with events_path.open("a") as handle:
+        handle.write(json.dumps(make_event("claimed", "run-1", 2, "T1", "agent", 1)) + "\n")
+        handle.write(json.dumps(make_event("submitted", "run-1", 3, "T1", "agent", 1, summary="done")) + "\n")
+        handle.write(json.dumps(make_event("accepted", "run-1", 4, "T1", None, 1, evidence={"passed": True})) + "\n")
+
+    assert main(["integrate", "--task", "T1", "--run-dir", str(run), "--roster", roster,
+                 "--cwd", str(repo)]) == 0
+    authors = subprocess.check_output(["git", "log", "--format=%ae", "--", "change.txt"],
+                                      cwd=str(repo), text=True).splitlines()
+    assert "ale@localhost" in authors
+
+
 def test_handoff_path_keeps_old_signature_and_supports_role(tmp_path):
     old = handoff_path(str(tmp_path), "T1", "agent")
     new = handoff_path(str(tmp_path), "T1", "agent", "backend")

@@ -755,6 +755,12 @@ def cmd_integrate(a) -> int:
     if c.labels.get(a.task, {}).get("fixes"):
         raise CliError(FAIL, "cannot integrate a fix task; integrate its parent task")
     state = c.task(a.task)
+    if state.get("integrated"):
+        integrated_event = next((item for item in reversed(E.read_events(c.events_path))
+                                 if item.get("type") == "integrated" and item.get("task_id") == a.task), {})
+        commit = integrated_event.get("commit", "")
+        raise CliError(FAIL, "task %s is already integrated (%s)" %
+                       (a.task, commit[:7] if commit else "unknown commit"))
     if state.get("state") != "accepted":
         raise CliError(FAIL, "task %s is %s, not accepted" % (a.task, state.get("state")))
     event = _latest_spawn(c, a.task)
@@ -763,6 +769,8 @@ def cmd_integrate(a) -> int:
     worktree = event.get("worktree")
     if not worktree:
         raise CliError(FAIL, "task %s has no recorded worktree" % a.task)
+    if not os.path.isdir(worktree):
+        raise CliError(FAIL, "task %s worktree does not exist: %s" % (a.task, worktree))
     status = subprocess.run(["git", "status", "--porcelain", "-z", "--untracked-files=all"],
                             cwd=worktree, capture_output=True)
     if status.returncode != 0:
@@ -790,8 +798,10 @@ def cmd_integrate(a) -> int:
         identity_email = subprocess.run(["git", "config", "--get", "user.email"], cwd=worktree,
                                         capture_output=True, text=True)
         commit_command = ["git"]
-        if not identity_name.stdout.strip() and not identity_email.stdout.strip():
-            commit_command += ["-c", "user.name=ale", "-c", "user.email=ale@localhost"]
+        if not identity_name.stdout.strip():
+            commit_command += ["-c", "user.name=ale"]
+        if not identity_email.stdout.strip():
+            commit_command += ["-c", "user.email=ale@localhost"]
         commit_command += ["commit", "-m", "ale: %s %s" % (a.task, c.labels[a.task].get("title", a.task))]
         committed = subprocess.run(commit_command, cwd=worktree, capture_output=True, text=True)
         if committed.returncode != 0:
