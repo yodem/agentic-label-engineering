@@ -251,7 +251,7 @@ def cmd_verify(a) -> int:
     if st["state"] != "submitted":
         raise CliError(FAIL, "task %s is %s, not submitted" % (a.task, st["state"]))
     label, owner, attempt = c.labels[a.task], st["owner"], st["attempt"]
-    cwd = a.cwd or os.getcwd()
+    cwd = _task_project_root(c, a.task, a.cwd)
     evidence = V.run_acceptance(label, cwd)
     reason = None
     if a.base:
@@ -456,11 +456,19 @@ def cmd_hook(a) -> int:
                 print("STOP: task claim was lost; stop working on this task")
                 return OK
             handoff = _read_optional(H.handoff_path(c.run_dir, binding["task_id"], binding["agent_id"]))
+            if not handoff:
+                for assignment in label.get("assignments", []):
+                    role = assignment.get("role")
+                    if role:
+                        candidate = H.handoff_path(c.run_dir, binding["task_id"], binding["agent_id"], role)
+                        handoff = _read_optional(candidate)
+                        if handoff:
+                            break
             decisions = _read_optional(os.path.join(c.run_dir, "decisions.md"))
             print(HK.session_context(label, handoff, decisions))
             return OK
         if event == "pre-tool":
-            project_root = data.get("cwd") or os.getcwd()
+            project_root = _task_project_root(c, binding["task_id"], data.get("cwd"))
             tool_name = data.get("tool_name", "")
             tool_input = _resolved_hook_input(tool_name, data.get("tool_input") or {}, project_root)
             result = HK.decide_pre_tool(binding, label, state, tool_name, tool_input, project_root)
@@ -514,6 +522,206 @@ def cmd_decide(a) -> int:
     c.emit("decision", text=text)
     with open(os.path.join(c.run_dir, "decisions.md"), "a", encoding="utf-8") as f:
         f.write("- [%d] %s\n" % (int(c.now), text))
+    return OK
+
+
+def _dispatch_state(c: Ctx) -> dict:
+    state = c.state()
+    spawned = {}
+    released = set()
+    breaches = []
+    for event in E.read_events(c.events_path):
+        if event.get("type") == "spawned":
+            key = (event.get("task_id"), event.get("assignment_kind"),
+                   event.get("trigger_instance", event.get("trigger", "ready")))
+            spawned[key] = {"task_id": key[0], "kind": key[1], "trigger_instance": key[2]}
+        elif event.get("type") == "released" and event.get("spawn_key"):
+            released.add(tuple(event["spawn_key"]))
+        elif event.get("type") == "breach":
+            breaches.append(event)
+    state["spawned"] = [value for key, value in spawned.items() if key not in released]
+    state["breaches"] = breaches
+    return state
+
+
+def _latest_spawn(c: Ctx, task_id: str) -> Optional[dict]:
+    latest = None
+    for event in E.read_events(c.events_path):
+        if event.get("type") == "spawned" and event.get("task_id") == task_id:
+            latest = event
+    if latest is None:
+        label = c.labels.get(task_id, {})
+        parent = label.get("fixes")
+        if parent:
+            return _latest_spawn(c, parent)
+    return latest
+
+
+def _task_project_root(c: Ctx, task_id: str, explicit: Optional[str]) -> str:
+    if explicit:
+        return explicit
+    event = _latest_spawn(c, task_id)
+    return event.get("worktree") if event and event.get("worktree") else os.getcwd()
+
+
+def _dispatch_assignment(label: dict, due: dict) -> dict:
+    for assignment in label.get("assignments", []):
+        if assignment.get("kind") == due["kind"] and assignment.get("trigger", "ready") == due["trigger"]:
+            result = dict(assignment)
+            result.update({"executor": due["executor"], "model": due["model"],
+                           "roster": due.get("roster", "roster.json")})
+            return result
+    return {"kind": due["kind"], "role": due["role"], "model_tier": due["model_tier"],
+            "executor": due["executor"], "model": due["model"], "trigger": due["trigger"]}
+
+
+def _make_dispatch_request(c: Ctx, due: dict, project_cwd: str, n: int) -> dict:
+    from .dispatch import spawn_request, worktree_plan
+
+    label = c.labels[due["task_id"]]
+    assignment = _dispatch_assignment(label, due)
+    plan = worktree_plan(label, c.run_dir, c.run_id)
+    request_cwd = project_cwd
+    if plan:
+        plan["base"] = (label.get("context", {}).get("worktree") or {}).get("base") or "HEAD"
+        request_cwd = plan["path"]
+    request = spawn_request(label, assignment, c.run_dir, c.run_id, n=n,
+                            cwd=request_cwd, worktree=plan)
+    request["executor"] = due["executor"]
+    request["model"] = due["model"]
+    request["trigger_instance"] = due["trigger_instance"]
+    request["env"]["ALE_ROSTER"] = c.roster_path if hasattr(c, "roster_path") else "roster.json"
+    if due["kind"] == "monitor":
+        request["env"].pop("ALE_TASK", None)
+    return request
+
+
+def _create_worktree(plan: dict, project_cwd: str) -> None:
+    base = plan.get("base") or "HEAD"
+    proc = subprocess.run(["git", "worktree", "add", plan["path"], "-b", plan["branch"], base],
+                          cwd=project_cwd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        message = (proc.stderr or proc.stdout).strip()
+        raise CliError(FAIL, message or "git worktree add failed")
+
+
+def _write_spawn_request(c: Ctx, request: dict) -> str:
+    prompt = request.get("prompt_file", "")
+    prompt_path = os.path.join(c.run_dir, "prompts", "%s.md" % request["agent_id"])
+    H.write_atomic(prompt_path, prompt)
+    request["prompt_file"] = prompt_path
+    path = os.path.join(c.run_dir, "requests", "%s.json" % request["agent_id"])
+    H.write_atomic(path, json.dumps(request, sort_keys=True))
+    return path
+
+
+def _append_spawned(c: Ctx, due: dict, request: dict, plan: Optional[dict]) -> None:
+    extra = {"agent_id_minted": request["agent_id"], "assignment_kind": due["kind"],
+             "executor": due["executor"], "model": due["model"],
+             "trigger_instance": due["trigger_instance"]}
+    if plan:
+        extra.update({"worktree": plan["path"], "branch": plan["branch"]})
+    c.emit("spawned", due["task_id"], None, c.state()["tasks"][due["task_id"]]["attempt"], **extra)
+
+
+def cmd_dispatch(a) -> int:
+    import fcntl
+    from .dispatch import due_assignments, worktree_plan
+
+    c = Ctx(a)
+    c.roster_path = a.roster or os.environ.get("ALE_ROSTER") or "roster.json"
+    project_cwd = os.path.abspath(a.cwd or os.getcwd())
+    lock_path = os.path.join(c.run_dir, "dispatch.lock")
+    requests = []
+    spawned_requests = []
+    try:
+        lock = open(lock_path, "a+")
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            due = due_assignments(_dispatch_state(c), c.labels, c.roster)
+            for index, item in enumerate(due, 1):
+                request = _make_dispatch_request(c, item, project_cwd, index)
+                requests.append(request)
+                if a.json or a.dry_run:
+                    continue
+                if not a.spawn:
+                    continue
+                if item["executor"] == "claude-subagent":
+                    continue
+                label = c.labels[item["task_id"]]
+                plan = worktree_plan(label, c.run_dir, c.run_id)
+                if plan:
+                    plan["base"] = (label.get("context", {}).get("worktree") or {}).get("base") or "HEAD"
+                    parent_spawn = _latest_spawn(c, item["task_id"])
+                    reuses_parent = bool(label.get("fixes") and parent_spawn and parent_spawn.get("worktree"))
+                    if not reuses_parent:
+                        _create_worktree(plan, project_cwd)
+                _append_spawned(c, item, request, plan)
+                request_path = _write_spawn_request(c, request)
+                spawned_requests.append((item, request, request_path))
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            lock.close()
+    except CliError:
+        raise
+    if a.json or a.dry_run or not a.spawn:
+        for request in requests:
+            print(json.dumps(request, sort_keys=True))
+        return OK
+    for item, request, request_path in spawned_requests:
+        spawn_bin = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, "bin", "ale-spawn"))
+        proc = subprocess.run([spawn_bin, request_path],
+                              cwd=request["cwd"], text=True, capture_output=True,
+                              env=os.environ.copy())
+        if proc.stdout:
+            sys.stdout.write(proc.stdout)
+        if proc.stderr:
+            sys.stderr.write(proc.stderr)
+        if proc.returncode != 0:
+            c.emit("released", item["task_id"], None,
+                   c.state()["tasks"][item["task_id"]]["attempt"],
+                   reason="spawn failed: %s" % (proc.stderr.strip() or proc.returncode),
+                   spawn_key=[item["task_id"], item["kind"], item["trigger_instance"]])
+    for request in requests:
+        if request.get("executor") == "claude-subagent":
+            print(json.dumps(request, sort_keys=True))
+    return OK
+
+
+def cmd_integrate(a) -> int:
+    c = Ctx(a)
+    state = c.task(a.task)
+    if state.get("state") != "accepted":
+        raise CliError(FAIL, "task %s is %s, not accepted" % (a.task, state.get("state")))
+    event = _latest_spawn(c, a.task)
+    if event is None or not event.get("branch"):
+        raise CliError(FAIL, "task %s has no recorded branch" % a.task)
+    checkout = os.path.abspath(a.cwd or os.getcwd())
+    status = subprocess.run(["git", "status", "--porcelain"], cwd=checkout,
+                            capture_output=True, text=True)
+    if status.returncode != 0:
+        raise CliError(FAIL, status.stderr.strip() or "git status failed")
+    if status.stdout.strip():
+        raise CliError(FAIL, "checkout has uncommitted changes")
+    merge = subprocess.run(["git", "merge", "--no-ff", "--no-edit", event["branch"]],
+                           cwd=checkout, capture_output=True, text=True)
+    if merge.returncode != 0:
+        subprocess.run(["git", "merge", "--abort"], cwd=checkout, capture_output=True, text=True)
+        message = (merge.stderr or merge.stdout).strip()
+        if message:
+            print(message, file=sys.stderr)
+        return FAIL
+    commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip()
+    c.emit("integrated", a.task, None, state.get("attempt", 1), commit=commit)
+    if event.get("worktree"):
+        removed = subprocess.run(["git", "worktree", "remove", event["worktree"]],
+                                 cwd=checkout, capture_output=True, text=True)
+        if removed.returncode != 0:
+            raise CliError(FAIL, removed.stderr.strip() or "git worktree remove failed")
+    deleted = subprocess.run(["git", "branch", "-d", event["branch"]], cwd=checkout,
+                             capture_output=True, text=True)
+    if deleted.returncode != 0:
+        raise CliError(FAIL, deleted.stderr.strip() or "git branch delete failed")
     return OK
 
 
@@ -1308,6 +1516,13 @@ def _parser() -> argparse.ArgumentParser:
     plan_compile.add_argument("plan_path")
     plan_compile.add_argument("--run-dir", required=True)
     plan_compile.add_argument("--roster")
+    dispatch = add("dispatch", cmd_dispatch)
+    dispatch.add_argument("--json", action="store_true")
+    dispatch.add_argument("--dry-run", action="store_true")
+    dispatch.add_argument("--spawn", action="store_true")
+    dispatch.add_argument("--cwd")
+    integrate = add("integrate", cmd_integrate, task=True)
+    integrate.add_argument("--cwd")
     add("status", cmd_status).add_argument("--json", action="store_true")
     add("ready", cmd_ready)
     add("claim", cmd_claim, task=True, agent=True)
