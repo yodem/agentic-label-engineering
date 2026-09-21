@@ -26,6 +26,10 @@ ale status
 
 Add `.ale/` to your `.gitignore`.
 
+## Label layer
+
+For the plan-to-dispatch workflow, typed label fields, worktree isolation, fix tasks, derived status, and timeline/meta reporting, read [docs/label-layer.md](docs/label-layer.md).
+
 ## Concepts
 
 - **Label**: `labels` (closed vocabulary from `roster.json`: role, model_tier, lane, risk, effort),
