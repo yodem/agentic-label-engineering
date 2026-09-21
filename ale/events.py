@@ -199,6 +199,11 @@ def reduce_run(events: List[dict], labels: Dict[str, dict]) -> dict:
         parent = label.get("fixes")
         if parent in tasks and tasks[tid]["state"] != "accepted":
             tasks[parent]["state"] = "fixing"
-        elif parent in tasks and tasks[tid]["state"] == "accepted" and tasks[parent]["state"] == "fixing":
-            tasks[parent]["state"] = "submitted"
+        elif parent in tasks and tasks[tid]["state"] == "accepted":
+            parent_rejections = [i for i, event in enumerate(events)
+                                 if event.get("task_id") == parent and event.get("type") == "rejected"]
+            fix_accepts = [i for i, event in enumerate(events)
+                           if event.get("task_id") == tid and event.get("type") == "accepted"]
+            if fix_accepts and (not parent_rejections or max(fix_accepts) > max(parent_rejections)):
+                tasks[parent]["state"] = "submitted"
     return {"tasks": tasks, "run": run}
