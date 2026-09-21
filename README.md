@@ -5,8 +5,7 @@ An orchestrator plans tasks and writes one label per task. Code reads the label 
 claim the task, when a claim goes stale, and whether the work is accepted. No agent can mark its own
 work done.
 
-Status: core only (v0.1). Labeling cascade, executor adapters, analytics and the Claude Code plugin are
-later milestones.
+Status: core executor protocol with Claude Code and Pi adapters, plus Codex hook and wrapper support.
 
 ## Quick start
 
@@ -65,8 +64,25 @@ Add `.ale/` to your `.gitignore`.
 `ale watchdog` scans open tasks for breaches: a stale lease (no heartbeat within
 `heartbeat_timeout_s`), a claim stuck without progress past `stuck_after_s`, a run past
 `max_duration_s`, a task left in `submitted` longer than `heartbeat_timeout_s` (breach type
-`unverified` — nobody ran `ale verify` on it in time), and attempts past `max_attempts`. Run it from
+`unverified` - nobody ran `ale verify` on it in time), and attempts past `max_attempts`. Run it from
 a loop or scheduler; exit 6 means it found at least one breach.
+
+## Harness support
+
+The status in each cell describes the shipped integration, not a claim about
+what the underlying harness could support in a future adapter.
+
+| Rule | Claude Code hooks | Codex hooks | Pi extension | ale-exec wrapper |
+| --- | --- | --- | --- | --- |
+| Path guard | Enforced: PreToolUse edit denial | Enforced: PreToolUse denial | Enforced: edit and write events | Not possible: verify only |
+| Auto heartbeat | Enforced: PostToolUse, 60 s throttle | Not possible: current adapter has no PostToolUse entry | Enforced: post-tool hook | Enforced: timer heartbeat |
+| Stop/submit gate | Enforced: Stop acceptance gate | Not possible: current adapter has no Stop entry | Advisory: settlement runs the gate but print mode cannot block | Enforced: exit-time `check` then submit or input-required |
+| Usage capture | Enforced: transcript IDs are deduplicated | Advisory: `--usage-from codex-json` on wrapper | Enforced: assistant message usage | Enforced: printed JSON usage when configured |
+| Session context | Enforced: SessionStart stdout | Not possible: current adapter has no SessionStart entry | Enforced: session start injection | Not possible: wrapper has no context injection |
+
+The Claude Code and Codex hook contracts, Pi event limits, and transcript
+fields are recorded in `docs/harness-facts.md`. Shell commands can write
+anywhere, so `ale verify --base` remains the containment backstop.
 
 ## Tests
 
