@@ -969,6 +969,237 @@ def cmd_eval_report(a) -> int:
     return OK
 
 
+def _plan_roster(a):
+    path = a.roster or os.environ.get("ALE_ROSTER")
+    if not path:
+        path = "roster.json" if os.path.exists("roster.json") else "examples/roster.json"
+    return R.load_roster(path)
+
+
+def _plan_run_id(path: str, supplied: Optional[str]) -> str:
+    value = supplied or os.path.splitext(os.path.basename(path))[0]
+    value = re.sub(r"[^A-Za-z0-9._-]", "-", value)
+    if not H.is_safe_id(value):
+        raise CliError(USAGE, "plan run id is unsafe: %s" % value)
+    return value
+
+
+def _plan_existing_labels(text: str) -> dict:
+    from .bake import extract_blocks
+    return {label["task_id"]: label for _, label in extract_blocks(text)}
+
+
+def _plan_labels(text: str, path: str, run_id: str, roster: dict, no_judge: bool):
+    from .bake import skeleton_label
+    from .planparse import parse_plan
+
+    tasks = parse_plan(text)
+    existing = _plan_existing_labels(text)
+    judge = None
+    if not no_judge and (roster.get("judge") or {}).get("plugin") is not None:
+        jconf = roster["judge"]
+        judge = CommandJudge(jconf["command"], timeout_s=jconf.get("timeout_s", 30))
+    labels = {}
+    shadow = []
+    vocab = roster["vocab"]
+    for task in tasks:
+        draft = {
+            "schema_version": "1.0",
+            "run_id": run_id,
+            "task_id": task["task_id"],
+            "title": task["title"],
+            "labels": {"role": next(iter(vocab["role"])),
+                       "model_tier": next(iter(vocab["model_tier"])),
+                       "lane": None, "risk": next(iter(vocab["risk"])),
+                       "effort": next(iter(vocab["effort"]))},
+            "routing": {"executor": None, "model": None, "resolved_from": None},
+            "context": {"spec_path": "plan", "pointers": task.get("files", []),
+                         "allowed_paths": task.get("files", []),
+                         "depends_on": task.get("depends_on", [])},
+            "acceptance": [],
+            "provenance": {"lane_reason": "The planner has not selected a lane."},
+        }
+        final, votes = CAS.label_task(draft, task.get("body", ""), roster, judge=judge)
+        vote_values = {"roster": roster}
+        for field in CAS.FIELDS:
+            vote_values[field] = dict(final["provenance"][field])
+            vote_values[field]["value"] = final["labels"][field]
+        label = skeleton_label(task, run_id, vote_values)
+        old = existing.get(task["task_id"])
+        if old:
+            label["labels"]["lane"] = old.get("labels", {}).get("lane")
+            label["provenance"]["lane_reason"] = old.get("provenance", {}).get("lane_reason")
+            if old.get("context", {}).get("worktree") is not None:
+                label["context"]["worktree"] = old["context"]["worktree"]
+        labels[task["task_id"]] = label
+        shadow.extend({"task_id": task["task_id"], "field": vote["field"],
+                       "by": vote["by"], "value": vote["value"],
+                       "confidence": vote.get("confidence"), "detail": vote.get("detail", {})}
+                      for vote in votes if vote["by"].startswith("judge:"))
+    return labels, shadow
+
+
+def _plan_shadow_gate(path: str) -> None:
+    shadow = path + ".ale-shadow.jsonl"
+    try:
+        _refuse_tracked_out_dir(os.path.dirname(shadow) or ".")
+    except CliError as parent_error:
+        repo_root = None
+        cur = _nearest_existing_parent(shadow)
+        while True:
+            if os.path.exists(os.path.join(cur, ".git")):
+                repo_root = cur
+                break
+            parent = os.path.dirname(cur)
+            if parent == cur:
+                break
+            cur = parent
+        if repo_root is None:
+            raise parent_error
+        relative = os.path.relpath(os.path.realpath(shadow), repo_root)
+        try:
+            proc = subprocess.run(["git", "check-ignore", "-q", "--", relative],
+                                  cwd=repo_root, timeout=10)
+        except Exception:
+            raise parent_error
+        if proc.returncode != 0:
+            raise parent_error
+
+
+def _write_shadow(path: str, rows: List[dict]) -> None:
+    if not rows:
+        return
+    shadow = path + ".ale-shadow.jsonl"
+    previous = ""
+    if os.path.exists(shadow):
+        with open(shadow, encoding="utf-8") as handle:
+            previous = handle.read()
+    content = previous + "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows)
+    H.write_atomic(shadow, content)
+
+
+def _plan_print_gaps(labels: dict) -> List[str]:
+    from .bake import gaps
+    found = []
+    for task_id in sorted(labels):
+        for gap in gaps(labels[task_id]):
+            found.append("%s: %s" % (task_id, gap))
+    for item in found:
+        print(item)
+    return found
+
+
+def cmd_plan_parse(a) -> int:
+    from .planparse import parse_plan
+    with open(a.plan_path, encoding="utf-8") as handle:
+        tasks = parse_plan(handle.read())
+    if a.json:
+        print(json.dumps(tasks, indent=2, sort_keys=True))
+    else:
+        for task in tasks:
+            print(json.dumps(task, sort_keys=True))
+    return OK
+
+
+def cmd_plan_bake(a) -> int:
+    from .bake import bake
+    from .planparse import PlanParseError
+    with open(a.plan_path, encoding="utf-8") as handle:
+        text = handle.read()
+    roster = _plan_roster(a)
+    shadow_error = None
+    if not a.no_judge:
+        try:
+            _plan_shadow_gate(a.plan_path)
+        except CliError as exc:
+            shadow_error = exc
+    try:
+        labels, shadow = _plan_labels(text, a.plan_path, _plan_run_id(a.plan_path, a.run_id),
+                                      roster, a.no_judge)
+        baked = bake(text, labels)
+    except (PlanParseError, ValueError) as exc:
+        raise CliError(FAIL, str(exc))
+    if not a.no_judge:
+        if shadow_error is None:
+            _write_shadow(a.plan_path, shadow)
+    if not a.write:
+        import difflib
+        sys.stdout.write("".join(difflib.unified_diff(
+            text.splitlines(True), baked.splitlines(True),
+            fromfile=a.plan_path, tofile=a.plan_path)))
+    elif baked != text and shadow_error is None:
+        H.write_atomic(a.plan_path, baked)
+    found = _plan_print_gaps(labels)
+    if shadow_error is not None:
+        print(str(shadow_error), file=sys.stderr)
+        return FAIL
+    return FAIL if found else OK
+
+
+def _plan_check_labels(labels: dict, roster: dict) -> List[str]:
+    errors = L.check_labelset(labels, roster)
+    cwd = os.getcwd()
+    for label in labels.values():
+        for entry in label.get("context", {}).get("allowed_paths", []):
+            if entry.endswith("/") or (not re.search(r"[*?\[]", entry)
+                                        and os.path.isdir(os.path.join(cwd, entry))):
+                errors.append('allowed_paths entry "%s" is a directory: write "%s/*"' % (entry, entry))
+    return errors
+
+
+def _compile_plan_to_run(path: str, run_dir: str, roster: dict) -> dict:
+    from .bake import BakeError, compile_plan
+    with open(path, encoding="utf-8") as handle:
+        text = handle.read()
+    try:
+        labels = compile_plan(text)
+    except (BakeError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return None
+    errors = _plan_check_labels(labels, roster)
+    if errors:
+        for error in errors:
+            print(error, file=sys.stderr)
+        return None
+    labels_dir = os.path.join(run_dir, "labels")
+    os.makedirs(labels_dir, exist_ok=True)
+    for task_id, label in labels.items():
+        H.write_atomic(os.path.join(labels_dir, "%s.json" % task_id),
+                       json.dumps(label, indent=2, sort_keys=True))
+    return labels
+
+
+def cmd_plan_compile(a) -> int:
+    roster = _plan_roster(a)
+    return OK if _compile_plan_to_run(a.plan_path, a.run_dir, roster) is not None else FAIL
+
+
+def cmd_init_run_plan(a) -> int:
+    if not a.plan:
+        return cmd_init_run(a)
+    roster = _plan_roster(a)
+    if _compile_plan_to_run(a.plan, a.run_dir, roster) is None:
+        return FAIL
+    c = Ctx(a)
+    errors = L.check_labelset(c.labels, c.roster)
+    if errors:
+        for error in errors:
+            print(error, file=sys.stderr)
+        return FAIL
+    if any(event["type"] == "run_started" for event in E.read_events(c.events_path)):
+        raise CliError(FAIL, "run already initialised: %s" % c.events_path)
+    with open(a.plan, "rb") as handle:
+        plan_sha256 = __import__("hashlib").sha256(handle.read()).hexdigest()
+    c.emit("run_started", plan_sha256=plan_sha256)
+    rhash = R.roster_hash(c.roster)
+    for task_id, label in c.labels.items():
+        c.emit("labeled", task_id, None, 1, labels=label["labels"], roster_hash=rhash)
+    decisions = os.path.join(c.run_dir, "decisions.md")
+    if not os.path.exists(decisions):
+        H.write_atomic(decisions, "# Decisions for run %s\n\n" % c.run_id)
+    return OK
+
+
 def _parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--run-dir")
@@ -988,7 +1219,27 @@ def _parser() -> argparse.ArgumentParser:
 
     va = add("validate", cmd_validate)
     va.add_argument("--cwd")
-    add("init-run", cmd_init_run)
+    init_run = add("init-run", cmd_init_run)
+    init_run.add_argument("--plan")
+    init_run.set_defaults(fn=cmd_init_run_plan)
+    plan = sub.add_parser("plan")
+    plan_sub = plan.add_subparsers(dest="plan_cmd")
+    plan_parse = plan_sub.add_parser("parse")
+    plan_parse.set_defaults(fn=cmd_plan_parse)
+    plan_parse.add_argument("plan_path")
+    plan_parse.add_argument("--json", action="store_true")
+    plan_bake = plan_sub.add_parser("bake")
+    plan_bake.set_defaults(fn=cmd_plan_bake)
+    plan_bake.add_argument("plan_path")
+    plan_bake.add_argument("--run-id")
+    plan_bake.add_argument("--no-judge", action="store_true")
+    plan_bake.add_argument("--write", action="store_true")
+    plan_bake.add_argument("--roster")
+    plan_compile = plan_sub.add_parser("compile")
+    plan_compile.set_defaults(fn=cmd_plan_compile)
+    plan_compile.add_argument("plan_path")
+    plan_compile.add_argument("--run-dir", required=True)
+    plan_compile.add_argument("--roster")
     add("status", cmd_status).add_argument("--json", action="store_true")
     add("ready", cmd_ready)
     add("claim", cmd_claim, task=True, agent=True)
