@@ -292,14 +292,14 @@ def compile_plan(text: str, run_id: str = "run-1", provenance: dict = None) -> D
         else:
             for field in ("role", "model_tier", "risk", "effort"):
                 label["provenance"][field] = copy.deepcopy(sidecar.get(field) or {"by": "default"})
-            lane_reason = compact.get("lane_reason")
-            label["provenance"]["lane_reason"] = sidecar.get("lane_reason", lane_reason)
-            if sidecar.get("lane_reason") is not None and isinstance(sidecar.get("lane_reason"), dict):
-                label["provenance"]["lane_reason"] = sidecar["lane_reason"]
-            for field in ("acceptance", "allowed_paths", "depends_on", "assignments", "worktree"):
-                if field not in label["provenance"]:
-                    value = compact.get(field)
-                    label["provenance"][field] = {"by": "planner" if value else "default"}
+            label["provenance"]["lane_reason"] = sidecar.get("lane_reason")
+        # The block is what a human edits: a lane_reason written there wins over any sidecar value.
+        if compact.get("lane_reason"):
+            label["provenance"]["lane_reason"] = compact["lane_reason"]
+        for field in ("acceptance", "allowed_paths", "depends_on", "assignments", "worktree"):
+            if field not in label["provenance"]:
+                value = compact.get(field)
+                label["provenance"][field] = {"by": "planner" if value else "default"}
         for field in ("role", "model_tier", "risk", "effort", "lane"):
             if field not in label["labels"]:
                 label["labels"][field] = None

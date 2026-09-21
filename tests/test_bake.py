@@ -157,3 +157,14 @@ def test_bake_uses_dominant_crlf_line_endings(roster):
     text = "## Task 1: One\r\n## Task 2: Two\r\n"
     baked = bake(text, {"T1": _label(roster), "T2": _label(roster, "T2")})
     assert all(line.endswith("\r\n") for line in baked.splitlines(keepends=True))
+
+
+def test_block_lane_reason_beats_stale_sidecar():
+    from ale import bake as B
+    text = "# P\n\n### Task 1: A\n\nbody\n\n### Task 2: B\n\nbody\n"
+    labels = {t["task_id"]: B.skeleton_label(t, "r", {}) for t in B.parse_plan(text)}
+    baked = B.bake(text, labels)
+    sidecar = {tid: {"lane_reason": None} for tid in labels}
+    edited = baked.replace('"lane_reason": null', '"lane_reason": "planner answered"', 1)
+    out = B.compile_plan(edited, provenance=sidecar)
+    assert out["T1"]["provenance"]["lane_reason"] == "planner answered"
