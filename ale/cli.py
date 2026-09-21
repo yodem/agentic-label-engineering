@@ -542,6 +542,15 @@ def cmd_fix(a) -> int:
     return OK
 
 
+def cmd_remove(a) -> int:
+    c = Ctx(a)
+    st = c.task(a.task)
+    if st.get("state") not in ("planned", "ready", "released", "rejected"):
+        raise CliError(FAIL, "task %s is %s and cannot be removed" % (a.task, st.get("state")))
+    c.emit("label_removed", a.task, None, st.get("attempt"), reason=a.reason[:TEXT_MAX])
+    return OK
+
+
 def cmd_paths_within(a) -> int:
     c = Ctx(a, need_roster=False)
     if a.task_id not in c.labels:
@@ -718,6 +727,9 @@ def cmd_relabel(a) -> int:
             new_value = json.loads(a.value)
         except ValueError as exc:
             raise CliError(USAGE, "assignments must be JSON: %s" % exc)
+        if not isinstance(new_value, list) or sum(1 for item in new_value
+                                                 if isinstance(item, dict) and item.get("kind") == "executor") != 1:
+            raise CliError(FAIL, "assignments must contain exactly one executor")
         old = label.get("assignments", [])
         label["assignments"] = new_value
     else:
@@ -1348,6 +1360,8 @@ def _parser() -> argparse.ArgumentParser:
     rl.add_argument("--json", action="store_true")
     fx = add("fix", cmd_fix, task=True)
     fx.add_argument("--reason")
+    rm = add("remove", cmd_remove, task=True)
+    rm.add_argument("--reason", required=True)
     adj = add("adjudicate", cmd_adjudicate)
     adj.add_argument("--list", action="store_true")
     adj.add_argument("--task")
