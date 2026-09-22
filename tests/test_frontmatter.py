@@ -70,3 +70,40 @@ def test_accepts_crlf_input_and_preserves_body():
 
 def test_quoted_strings_support_escapes():
     assert parse_frontmatter('---\ntext: "a\\nb"\n---\n')[0] == {"text": "a\nb"}
+
+
+def test_seeded_frontmatter_with_empty_rules_mapping():
+    text = '''---
+name: frontend-css
+role: frontend
+sub: css
+phases: [implement, review, maintain]
+model_tier_min: cheap
+reads:
+  - "agents/_refs/design-system-tokens/SKILL.md"
+rules: {}
+checklist:
+  - "No hard-coded colours"
+origin: orchestkit/frontend-ui-developer@9.8.0
+version: 1
+---
+body
+'''
+    parsed, body = parse_frontmatter(text)
+    assert parsed["rules"] == {}
+    assert body == "body\n"
+
+
+def test_parses_flat_inline_mapping_with_scalar_values():
+    assert parse_frontmatter('---\nvalues: {a: 1, b: "x"}\n---\n')[0] == {
+        "values": {"a": 1, "b": "x"}
+    }
+
+
+def test_parses_empty_inline_list():
+    assert parse_frontmatter("---\nvalues: []\n---\n")[0] == {"values": []}
+
+
+def test_rejects_nested_flow_mapping():
+    with pytest.raises(FrontmatterError, match="line 2"):
+        parse_frontmatter("---\nvalues: {a: {b: 1}}\n---\n")

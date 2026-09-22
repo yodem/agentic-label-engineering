@@ -83,6 +83,27 @@ def _split_inline(value: str, line: int) -> List[str]:
     return parts
 
 
+def _split_mapping_item(item: str, line: int) -> Tuple[str, str]:
+    quote = None
+    escaped = False
+    for index, char in enumerate(item):
+        if escaped:
+            escaped = False
+        elif quote == '"' and char == "\\":
+            escaped = True
+        elif quote:
+            if char == quote:
+                quote = None
+        elif char in ("'", '"'):
+            quote = char
+        elif char == ":":
+            key, value = item[:index].strip(), item[index + 1:].strip()
+            if not _KEY.match(key) or not value:
+                raise _fail(line, "invalid inline mapping entry")
+            return key, value
+    raise _fail(line, "invalid inline mapping entry")
+
+
 def _scalar(raw: str, line: int) -> Any:
     value = _strip_comment(raw.strip(), line)
     if not value:
@@ -93,6 +114,19 @@ def _scalar(raw: str, line: int) -> Any:
         if not value.endswith("]"):
             raise _fail(line, "invalid inline list")
         return [_scalar(item, line) for item in _split_inline(value, line)]
+    if value.startswith("{"):
+        if not value.endswith("}"):
+            raise _fail(line, "invalid inline mapping")
+        items = _split_inline(value, line)
+        result = {}
+        for item in items:
+            key, raw_value = _split_mapping_item(item, line)
+            if key in result:
+                raise _fail(line, "duplicate inline mapping key %r" % key)
+            if raw_value.startswith(("{", "[")):
+                raise _fail(line, "nested inline mappings are not supported")
+            result[key] = _scalar(raw_value, line)
+        return result
     if value in ("true", "false"):
         return value == "true"
     if value in ("null", "~"):
@@ -102,7 +136,7 @@ def _scalar(raw: str, line: int) -> Any:
             return int(value)
         except ValueError:
             pass
-    if value.startswith(("!!", "&", "*", "|", ">")) or value in ("{}", "[]"):
+    if value.startswith(("!!", "&", "*", "|", ">")):
         raise _fail(line, "unsupported YAML construct")
     if any(token in value for token in (": ", " #")):
         raise _fail(line, "unsupported YAML construct")
