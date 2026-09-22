@@ -26,6 +26,7 @@ from .dispatch import render_prompt
 from . import usage_transcript as UT
 from . import timeline as TL
 from . import dynamic as D
+from . import runner as RUNNER
 from .labeling import cascade as CAS
 from .labeling import truth as TRUTH
 from .labeling.judge import CommandJudge, is_mostly_english
@@ -47,9 +48,94 @@ class CliError(Exception):
         self.code = code
 
 
+def _git_root(path: str) -> str:
+    current = os.path.abspath(path)
+    while True:
+        if os.path.isdir(os.path.join(current, ".git")) or os.path.isfile(os.path.join(current, ".git")):
+            return current
+        parent = os.path.dirname(current)
+        if parent == current:
+            return os.path.abspath(path)
+        current = parent
+
+
+def _ale_dir(path: str = None) -> str:
+    cwd = os.path.abspath(path or os.getcwd())
+    root = _git_root(cwd)
+    current = cwd
+    while True:
+        candidate = os.path.join(current, ".ale")
+        if os.path.isdir(candidate):
+            return candidate
+        if current == root:
+            break
+        parent = os.path.dirname(current)
+        if parent == current or not os.path.commonpath([root, parent]) == root:
+            break
+        current = parent
+    return os.path.join(root, ".ale")
+
+
+def _plan_run_id(path: str, supplied: Optional[str]) -> str:
+    value = supplied
+    sidecar = path + ".ale-provenance.json"
+    if value is None and os.path.isfile(sidecar):
+        try:
+            with open(sidecar, encoding="utf-8") as handle:
+                data = json.load(handle)
+            value = data.get("run_id") if isinstance(data, dict) else None
+        except (OSError, ValueError):
+            value = None
+    if not value:
+        value = re.sub(r"[^A-Za-z0-9._-]", "-", os.path.splitext(os.path.basename(path))[0])
+    if not H.is_safe_id(value):
+        raise CliError(USAGE, "plan run id is unsafe: %s" % value)
+    return value
+
+
+def _resolve_run_dir(a, plan_path: str = None) -> str:
+    explicit = getattr(a, "run_dir", None)
+    if explicit:
+        return explicit
+    root = _ale_dir()
+    explicit_run_id = getattr(a, "run_id", None)
+    if explicit_run_id:
+        if not H.is_safe_id(explicit_run_id):
+            raise CliError(USAGE, "unsafe run_id: %s" % explicit_run_id)
+        return os.path.join(root, "runs", explicit_run_id)
+    env_dir = os.environ.get("ALE_RUN_DIR")
+    if env_dir:
+        return env_dir
+    if plan_path:
+        return os.path.join(root, "runs", _plan_run_id(plan_path, None))
+    current = os.path.join(root, "runs", "current")
+    try:
+        with open(current, encoding="utf-8") as handle:
+            run_id = handle.read().strip()
+    except OSError:
+        run_id = ""
+    if not run_id:
+        raise CliError(USAGE, "no current run; initialize a run with `ale init-run --plan PLAN.md`")
+    if not H.is_safe_id(run_id):
+        raise CliError(FAIL, "unsafe run_id in %s/current" % os.path.dirname(current))
+    return os.path.join(root, "runs", run_id)
+
+
+def _write_current_run(run_dir: str, run_id: str) -> None:
+    ale_root = _ale_dir()
+    if os.path.realpath(os.path.dirname(os.path.dirname(os.path.abspath(run_dir)))) == os.path.realpath(ale_root):
+        os.makedirs(os.path.join(ale_root, "runs"), exist_ok=True)
+        H.write_atomic(os.path.join(ale_root, "runs", "current"), run_id + "\n")
+
+
+def _resolve_roster(a) -> str:
+    return (getattr(a, "roster", None) or os.environ.get("ALE_ROSTER")
+            or os.path.join(_ale_dir(), "roster.json"))
+
+
 class Ctx:
     def __init__(self, a: argparse.Namespace, need_roster: bool = True):
-        self.run_dir = a.run_dir or os.environ.get("ALE_RUN_DIR")
+        self.run_dir = _resolve_run_dir(a)
         if not self.run_dir:
             raise CliError(USAGE, "--run-dir or ALE_RUN_DIR is required")
         self.events_path = os.path.join(self.run_dir, "events.jsonl")
@@ -60,7 +146,7 @@ class Ctx:
             if not H.is_safe_id(tid):
                 raise CliError(FAIL, "unsafe task_id in label file: %r" % (tid,))
         self.run_id = next(iter(self.labels.values())).get("run_id", "")
-        self.roster = R.load_roster(a.roster or os.environ.get("ALE_ROSTER") or "roster.json") if need_roster else None
+        self.roster = R.load_roster(_resolve_roster(a)) if need_roster else None
         if need_roster:
             try:
                 event_rows = E.read_events(self.events_path)
@@ -100,7 +186,8 @@ class Ctx:
         self._publish(task_id)
 
     def _publish(self, task_id: Optional[str]) -> None:
-        if os.environ.get("ALE_HERDR") != "1" or not task_id:
+        herdr_enabled = os.environ.get("ALE_HERDR")
+        if not task_id or not (herdr_enabled == "1" or (herdr_enabled is None and os.environ.get("HERDR_PANE_ID"))):
             return
         events = E.read_events(self.events_path)
         pane = None
@@ -180,12 +267,193 @@ def cmd_init_run(a) -> int:
     decisions = os.path.join(c.run_dir, "decisions.md")
     if not os.path.exists(decisions):
         H.write_atomic(decisions, "# Decisions for run %s\n\n" % c.run_id)
+    _write_current_run(c.run_dir, c.run_id)
     return OK
+
+
+def cmd_setup(a) -> int:
+    ale_root = _ale_dir()
+    roster_path = os.path.join(ale_root, "roster.json")
+    if os.path.exists(roster_path) and not a.force:
+        raise CliError(FAIL, "refusing to overwrite %s without --force" % roster_path)
+    os.makedirs(ale_root, exist_ok=True)
+    example = os.path.join(os.path.dirname(__file__), "example_roster.json")
+    with open(example, encoding="utf-8") as source:
+        H.write_atomic(roster_path, source.read())
+    root = _git_root(os.getcwd())
+    git_dir = os.path.join(root, ".git")
+    if os.path.isdir(git_dir):
+        exclude = os.path.join(git_dir, "info", "exclude")
+        os.makedirs(os.path.dirname(exclude), exist_ok=True)
+        try:
+            with open(exclude, encoding="utf-8") as handle:
+                content = handle.read()
+        except OSError:
+            content = ""
+        if not any(line.strip() in (".ale", ".ale/") for line in content.splitlines()):
+            with open(exclude, "a", encoding="utf-8") as handle:
+                if content and not content.endswith("\n"):
+                    handle.write("\n")
+                handle.write(".ale/\n")
+    print("Created %s" % roster_path)
+    print("Next: /label-layer PLAN.md")
+    return OK
+
+
+def cmd_run(a) -> int:
+    from .bake import compile_plan, extract_blocks, gaps, validate_compact_blocks
+
+    if a.max_cycles < 1:
+        raise CliError(USAGE, "--max-cycles must be at least 1")
+
+    with open(a.plan_path, encoding="utf-8") as handle:
+        plan_text = handle.read()
+    run_id = _plan_run_id(a.plan_path, a.run_id)
+    roster = _resolve_roster(a)
+    missing = []
+    try:
+        validate_compact_blocks(plan_text)
+        blocks = extract_blocks(plan_text)
+        if not blocks:
+            print("plan has no label blocks")
+            print("run /label-layer %s to fill them" % a.plan_path)
+            return SIGNOFF
+        provenance = {}
+        sidecar_path = a.plan_path + ".ale-provenance.json"
+        if os.path.isfile(sidecar_path):
+            with open(sidecar_path, encoding="utf-8") as handle:
+                sidecar = json.load(handle)
+            provenance = (sidecar.get("tasks") or {}) if isinstance(sidecar, dict) and "tasks" in sidecar else sidecar
+        labels = compile_plan(plan_text, run_id, provenance=provenance)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return FAIL
+    for task_id in sorted(labels):
+        missing.extend("%s: %s" % (task_id, issue) for issue in gaps(labels[task_id]))
+    if not labels:
+        missing.append("plan has no label blocks")
+    if missing:
+        for item in missing:
+            print(item)
+        print("run /label-layer %s to fill them" % a.plan_path)
+        return SIGNOFF
+
+    run_dir = _resolve_run_dir(a, a.plan_path)
+    events_path = os.path.join(run_dir, "events.jsonl")
+    already_started = any(item.get("type") == "run_started" for item in E.read_events(events_path))
+    if not already_started and not a.dry_run:
+        init_args = ["init-run", "--plan", a.plan_path, "--run-id", run_id,
+                     "--run-dir", run_dir, "--roster", roster]
+        result = main(init_args)
+        if result:
+            return result
+    if a.dry_run:
+        actions = {"run_id": run_id, "run_dir": run_dir,
+                   "start": "resume" if already_started else "init-run",
+                   "tasks": [{"task_id": task_id,
+                              "depends_on": labels[task_id].get("context", {}).get("depends_on", []),
+                              "acceptance": [item.get("cmd") for item in labels[task_id].get("acceptance", [])]}
+                             for task_id in sorted(labels)],
+                   "loop": ["dispatch", "verify", "integrate", "fix", "watchdog"],
+                   "max_cycles": a.max_cycles}
+        if a.json:
+            print(json.dumps(actions, sort_keys=True))
+        else:
+            print("%s run %s in %s" % (actions["start"], run_id, run_dir))
+            for task in actions["tasks"]:
+                print("task %s: dependencies=%s acceptance=%s" % (
+                    task["task_id"], ",".join(task["depends_on"]) or "none",
+                    ",".join(task["acceptance"])))
+            print("cycles: %d; actions: dispatch, verify, integrate, fix, watchdog" % a.max_cycles)
+        return OK
+
+    c_args = argparse.Namespace(run_dir=run_dir, roster=roster, now=None, run_id=run_id)
+    context = Ctx(c_args)
+    context.roster_path = roster
+    monitor_fixes_applied = set()
+    for cycle in range(a.max_cycles):
+        context = Ctx(c_args)
+        context.roster_path = roster
+        cycle_events = E.read_events(context.events_path)
+        actions = RUNNER.next_actions(context.state(), context.labels, cycle_events)
+        if any(kind == "exhausted" for kind, _ in actions):
+            for action_kind, task_id in actions:
+                if action_kind == "exhausted":
+                    context.emit("breach", task_id, None, context.state()["tasks"][task_id]["attempt"],
+                                 breach="attempts_exhausted", detail="two fixes already exist")
+            main(["status", "--run-dir", run_dir, "--roster", roster]
+                 + (["--json"] if a.json else []))
+            return _finish_run(context, BREACH)
+        for kind, task_id in actions:
+            if kind == "exhausted":
+                continue
+            args = [kind, "--task", task_id, "--run-dir", run_dir, "--roster", roster]
+            if kind == "fix":
+                result = main(args)
+                if result:
+                    return _finish_run(context, FAIL)
+            else:
+                result = main(args)
+                if result:
+                    if kind == "verify" and result == FAIL:
+                        events_now = E.read_events(context.events_path)
+                        submits = [index for index, event in enumerate(events_now)
+                                   if event.get("task_id") == task_id and event.get("type") == "submitted"]
+                        has_rejection = bool(submits) and any(
+                            event.get("task_id") == task_id and event.get("type") == "rejected"
+                            for event in events_now[submits[-1] + 1:])
+                        if has_rejection:
+                            continue
+                    return _finish_run(context, FAIL)
+            context = Ctx(c_args)
+            context.roster_path = roster
+        result = main(["dispatch", "--spawn", "--cwd", os.getcwd(), "--run-dir", run_dir, "--roster", roster])
+        if result:
+            return _finish_run(context, result)
+        result = main(["watchdog", "--run-dir", run_dir, "--roster", roster])
+        latest = E.read_events(context.events_path)
+        state = context.state()
+        print_status = main(["status", "--run-dir", run_dir, "--roster", roster]
+                            + (["--json"] if a.json else []))
+        if print_status:
+            return print_status
+        if any(event.get("type") == "monitor_verdict" and event.get("verdict") == "escalate" for event in latest):
+            return _finish_run(context, BREACH)
+        for verdict_event in [event for event in latest if event.get("type") == "monitor_verdict"
+                              and event.get("verdict") == "fix"]:
+            task_id = verdict_event.get("task_id")
+            if task_id in monitor_fixes_applied:
+                continue
+            refreshed = Ctx(c_args)
+            if task_id in refreshed.labels and refreshed.state()["tasks"][task_id]["state"] == "rejected":
+                result = main(["fix", "--task", task_id, "--run-dir", run_dir, "--roster", roster])
+                monitor_fixes_applied.add(task_id)
+                if result:
+                    return _finish_run(context, FAIL)
+        state = context.state()
+        if RUNNER.is_complete(state, context.labels):
+            return _finish_run(context, OK)
+        pending = RUNNER.next_actions(state, context.labels, latest)
+        due = __import__("ale.dispatch", fromlist=["due_assignments"]).due_assignments(state, context.labels, context.roster)
+        if not pending and not due:
+            break
+    state = context.state()
+    return _finish_run(context, OK if RUNNER.is_complete(state, context.labels) else BREACH)
+
+
+def _finish_run(context, code: int) -> int:
+    roster = getattr(context, "roster_path", _resolve_roster(argparse.Namespace()))
+    main(["timeline", "--tail", "20", "--run-dir", context.run_dir, "--roster", roster])
+    main(["meta", "--run-dir", context.run_dir, "--roster", roster])
+    return code
 
 
 def cmd_status(a) -> int:
     c = Ctx(a)
     state = c.state()
+    for tid, label in c.labels.items():
+        if label.get("fixes") and state["tasks"].get(label["fixes"], {}).get("integrated"):
+            state["tasks"][tid]["integrated"] = True
     if a.json:
         events = E.read_events(c.events_path)
         for tid, st in state["tasks"].items():
@@ -443,7 +711,7 @@ def _hook_orchestrator(data: dict) -> int:
     run_dir = os.environ.get("ALE_ORCHESTRATOR_RUN_DIR")
     if not run_dir:
         return OK
-    roster = os.environ.get("ALE_ROSTER") or "roster.json"
+    roster = os.environ.get("ALE_ROSTER") or os.path.join(_ale_dir(), "roster.json")
     c = Ctx(argparse.Namespace(run_dir=run_dir, roster=roster, now=None))
     breaches = W.check(c.state(), c.labels, c.roster, c.now)
     for breach in breaches:
@@ -648,6 +916,7 @@ def _make_dispatch_request(c: Ctx, due: dict, project_cwd: str, n: int) -> dict:
 
     label = c.labels[due["task_id"]]
     assignment = _dispatch_assignment(label, due)
+    assignment["roster"] = c.roster_path if hasattr(c, "roster_path") else _resolve_roster(argparse.Namespace())
     plan = worktree_plan(label, c.run_dir, c.run_id)
     request_cwd = project_cwd
     if plan:
@@ -706,7 +975,7 @@ def cmd_dispatch(a) -> int:
     from .dispatch import due_assignments, worktree_plan
 
     c = Ctx(a)
-    c.roster_path = a.roster or os.environ.get("ALE_ROSTER") or "roster.json"
+    c.roster_path = _resolve_roster(a)
     project_cwd = os.path.abspath(a.cwd or os.getcwd())
     lock_path = os.path.join(c.run_dir, "dispatch.lock")
     requests = []
@@ -746,7 +1015,8 @@ def cmd_dispatch(a) -> int:
             print(json.dumps(request, sort_keys=True))
         return OK
     for item, request, request_path in spawned_requests:
-        spawn_bin = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, "bin", "ale-spawn"))
+        spawn_bin = os.environ.get("ALE_SPAWN_BIN") or os.path.abspath(
+            os.path.join(os.path.dirname(__file__), os.pardir, "bin", "ale-spawn"))
         before = _monitor_worktree_snapshot(request["cwd"]) if item["kind"] == "monitor" else None
         proc = subprocess.run([spawn_bin, request_path],
                               cwd=request["cwd"], text=True, capture_output=True,
@@ -960,13 +1230,14 @@ def _failed_acceptance(label: dict, evidence: dict) -> List[dict]:
 def cmd_fix(a) -> int:
     c = Ctx(a)
     parent = c.task(a.task)
-    if parent.get("state") != "rejected":
+    existing = sorted(tid for tid, label in c.labels.items() if label.get("fixes") == a.task)
+    rejected_child = any(c.state()["tasks"].get(tid, {}).get("state") == "rejected" for tid in existing)
+    if parent.get("state") != "rejected" and not (parent.get("state") == "fixing" and rejected_child):
         raise CliError(FAIL, "task %s is %s, not rejected" % (a.task, parent.get("state")))
     if c.labels[a.task].get("fixes"):
         c.emit("breach", a.task, None, parent.get("attempt"), breach="attempts_exhausted",
                detail="fix tasks cannot create another fix task")
         raise CliError(BREACH, "attempts_exhausted")
-    existing = sorted(tid for tid, label in c.labels.items() if label.get("fixes") == a.task)
     if len(existing) >= 2:
         c.emit("breach", a.task, None, parent.get("attempt"), breach="attempts_exhausted", detail="two fix tasks already exist")
         raise CliError(BREACH, "attempts_exhausted")
@@ -1002,6 +1273,8 @@ def cmd_paths_within(a) -> int:
 
 
 def cmd_doctor(a) -> int:
+    print("roster: %s" % _resolve_roster(a))
+    print("run_dir: %s" % _resolve_run_dir(a))
     c = Ctx(a)
     problems: List[str] = []
     if os.path.exists(c.events_path):
@@ -1048,6 +1321,8 @@ def cmd_timeline(a) -> int:
     if a.task:
         events = [event for event in events if event.get("task_id") == a.task]
     rows = TL.timeline(events, c.labels)
+    if getattr(a, "tail", None):
+        rows = rows[-a.tail:]
     if a.json:
         print(json.dumps(rows, sort_keys=True))
     else:
@@ -1110,7 +1385,7 @@ def cmd_bind(a) -> int:
     c = Ctx(a)
     c.task(a.task)
     path = B.binding_path(_binding_home(a), a.session, a.subagent)
-    roster = a.roster or os.environ.get("ALE_ROSTER") or "roster.json"
+    roster = _resolve_roster(a)
     value = {"run_dir": c.run_dir, "roster": roster, "task_id": a.task,
              "agent_id": a.agent, "source": "file"}
     H.write_atomic(path, json.dumps(value, sort_keys=True))
@@ -1137,10 +1412,8 @@ def _resolve_now(a: argparse.Namespace) -> float:
 
 
 def cmd_label(a) -> int:
-    run_dir = a.run_dir or os.environ.get("ALE_RUN_DIR")
-    if not run_dir:
-        raise CliError(USAGE, "--run-dir or ALE_RUN_DIR is required")
-    roster = R.load_roster(a.roster or os.environ.get("ALE_ROSTER") or "roster.json")
+    run_dir = _resolve_run_dir(a)
+    roster = R.load_roster(_resolve_roster(a))
     now = _resolve_now(a)
 
     events_path = os.path.join(run_dir, "events.jsonl")
@@ -1558,18 +1831,7 @@ def cmd_eval_report(a) -> int:
 
 
 def _plan_roster(a):
-    path = a.roster or os.environ.get("ALE_ROSTER")
-    if not path:
-        path = "roster.json" if os.path.exists("roster.json") else "examples/roster.json"
-    return R.load_roster(path)
-
-
-def _plan_run_id(path: str, supplied: Optional[str]) -> str:
-    value = supplied if supplied is not None else re.sub(
-        r"[^A-Za-z0-9._-]", "-", os.path.splitext(os.path.basename(path))[0])
-    if not H.is_safe_id(value):
-        raise CliError(USAGE, "plan run id is unsafe: %s" % value)
-    return value
+    return R.load_roster(_resolve_roster(a))
 
 
 def _plan_existing_labels(text: str) -> dict:
@@ -1629,6 +1891,8 @@ def _plan_labels(text: str, path: str, run_id: str, roster: dict, no_judge: bool
         if old:
             label["labels"]["lane"] = old.get("labels", {}).get("lane")
             label["provenance"]["lane_reason"] = old.get("lane_reason") or old.get("provenance", {}).get("lane_reason")
+            label["acceptance"] = list(old.get("acceptance", []))
+            label["context"]["allowed_paths"] = list(old.get("allowed_paths", []))
             old_worktree = old.get("worktree") or old.get("context", {}).get("worktree")
             if old_worktree is not None:
                 if isinstance(old_worktree, str):
@@ -1643,8 +1907,15 @@ def _plan_labels(text: str, path: str, run_id: str, roster: dict, no_judge: bool
     return labels, shadow
 
 
+def _plan_shadow_path(path: str) -> str:
+    absolute_path = os.path.abspath(path)
+    digest = hashlib.sha256(absolute_path.encode("utf-8")).hexdigest()[:8]
+    filename = "%s-%s.jsonl" % (os.path.splitext(os.path.basename(absolute_path))[0], digest)
+    return os.path.join(_ale_dir(os.path.dirname(absolute_path)), "shadow", filename)
+
+
 def _plan_shadow_gate(path: str) -> None:
-    shadow = path + ".ale-shadow.jsonl"
+    shadow = _plan_shadow_path(path)
     try:
         _refuse_tracked_out_dir(os.path.dirname(shadow) or ".")
     except CliError as parent_error:
@@ -1673,7 +1944,8 @@ def _plan_shadow_gate(path: str) -> None:
 def _write_shadow(path: str, rows: List[dict]) -> None:
     if not rows:
         return
-    shadow = path + ".ale-shadow.jsonl"
+    shadow = _plan_shadow_path(path)
+    os.makedirs(os.path.dirname(shadow), exist_ok=True)
     previous = ""
     if os.path.exists(shadow):
         with open(shadow, encoding="utf-8") as handle:
@@ -1720,7 +1992,8 @@ def cmd_plan_bake(a) -> int:
         text = handle.read()
     roster = _plan_roster(a)
     shadow_error = None
-    if not a.no_judge:
+    judge_enabled = bool(a.judge and not a.no_judge)
+    if judge_enabled:
         try:
             _plan_shadow_gate(a.plan_path)
         except CliError as exc:
@@ -1728,13 +2001,12 @@ def cmd_plan_bake(a) -> int:
     try:
         validate_compact_blocks(text)
         labels, shadow = _plan_labels(text, a.plan_path, _plan_run_id(a.plan_path, a.run_id),
-                                      roster, a.no_judge)
+                                      roster, not judge_enabled or shadow_error is not None)
         baked = bake(text, labels)
     except (PlanParseError, ValueError) as exc:
         raise CliError(FAIL, str(exc))
-    if not a.no_judge:
-        if shadow_error is None:
-            _write_shadow(a.plan_path, shadow)
+    if judge_enabled and shadow_error is None:
+        _write_shadow(a.plan_path, shadow)
     if not a.write:
         import difflib
         sys.stdout.write("".join(difflib.unified_diff(
@@ -1805,9 +2077,7 @@ def _compile_plan_to_run(path: str, run_dir: str, roster: dict, run_id: Optional
 
 def cmd_plan_compile(a) -> int:
     roster = _plan_roster(a)
-    run_dir = a.run_dir or os.environ.get("ALE_RUN_DIR")
-    if not run_dir:
-        raise CliError(USAGE, "--run-dir or ALE_RUN_DIR is required")
+    run_dir = _resolve_run_dir(a, a.plan_path)
     return OK if _compile_plan_to_run(a.plan_path, run_dir, roster, a.run_id) is not None else FAIL
 
 
@@ -1815,9 +2085,7 @@ def cmd_init_run_plan(a) -> int:
     if not a.plan:
         return cmd_init_run(a)
     roster = _plan_roster(a)
-    run_dir = a.run_dir or os.environ.get("ALE_RUN_DIR")
-    if not run_dir:
-        raise CliError(USAGE, "--run-dir or ALE_RUN_DIR is required")
+    run_dir = _resolve_run_dir(a, a.plan)
     a.run_dir = run_dir
     if _compile_plan_to_run(a.plan, run_dir, roster, a.run_id) is None:
         return FAIL
@@ -1840,6 +2108,7 @@ def cmd_init_run_plan(a) -> int:
     decisions = os.path.join(c.run_dir, "decisions.md")
     if not os.path.exists(decisions):
         H.write_atomic(decisions, "# Decisions for run %s\n\n" % c.run_id)
+    _write_current_run(c.run_dir, c.run_id)
     return OK
 
 
@@ -1848,6 +2117,7 @@ def _parser() -> argparse.ArgumentParser:
     common.add_argument("--run-dir")
     common.add_argument("--roster")
     common.add_argument("--now")
+    common.add_argument("--run-id")
     p = argparse.ArgumentParser(prog="ale")
     sub = p.add_subparsers(dest="cmd")
 
@@ -1864,8 +2134,16 @@ def _parser() -> argparse.ArgumentParser:
     va.add_argument("--cwd")
     init_run = add("init-run", cmd_init_run)
     init_run.add_argument("--plan")
-    init_run.add_argument("--run-id")
     init_run.set_defaults(fn=cmd_init_run_plan)
+    setup = sub.add_parser("setup")
+    setup.add_argument("--force", action="store_true")
+    setup.set_defaults(fn=cmd_setup)
+    run = sub.add_parser("run", parents=[common])
+    run.set_defaults(fn=cmd_run)
+    run.add_argument("plan_path")
+    run.add_argument("--max-cycles", type=int, default=20)
+    run.add_argument("--dry-run", action="store_true")
+    run.add_argument("--json", action="store_true")
     plan = sub.add_parser("plan")
     plan_sub = plan.add_subparsers(dest="plan_cmd")
     plan_parse = plan_sub.add_parser("parse")
@@ -1876,6 +2154,7 @@ def _parser() -> argparse.ArgumentParser:
     plan_bake.set_defaults(fn=cmd_plan_bake)
     plan_bake.add_argument("plan_path")
     plan_bake.add_argument("--run-id")
+    plan_bake.add_argument("--judge", action="store_true")
     plan_bake.add_argument("--no-judge", action="store_true")
     plan_bake.add_argument("--write", action="store_true")
     plan_bake.add_argument("--roster")
@@ -1896,6 +2175,7 @@ def _parser() -> argparse.ArgumentParser:
     timeline = add("timeline", cmd_timeline)
     timeline.add_argument("--task")
     timeline.add_argument("--json", action="store_true")
+    timeline.add_argument("--tail", type=int)
     meta = add("meta", cmd_meta)
     meta.add_argument("--json", action="store_true")
     meta.add_argument("--csv", action="store_true")

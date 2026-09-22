@@ -25,10 +25,20 @@ def _ctx(run, roster):
     return Ctx(SimpleNamespace(run_dir=str(run), roster=str(roster), now=1.0), need_roster=True)
 
 
-def test_publisher_is_off_by_default(tmp_path, monkeypatch):
+def test_publisher_defaults_on_for_herdr_pane(tmp_path, monkeypatch):
     run, roster = _run(tmp_path)
     calls = []
     monkeypatch.delenv("ALE_HERDR", raising=False)
+    monkeypatch.setenv("HERDR_PANE_ID", "pane-1")
+    monkeypatch.setattr("ale.cli._HERDR_RUNNER", lambda *args, **kwargs: calls.append((args, kwargs)))
+    _ctx(run, roster).emit("claimed", "T01", "agent", 1)
+    assert len(calls) == 1
+
+
+def test_publisher_can_be_disabled_for_herdr_pane(tmp_path, monkeypatch):
+    run, roster = _run(tmp_path)
+    calls = []
+    monkeypatch.setenv("ALE_HERDR", "0")
     monkeypatch.setenv("HERDR_PANE_ID", "pane-1")
     monkeypatch.setattr("ale.cli._HERDR_RUNNER", lambda *args, **kwargs: calls.append((args, kwargs)))
     _ctx(run, roster).emit("claimed", "T01", "agent", 1)

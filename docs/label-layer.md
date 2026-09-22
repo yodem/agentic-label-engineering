@@ -4,28 +4,32 @@ ALE turns a plan into a typed, append-only task board for multi-agent coding. La
 
 ## Flow
 
-Write a plan with task headings, files, dependencies, and acceptance commands. Bake labels into it and read the gap list:
+From any Git repository, initialize the local roster once, then use the label-layer skill or the manual commands:
 
 ```sh
-ale plan bake plan.md
-ale plan bake plan.md --write
-ale init-run --plan plan.md
-ale dispatch --json
-ale dispatch --spawn
+ale setup
+/label-layer PLAN.md
 ```
 
-Dispatch creates the default per-task worktree for a write task. An executor claims its task, sends heartbeats, submits, and runs the label's acceptance through `ale verify`. A rejection creates a focused fix task with `ale fix --task TASK`. After the fix is accepted, verify the parent's full acceptance again. Integrate an accepted branch with `ale integrate --task TASK`.
+Alternatively, bake and run by hand with `ale plan bake PLAN.md --write` followed by `ale run PLAN.md`. The runner checks that blocks have no gaps before starting. It initializes once, resumes from the event log on later invocations, dispatches ready assignments synchronously, verifies submissions, integrates accepted tasks, and creates focused fixes for rejections. It stops after two fix tasks for a rejected task, on monitor escalation, or after the cycle limit.
+
+Plan baking does not call an external judge by default. Add `--judge` to opt in; this sends task text to the configured external API. `--no-judge` remains available for compatibility.
+
+Defaults use the nearest `.ale/roster.json` and `.ale/runs/<run-id>` under the repository's `.ale` directory. Run IDs come from `--run-id`, plan provenance, or the plan filename. Existing-run commands resolve to the last initialized run recorded in `.ale/runs/current`; pass `--run-id` to select another run. Explicit flags and `ALE_ROSTER` or `ALE_RUN_DIR` override defaults.
+
+Dispatch creates the default per-task worktree for a write task. Executors claim, send heartbeats, submit, and run the label's acceptance through `ale verify`. After a fix is accepted, the runner verifies the parent's full acceptance again. Integrate an accepted branch with the runner's `ale integrate --task TASK` action.
 
 Executors never commit. `ale integrate` checks and commits the executor's allowed changes before merging them. `ale dispatch --json` prints one JSON object per line, one spawn request per line.
 
 Use `ale timeline [--task TASK] [--json]` for the event stream. Use `ale meta [--json]` for per-task, per-agent, and run usage metadata; add `--csv` for CSV output.
 
-The normal loop is:
+The runner's normal loop is:
 
 ```text
-write plan -> bake -> fill gaps -> init-run --plan -> dispatch -> verify
-                                      rejected -> fix -> verify parent -> integrate
-                                      inspect -> timeline / meta
+write plan -> bake --write -> fill gaps -> ale run
+                                            dispatch -> verify -> integrate
+                                            rejected -> fix -> verify parent
+                                            report -> status / timeline / meta
 ```
 
 ## Label fields
@@ -66,7 +70,7 @@ Each label is a JSON object in an `ale-label` fenced block or in `run/labels/TAS
 
 An assignment has `kind`, `role`, `model_tier`, `executor`, and `trigger`. The executor runs when the task is ready. A monitor is read-only and is useful for high-risk or unattended tasks; `on_breach` starts it when the watchdog reports a breach. `on_submit` waits for submission, and `milestone` waits until all tasks with the milestone have submitted or reached a later state. Fixers are created by `ale fix` and are not dispatched as ordinary monitor work.
 
-Monitor prompts contain the triggering breach and heartbeat step, acceptance commands to run read-only, the handoff path, and the worktree. Monitors return `continue`, `nudge`, `fix`, or `escalate` with one line of reasoning; ALE records that verdict for the lead but never runs `ale fix` automatically. Executor prompts use `$ALE_BIN` for ALE commands. Spawned children receive `ALE_BIN` (default `python3 -m ale`) and the plugin root on `PYTHONPATH`.
+Monitor prompts contain the triggering breach and heartbeat step, acceptance commands to run read-only, the handoff path, and the worktree. Monitors return `continue`, `nudge`, `fix`, or `escalate` with one line of reasoning; escalation stops the run, and a `fix` verdict can only trigger `ale fix` for a monitor assignment selected by the human in the plan. Executor prompts use `$ALE_BIN` for ALE commands. Spawned children receive `ALE_BIN` (default `python3 -m ale`) and the plugin root on `PYTHONPATH`.
 
 ## Derived status
 

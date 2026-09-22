@@ -4,7 +4,9 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 
+import ale.cli as cli
 from ale.bake import bake, skeleton_label
 from ale.cli import main
 from ale.events import read_events
@@ -106,21 +108,66 @@ def test_init_run_plan_records_plan_hash(tmp_path):
     assert started["plan_sha256"] == hashlib.sha256(plan.read_bytes()).hexdigest()
 
 
-def test_shadow_file_is_allowed_only_when_file_is_ignored(tmp_path, capsys):
+def test_shadow_file_is_allowed_only_when_file_is_ignored(tmp_path, capsys, monkeypatch):
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(["git", "init"], cwd=str(repo), check=True, capture_output=True)
-    plan = repo / "plan.md"
-    plan.write_text(open(PLAN, encoding="utf-8").read())
-    roster = _roster(tmp_path, ["false"])
+    marker = repo / "judge-input.txt"
+    judge = repo / "fake-judge.py"
+    judge.write_text("""import json, sys
+state = sys.stdin.read()
+with open(sys.argv[1], 'a', encoding='utf-8') as handle:
+    handle.write(state + '\\n')
+options = sys.argv[4:]
+print(json.dumps({'choice': options[0], 'confidence': 0.9,
+                  'probabilities': {option: 0.9 if index == 0 else 0.1
+                                    for index, option in enumerate(options)}}))
+""")
+    roster = _roster(tmp_path, [sys.executable, str(judge), str(marker)])
+    plan = _valid_plan(repo, roster)
+    monkeypatch.chdir(repo)
+    shadow_root = repo / ".ale" / "shadow"
+    expected_shadow = shadow_root / ("%s-%s.jsonl" % (
+        plan.stem, hashlib.sha256(os.path.abspath(str(plan)).encode("utf-8")).hexdigest()[:8]))
 
-    assert main(["plan", "bake", str(plan), "--roster", roster]) == 1
+    assert main(["plan", "bake", str(plan), "--judge", "--roster", roster]) == 1
     assert "git-ignored" in capsys.readouterr().err
-    assert not (repo / "plan.md.ale-shadow.jsonl").exists()
+    assert not marker.exists()
+    assert not expected_shadow.exists()
 
-    (repo / ".gitignore").write_text("*.ale-shadow.jsonl\n")
-    assert main(["plan", "bake", str(plan), "--roster", roster]) == 1
-    assert (repo / "plan.md.ale-shadow.jsonl").exists()
+    assert main(["setup"]) == 0
+    capsys.readouterr()
+    assert main(["plan", "bake", str(plan), "--judge", "--write", "--roster", roster]) == 0
+    assert expected_shadow.exists()
+    assert "Add the todo model" in marker.read_text(encoding="utf-8")
+    monkeypatch.undo()
+
+
+def test_plan_bake_is_deterministic_and_judge_is_opt_in(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=str(repo), check=True, capture_output=True)
+    roster = _roster(tmp_path, ["false"])
+    plan = _valid_plan(repo, roster)
+    monkeypatch.setattr(cli, "CommandJudge", lambda *args, **kwargs: (_ for _ in ()).throw(
+        AssertionError("external judge must be opt-in")))
+
+    assert main(["plan", "bake", str(plan), "--write", "--roster", roster]) == 0
+    assert not (repo / ".ale" / "shadow").exists()
+    sidecar = plan.with_name(plan.name + ".ale-provenance.json")
+    payload = json.loads(sidecar.read_text(encoding="utf-8"))
+
+    def strings(value):
+        if isinstance(value, dict):
+            for child in value.values():
+                yield from strings(child)
+        elif isinstance(value, list):
+            for child in value:
+                yield from strings(child)
+        elif isinstance(value, str):
+            yield value
+
+    assert not [value for value in strings(payload) if os.path.isabs(value)]
 
 
 def test_compile_preserves_existing_plan_labels(tmp_path):

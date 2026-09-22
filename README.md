@@ -10,21 +10,13 @@ Status: core executor protocol with Claude Code and Pi adapters, plus Codex hook
 ## Quick start
 
 ```bash
-uv tool install .            # or: python3 -m ale ...
-export ALE_RUN_DIR=.ale/runs/my-run ALE_ROSTER=roster.json
-cp examples/roster.json roster.json
-mkdir -p $ALE_RUN_DIR/labels && cp examples/run/labels/*.json $ALE_RUN_DIR/labels/
-ale validate && ale init-run
-ale ready                                  # claimable tasks
-ale claim --task T01 --agent me
-ale heartbeat --task T01 --agent me --step "wrote tests"
-ale submit --task T01 --agent me --summary "endpoint added, tests pass"
-ale verify --task T01 --base main          # runs the label's acceptance commands, checks paths
-ale watchdog                               # run from a loop or scheduler; exit 6 means breaches
-ale status
+Install the ALE plugin for your agent.
+ale setup
+/label-layer PLAN.md
 ```
 
-Add `.ale/` to your `.gitignore`.
+For a manual run, use `ale plan bake PLAN.md --write` followed by `ale run PLAN.md`.
+Plan baking does not call an external judge by default. Add `--judge` to opt in; this sends task text to the configured external API. `--no-judge` remains available for compatibility.
 
 ## Label layer
 

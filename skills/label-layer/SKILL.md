@@ -1,41 +1,28 @@
 ---
 name: label-layer
-description: Turn plan mode or superpowers plans into typed ALE tasks, dispatch them safely, and verify completion.
+description: Bake a plan into ALE labels, fill planning gaps, and run the deterministic label-layer workflow.
 ---
 
 # Label layer
 
-1. Start with a plan file. Run:
+Given a plan path:
 
-   ```sh
-   ale plan bake PLAN.md
-   ```
-
-   Baked blocks are compact planner-facing JSON with `task_id`, `title`, `labels`, `lane_reason`, `acceptance`, `allowed_paths`, `depends_on`, `worktree`, and `assignments`. Provenance and votes are stored in `PLAN.md.ale-provenance.json` when `--write` is used.
-
-   Read every reported gap before editing the plan.
-
-2. Fill each gap in this order:
-
-   - `acceptance`: write 2 to 5 commands that exit 0 only when the task is truly done. Use a manual entry only when no command can decide.
-   - `allowed_paths`: list the narrowest files or globs the task may change.
-   - `lane` and `lane_reason`: answer the three planner questions and record why the lane fits. Never ask a model or Jev to choose the lane.
-
-3. Add a `monitor` assignment only for high-risk or unattended work. Use `on_breach` unless a different trigger is justified.
-
-4. Write the labels and start the run:
+1. If `.ale/roster.json` is missing, run `ale setup`.
+2. Bake labels and write provenance:
 
    ```sh
    ale plan bake PLAN.md --write
-   ale init-run --plan PLAN.md
-   ale dispatch --json
-   ale dispatch --spawn
    ```
 
-   Worktree isolation is the default for write tasks. Let dispatch create the task worktree.
+   Judging is opt-in. Add `--judge` only when desired; it sends task text to the configured external API. `--no-judge` remains available for compatibility.
 
-5. On return, run `ale verify`. If it rejects, run `ale fix --task TASK` and verify the fix task before re-verifying the parent.
+3. Fill every reported gap inside the plan's label blocks. Every task needs a written `lane_reason`, 2 to 5 acceptance commands, and all other required label fields. Add a monitor assignment only when risk is high or the run is unattended.
+4. Run the workflow:
 
-6. Integrate an accepted worktree with `ale integrate --task TASK`.
+   ```sh
+   ale run PLAN.md
+   ```
 
-7. Inspect `ale timeline` and `ale meta` for event history and usage totals. Never mark a task done by hand. Only `ale verify` can produce `accepted`.
+5. Report the final status table, the timeline tail, and meta totals. If the command exits 6, identify the task and the reason it stopped.
+
+Never edit a label after `init-run` except through `ale relabel`. Never mark a task done by hand. Verification and integration are determined by ALE's event-backed state.

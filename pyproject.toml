@@ -16,7 +16,7 @@ ale = "ale.cli:main"
 include = ["ale*"]
 
 [tool.setuptools.package-data]
-ale = ["schema/*.json"]
+ale = ["schema/*.json", "example_roster.json"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

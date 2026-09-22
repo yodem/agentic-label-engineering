@@ -1,0 +1,60 @@
+{
+  "schema_version": "1.0",
+  "vocab": {
+    "role": {
+      "backend": "Server code, APIs, data access, scripts.",
+      "frontend": "UI components, styling, client state.",
+      "infra": "CI, deployment, containers, cloud config.",
+      "test": "Test suites, fixtures, coverage work.",
+      "docs": "Documentation and written guides only.",
+      "fixer": "Focused repair work after an acceptance failure.",
+      "monitor": "Read-only monitoring and escalation.",
+      "general": "Catch-all work not covered by another role."
+    },
+    "model_tier": {
+      "cheap": "Mechanical edits with a clear recipe.",
+      "standard": "Ordinary implementation work that needs judgment.",
+      "frontier": "Architecture, ambiguous requirements, security-sensitive work."
+    },
+    "risk": {
+      "low": "Reversible, covered by tests.",
+      "medium": "Touches shared interfaces or data shape.",
+      "high": "Auth, money, deletion, migrations. Needs sign-off before acceptance."
+    },
+    "effort": {"S": "Under 15 minutes.", "M": "15 to 60 minutes.", "L": "Over an hour."}
+  },
+  "routing": [
+    {"role": "*", "model_tier": "cheap", "executor": "claude-headless", "model": "claude-haiku-4-5-20251001"},
+    {"role": "*", "model_tier": "standard", "executor": "claude-headless", "model": "claude-sonnet-5"},
+    {"role": "*", "model_tier": "frontier", "executor": "claude-headless", "model": "claude-opus-5"},
+    {"role": "backend", "model_tier": "standard", "executor": "codex-exec", "model": "gpt-5-codex"},
+    {"role": "monitor", "model_tier": "standard", "executor": "claude-headless", "model": "claude-sonnet-5"},
+    {"role": "fixer", "model_tier": "standard", "executor": "claude-headless", "model": "claude-sonnet-5"}
+  ],
+  "watch_defaults": {
+    "*:S": {"heartbeat_timeout_s": 600, "stuck_after_s": 600, "max_duration_s": 1800, "budget_tokens": 150000, "max_attempts": 3},
+    "*:M": {"heartbeat_timeout_s": 900, "stuck_after_s": 1200, "max_duration_s": 5400, "budget_tokens": 400000, "max_attempts": 3},
+    "*:L": {"heartbeat_timeout_s": 900, "stuck_after_s": 1800, "max_duration_s": 10800, "budget_tokens": 900000, "max_attempts": 3}
+  },
+  "uncertain_below": 0.6,
+  "judge": {
+    "plugin": "command",
+    "command": ["jev-ask"],
+    "timeout_s": 30,
+    "threshold": 0.75,
+    "modes": {"role": "shadow", "model_tier": "shadow", "risk": "shadow", "effort": "shadow"},
+    "questions": {
+      "role": "Which kind of engineering work is this task?",
+      "model_tier": "How much model capability does this task need?",
+      "risk": "How risky is this task if it is done wrong?",
+      "effort": "How long will this task take a competent engineer?"
+    }
+  },
+  "rules": [
+    {"field": "role", "when": {"path_prefix": "docs/"}, "value": "docs"},
+    {"field": "role", "when": {"keyword": "(?i)\\b(pytest|unit tests?|e2e|test suite)\\b"}, "value": "test"},
+    {"field": "risk", "when": {"keyword": "(?i)\\b(auth|payment|delete|migration|credential)\\b"}, "value": "high"}
+  ],
+  "promotion": {"min_cases": 100, "tolerance": 0.03, "min_coverage": 0.6, "demote_window": 50},
+  "cost_gate": {"max_concurrent": 3, "max_tasks_per_run": 20, "max_run_budget_tokens": 3000000}
+}
