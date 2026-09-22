@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.6 (2026-09-22)
+
+- Jev shadow decisions (opt-in: roster `judge.default: shadow`). Eleven decisions collect a shadow vote where they happen (bake, dispatch, verify, fix, monitor breach). Votes are recorded as events and never change a label, lane, routing or state.
+- Verdict decisions ask narrow yes/no evidence questions and compute the choice in code: `lane` (same rules as `flow lane`, shadow only), `needs_monitor`, `rejection_action`, `monitor_verdict`. `executor` is deterministic and not judged. `locality` is a yes/no question mapped to `any|local`.
+- `ale judge-stats` reports agreement per decision, split inside and outside the uncertain confidence band, with median latency and progress toward 100 adjudicated cases; `effort` is flagged as a grey-zone estimate.
+- `ale adjudicate --decision` refuses a second adjudication of the same task and decision.
+- The roster gains optional `judge.default`, `judge.bar` and `judge.model`; old rosters load unchanged and the shipped roster keeps `judge.default: off`.
+- Tests: a root conftest guard fails any test that would call the real `jev-ask`.
+
 ## 0.2.5 (2026-09-22)
 
 - Reference skills move from `agents/_refs` to `catalog/refs` so Claude Code stops loading them as plugin subagents.
