@@ -136,7 +136,7 @@ def _apply(st: dict, ev: dict, tasks: Dict[str, dict], labels: Dict[str, dict]) 
                 if ev.get(key) is not None:
                     st[key] = list(ev[key])
     elif kind == "note":
-        if is_owner:
+        if is_owner or ev.get("lead") is True:
             st["notes"] = (st["notes"] + [ev["text"]])[-5:]
     elif kind == "input_required":
         if is_owner and st["state"] in LIVE:

@@ -4,6 +4,7 @@ import argparse
 import csv
 import glob
 import hashlib
+import fnmatch
 import json
 import os
 import re
@@ -686,7 +687,17 @@ def cmd_note(a) -> int:
     extra = {"text": a.text[:TEXT_MAX]}
     if a.to:
         extra["to"] = a.to
-    return _owned(Ctx(a), a, "note", **extra)
+    c = Ctx(a)
+    if a.agent:
+        return _owned(c, a, "note", **extra)
+    if a.task not in c.labels:
+        raise CliError(FAIL, "unknown task %s" % a.task)
+    state = c.state()
+    c.emit("note", a.task, None, state["tasks"][a.task]["attempt"], lead=True, **extra)
+    owner = state["tasks"][a.task].get("owner")
+    if owner:
+        c.render(a.task, owner)
+    return OK
 
 
 def cmd_input_required(a) -> int:
@@ -1173,6 +1184,32 @@ def _create_worktree(plan: dict, project_cwd: str) -> None:
         raise CliError(FAIL, message or "git worktree add failed")
 
 
+def _run_worktree_setup(c: Ctx, label: dict, worktree: str, project_cwd: str) -> None:
+    marker = os.path.join(worktree, ".ale-setup-done")
+    if os.path.exists(marker):
+        return
+    worktree_config = (label.get("context", {}).get("worktree") or {})
+    commands = worktree_config.get("setup")
+    if commands is None:
+        commands = c.roster.get("worktree_setup_defaults", [])
+    for command in commands or []:
+        try:
+            proc = subprocess.run(command, cwd=worktree, env=dict(os.environ, ALE_WORKTREE=worktree,
+                                    ALE_CHECKOUT=project_cwd), shell=True, text=True,
+                                  capture_output=True, timeout=600)
+        except subprocess.TimeoutExpired as exc:
+            proc = exc
+            code = "timeout"
+        else:
+            code = proc.returncode
+        if isinstance(proc, subprocess.TimeoutExpired) or proc.returncode != 0:
+            detail = "command=%s exit_code=%s" % (command, code)
+            c.emit("breach", label["task_id"], None, c.state()["tasks"][label["task_id"]]["attempt"],
+                   breach="worktree_setup_failed", detail=detail)
+            raise CliError(FAIL, "worktree setup failed: %s (exit code %s)" % (command, code))
+    H.write_atomic(marker, "completed\n")
+
+
 def _write_spawn_request(c: Ctx, request: dict) -> str:
     prompt = request.get("prompt_file", "")
     prompt_path = os.path.join(c.run_dir, "prompts", "%s.md" % request["agent_id"])
@@ -1237,6 +1274,7 @@ def cmd_dispatch(a) -> int:
                     reuses_parent = bool(label.get("fixes") and parent_spawn and parent_spawn.get("worktree"))
                     if not reuses_parent:
                         _create_worktree(plan, project_cwd)
+                    _run_worktree_setup(c, label, plan["path"], project_cwd)
                 _append_spawned(c, item, request, plan)
                 request_path = _write_spawn_request(c, request)
                 spawned_requests.append((item, request, request_path))
@@ -1399,12 +1437,17 @@ def cmd_integrate(a) -> int:
     if status.returncode != 0:
         raise CliError(FAIL, "cannot inspect task worktree")
     changed = []
+    worktree_config = c.labels[a.task].get("context", {}).get("worktree") or {}
+    setup_outputs = worktree_config.get("setup_outputs", [])
     records = status.stdout.decode("utf-8", "replace").split("\0")
     for record in records:
         if not record:
             continue
         path = record[3:] if len(record) >= 4 else ""
-        if not path or "__pycache__" in path or path.endswith(".pyc"):
+        if (not path or "__pycache__" in path or path.endswith(".pyc")
+                or path == ".ale-setup-done"
+                or any(fnmatch.fnmatch(path, pattern) or path.startswith(pattern.rstrip("/") + "/")
+                       for pattern in setup_outputs)):
             continue
         if path not in changed:
             changed.append(path)
@@ -2527,7 +2570,8 @@ def _parser() -> argparse.ArgumentParser:
     hb.add_argument("--next", action="append")
     hb.add_argument("--auto", action="store_true")
     hb.add_argument("--throttle-s", type=float)
-    nt = add("note", cmd_note, task=True, agent=True)
+    nt = add("note", cmd_note, task=True)
+    nt.add_argument("--agent")
     nt.add_argument("--text", required=True)
     nt.add_argument("--to")
     add("input-required", cmd_input_required, task=True, agent=True).add_argument("--question", required=True)

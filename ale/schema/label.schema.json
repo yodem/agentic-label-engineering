@@ -71,7 +71,9 @@
             "mode": {"enum": ["per_task", "shared", "none"]},
             "branch": {"type": ["string", "null"]},
             "base": {"type": ["string", "null"]},
-            "worktree_reason": {"type": ["string", "null"]}
+            "worktree_reason": {"type": ["string", "null"]},
+            "setup": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "setup_outputs": {"type": "array", "items": {"type": "string", "minLength": 1}}
           }
         }
       }

@@ -107,6 +107,21 @@ Token budgets and estimated input cost use billable tokens: `max(0, input_tokens
 
 `context.worktree.mode` defaults to `per_task` when the task has allowed paths. Dispatch creates `run/wt/TASK` and uses branch `ale/RUN/TASK`; the request's working directory points there. A fix task reuses its parent's worktree. Use `none` only for tasks that do not write project files. Use `shared` only with an explicit reason. Write tasks should use per-task worktrees so concurrent changes cannot overlap accidentally.
 
+Per-task worktrees can run setup commands before the executor starts. Set `context.worktree.setup` on a label to override roster-level `worktree_setup_defaults`; otherwise the roster defaults apply. Commands run in the worktree with `ALE_WORKTREE` and `ALE_CHECKOUT` set, and each has a 600-second timeout. Successful setup writes `.ale-setup-done`, so retries do not repeat it. List generated paths in `context.worktree.setup_outputs`: integrate excludes them, along with the marker, from commits. For example, a Node project can reuse installed modules:
+
+```json
+{
+  "worktree_setup_defaults": ["ln -s \"$ALE_CHECKOUT/node_modules\" node_modules"],
+  "context": {
+    "worktree": {
+      "setup_outputs": ["node_modules"]
+    }
+  }
+}
+```
+
+Alternatively, use `"setup": ["npm ci"]` on the label (or `worktree_setup_defaults` on the roster) and list `"node_modules"` under `setup_outputs`.
+
 `ale integrate --task TASK` is lead-side only and requires `accepted`. It merges the recorded task branch into the base checkout and removes the worktree after a successful merge. A conflict is aborted and leaves the worktree in place. When the checkout is dirty the error names it and the first five uncommitted paths.
 
 Accepted work is integrated before anything that depends on it is dispatched. `ale run` integrates every task that became accepted during a cycle before that cycle dispatches, and `ale dispatch` refuses to spawn a per-task-worktree task whose `depends_on` names a task that is accepted but not yet integrated, printing `holding T2: dependency T1 is accepted but not integrated` on stderr. A per-task worktree is therefore branched from the checkout's HEAD as it stands at dispatch time, which contains every dependency merged so far. Without this, a dependent branches from a base that lacks its dependency's files, recreates them, and its own integration fails on conflicts.
