@@ -2228,6 +2228,12 @@ def _plan_labels(text: str, path: str, run_id: str, roster: dict, no_judge: bool
                     old_worktree = {"mode": old_worktree, "branch": None, "base": None,
                                     "worktree_reason": None}
                 label["context"]["worktree"] = old_worktree
+            for field in ("assignments", "fixes", "watch", "milestone"):
+                if field in old:
+                    label[field] = old[field]
+            for field in ("spec_path", "pointers"):
+                if field in old:
+                    label["context"][field] = old[field]
         labels[task["task_id"]] = label
         shadow.extend({"task_id": task["task_id"], "field": vote["field"],
                        "by": vote["by"], "value": vote["value"],

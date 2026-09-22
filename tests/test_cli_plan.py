@@ -120,6 +120,61 @@ def test_plan_bake_preserves_hand_edited_role(tmp_path):
     assert {key: value for key, value in after["T2"].items()} == {key: value for key, value in before["T2"].items()}
 
 
+def test_plan_bake_preserves_hand_edited_assignment(tmp_path):
+    roster = _roster(tmp_path)
+    plan = _valid_plan(tmp_path, roster, _two_task_source())
+    assert _bake_plan(plan, roster) == 0
+    from ale.bake import compile_plan, extract_blocks, render_block
+    text = plan.read_text()
+    label = compile_plan(text)["T1"]
+    label["assignments"][0]["executor"] = "codex-exec"
+    label["assignments"][0]["role"] = "frontend"
+    old_block = next(block for block in text.split("```ale-label") if '"task_id": "T1"' in block)
+    plan.write_text(text.replace("```ale-label" + old_block.split("```", 1)[0] + "```",
+                                 render_block(label), 1))
+
+    assert _bake_plan(plan, roster) == 0
+    assignment = _plan_blocks(plan)["T1"]["assignments"][0]
+    assert assignment["executor"] == "codex-exec"
+    assert assignment["role"] == "frontend"
+
+
+def test_plan_bake_preserves_hand_edited_block_bytes(tmp_path):
+    roster = _roster(tmp_path)
+    plan = _valid_plan(tmp_path, roster, _two_task_source())
+    assert _bake_plan(plan, roster) == 0
+    from ale.bake import compile_plan, render_block
+    text = plan.read_text()
+    label = compile_plan(text)["T1"]
+    label["labels"]["role"] = "frontend"
+    label["assignments"][0]["executor"] = "codex-exec"
+    label["context"]["pointers"] = ["manual/decision.md"]
+    old_block = next(block for block in text.split("```ale-label") if '"task_id": "T1"' in block)
+    edited_text = text.replace("```ale-label" + old_block.split("```", 1)[0] + "```",
+                               render_block(label), 1)
+    plan.write_text(edited_text)
+    expected = plan.read_bytes()
+
+    assert _bake_plan(plan, roster) == 0
+    assert plan.read_bytes() == expected
+    assert _bake_plan(plan, roster) == 0
+    assert plan.read_bytes() == expected
+
+
+def test_plan_bake_derives_assignments_for_new_tasks(tmp_path):
+    roster_path = _roster(tmp_path)
+    roster = json.loads(open(roster_path, encoding="utf-8").read())
+    source = ("# Plan\n\n## Task 1: Update documentation\n\n"
+              "**Files:** `docs/guide.md`\n\n## Task 2: Add a feature\n\n"
+              "**Files:** `src/app.py`\n")
+    labels, _ = cli._plan_labels(source, str(tmp_path / "plan.md"), "plan-run",
+                                 roster, no_judge=True)
+    label = labels["T1"]
+
+    assert label["labels"]["role"] == "docs"
+    assert label["assignments"][0]["role"] == "docs"
+
+
 def test_plan_bake_preserves_hand_edited_risk(tmp_path):
     roster = _roster(tmp_path)
     plan = _valid_plan(tmp_path, roster, _two_task_source())
