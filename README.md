@@ -20,7 +20,7 @@ Plan baking does not call an external judge by default. Add `--judge` to opt in;
 
 ## Label layer
 
-For the plan-to-dispatch workflow, typed label fields, worktree isolation, fix tasks, derived status, and timeline/meta reporting, read [docs/label-layer.md](docs/label-layer.md).
+For the plan-to-dispatch workflow, typed label fields, worktree isolation, fix tasks, derived status, and timeline/meta reporting, read [docs/label-layer.md](docs/label-layer.md). For agent definitions, taxonomy, resolution, and enforcement, read [docs/agents.md](docs/agents.md).
 
 ## Concepts
 

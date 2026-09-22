@@ -34,6 +34,10 @@ write plan -> bake --write -> fill gaps -> ale run
 
 ## Label fields
 
+Labels may include the `sub` and `phase` axes, which resolve to an agent
+definition. See [docs/agents.md](agents.md) for the taxonomy, catalog lookup,
+resolution order, rule enforcement, and agent analytics.
+
 Each label is a JSON object in an `ale-label` fenced block or in `run/labels/TASK.json`.
 
 | Field | Meaning |
