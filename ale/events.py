@@ -179,7 +179,7 @@ def _apply(st: dict, ev: dict, tasks: Dict[str, dict], labels: Dict[str, dict]) 
             st.update(state="stale", owner=None)
     elif kind == "released":
         if st["state"] == "stale":
-            st["state"] = "released"
+            st.update(state="released", attempt=st["attempt"] + 1)
     elif kind == "usage":
         st["tokens"] += max(0, ev["gen_ai.usage.input_tokens"] - ev.get("gen_ai.usage.cache_read_input_tokens", 0)) + ev["gen_ai.usage.output_tokens"]
         st["cost_usd"] += ev.get("cost_usd") or 0.0

@@ -6,6 +6,11 @@
 
 ## 0.2.2 (2026-09-22)
 
+## 0.2.2 (2026-09-22)
+
+- `ale run` and `ale dispatch` resume a task released after its executor died: each release makes the executor assignment due again (new trigger instance, same worktree), and a release counts as an attempt.
+- `ale run` no longer stops on liveness breaches (stuck, lease_expired) of a released task; it prints one line and re-dispatches it.
+
 ## 0.2.1 (2026-09-22)
 
 - `/ale-board` answers its command again, with or without an argument: the hooks module called `process.cwd()`, which does not exist in the function-hook environment, and two resolver helpers it called were never imported, so every `command.run` and every board refresh threw
