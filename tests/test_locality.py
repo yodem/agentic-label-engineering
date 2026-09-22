@@ -34,9 +34,9 @@ def test_parse_marks_keychain_paths_local():
     assert tasks[1]["locality"] == "any"
 
 
-def test_roster_without_locality_vocab_is_rejected(roster):
+def test_roster_without_locality_vocab_is_accepted_and_filled(roster):
     roster["vocab"].pop("locality", None)
-    assert any("locality" in error for error in validate(roster, load_schema("roster.schema.json")))
+    assert validate(roster, load_schema("roster.schema.json")) == []
 
 
 def test_cascade_fields_include_locality():

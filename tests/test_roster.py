@@ -1,6 +1,7 @@
 import copy
 import json
 import os
+import subprocess
 
 import pytest
 
@@ -58,3 +59,50 @@ def test_load_roster_accepts_sub_and_phase_judge_modes():
     invalid_mode_roster["judge"]["modes"]["sub"] = "invalid"
     errors = validate(invalid_mode_roster, load_schema("roster.schema.json"))
     assert any("judge.modes.sub" in error for error in errors)
+
+
+@pytest.mark.parametrize("revision", ["v0.2.2", "earliest"])
+def test_historical_rosters_validate_and_status_with_locality_default(tmp_path, capsys, revision):
+    from ale.cli import main
+
+    repo_root = os.path.dirname(os.path.dirname(__file__))
+    ref = ("v0.2.2" if revision == "v0.2.2" else
+           subprocess.check_output(
+               ["git", "log", "--all", "--format=%H", "--", "examples/roster.json"],
+               cwd=repo_root, text=True).splitlines()[-1])
+    old_roster = subprocess.check_output(
+        ["git", "show", "%s:examples/roster.json" % ref], cwd=repo_root, text=True)
+    roster_path = tmp_path / (revision.replace(".", "_") + ".json")
+    roster_path.write_text(old_roster)
+
+    run_dir = tmp_path / (revision.replace(".", "_") + "-run")
+    subprocess.run(["cp", "-R", os.path.join(repo_root, "examples", "run"), str(run_dir)], check=True)
+    args = ["--run-dir", str(run_dir), "--roster", str(roster_path)]
+    assert main(["validate", *args]) == 0
+    capsys.readouterr()
+    assert main(["status", *args]) == 0
+    assert load_roster(str(roster_path))["vocab"]["locality"] == {
+        "any": "No planner-machine-only resources are required.",
+        "local": "Requires the planner's own machine or local-only resources.",
+    }
+    loaded = load_roster(str(roster_path))
+    assert loaded["judge"]["modes"]["locality"] == "shadow"
+    assert loaded["worktree_setup_defaults"] == []
+    assert loaded["vocab"]["cross_sub"]
+    assert loaded["vocab"]["phase"]
+    assert loaded["vocab"]["sub"]
+
+
+def test_roster_hash_normalizes_missing_locality(roster):
+    with_locality = copy.deepcopy(roster)
+    without_locality = copy.deepcopy(roster)
+    without_locality["vocab"].pop("locality", None)
+    assert roster_hash(with_locality) == roster_hash(without_locality)
+
+
+def test_roster_schema_accepts_missing_locality(roster):
+    from ale.validate import load_schema, validate
+
+    without_locality = copy.deepcopy(roster)
+    without_locality["vocab"].pop("locality", None)
+    assert validate(without_locality, load_schema("roster.schema.json")) == []

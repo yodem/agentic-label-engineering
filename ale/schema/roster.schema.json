@@ -7,7 +7,7 @@
     "vocab": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["role", "model_tier", "risk", "effort", "locality"],
+      "required": ["role", "model_tier", "risk", "effort"],
       "properties": {
         "role": {"type": "object"},
         "model_tier": {"type": "object"},

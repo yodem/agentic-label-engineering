@@ -17,6 +17,10 @@ _DEFAULT_SUB_NAMES = {
 }
 _DEFAULT_CROSS_SUBS = ["debugging", "review", "security"]
 _DEFAULT_PHASES = ["plan", "design", "implement", "test", "review", "deploy", "operate", "maintain"]
+_DEFAULT_LOCALITY = {
+    "any": "No planner-machine-only resources are required.",
+    "local": "Requires the planner's own machine or local-only resources.",
+}
 
 
 def _default_sub_vocab() -> dict:
@@ -26,12 +30,20 @@ def _default_sub_vocab() -> dict:
 
 def _apply_vocab_defaults(roster: dict) -> None:
     vocab = roster.setdefault("vocab", {})
+    locality = dict(_DEFAULT_LOCALITY)
+    locality.update(vocab.get("locality", {}))
+    vocab["locality"] = locality
     subs = _default_sub_vocab()
     for role, entries in vocab.get("sub", {}).items():
         subs.setdefault(role, {}).update(entries)
     vocab["sub"] = subs
     vocab.setdefault("cross_sub", list(_DEFAULT_CROSS_SUBS))
     vocab.setdefault("phase", list(_DEFAULT_PHASES))
+    judge = roster.setdefault("judge", {})
+    modes = judge.setdefault("modes", {})
+    for field in ("sub", "phase", "locality"):
+        modes.setdefault(field, "shadow")
+    roster.setdefault("worktree_setup_defaults", [])
 
 
 class RosterError(Exception):
