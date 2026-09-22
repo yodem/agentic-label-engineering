@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.5 (2026-09-22)
+
+- Reference skills move from `agents/_refs` to `catalog/refs` so Claude Code stops loading them as plugin subagents.
+- Every bundled agent has a description (the agent schema gains an optional `description` field).
+- `agents/backend/_default.md` is renamed `backend-default`: it shared the name `backend-architecture`, which made one agent fail to load.
+- New plugin agent contract test.
+- ale verify: evidence fits the event limit on large diffs.
+
 ## 0.2.4 (2026-09-22)
 
 - Make roster vocabulary, judge modes, and worktree setup defaults additive; old rosters are filled in memory before validation and hashing.
