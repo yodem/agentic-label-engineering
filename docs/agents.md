@@ -102,13 +102,38 @@ below.
 `ale meta` includes an `agents` table keyed by `name@version`, with tasks run,
 accepted on first verify (count and rate), fix tasks needed, breaches, billable
 tokens, and median wall time. `ale meta --csv` includes the same agent
-analytics. Weekly review flags an agent below 0.7 first-verify acceptance
-after at least five tasks for rewrite.
+analytics. `rewrite_candidate` is true when the first-verify rate is under 0.7
+across at least five tasks, which is the weekly review's rewrite signal.
 
-The planned A/B option is `ale run --agent-variant <role>/<sub>=<path>`.
-It overrides one agent for a run and records the variant in `routing.agent`;
-compare two runs of the same fixture plan. The option is described by the
-agent-layer specification and may depend on the parallel CLI implementation.
+The first-verify rate counts, in the numerator, tasks accepted on attempt 1 that
+neither are a fix task nor spawned one. The denominator is every task routed to
+that agent identity, which is the `tasks` column. A task that needed a fix
+therefore scores 0 out of 2 rather than an undefined 0 out of 0, and the table
+stays readable as a single ratio over its own task count.
+
+The per-executor-instance rows that `ale meta` used to publish under `agents`
+now appear under `agent_instances`. The `agents` key belongs to the frozen agent
+identities above.
+
+The A/B option is `ale run --agent-variant <role>/<sub>=<path>`, repeatable.
+It overlays one catalog key with the given file for that run. `routing.agent`
+then records `variant: true` alongside the file's resolved path and SHA-256, and
+the run id gains a `-v<sha8>` suffix unless `--run-id` is given, so two runs of
+the same plan land in two run directories and produce two comparable rows.
+
+## Catalog roots and symlinks
+
+`.ale/agents/` is followed even when it is a symlink pointing outside the
+project. That is deliberate: a team that keeps its agent definitions in a shared
+checkout should be able to link them in. It is safe because following the link
+buys an attacker nothing on its own. Every file the catalog loads must carry
+valid frontmatter and validate against the agent schema, so an arbitrary file
+reached through a hostile link is refused rather than executed, and the resolved
+path and SHA-256 of whatever was loaded are recorded in `routing.agent` and
+visible in `ale agents show`. Path restrictions are a separate matter: they are
+enforced at the hook edge, which resolves a tool's target to its real path
+before the `deny_paths` check, so a symlink inside an allowed directory cannot
+be used to reach a denied one.
 
 ## Attribution
 
