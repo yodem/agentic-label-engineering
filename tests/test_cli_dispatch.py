@@ -202,6 +202,28 @@ def test_per_task_worktree_is_created_before_spawn(tmp_path, monkeypatch):
     assert event["branch"] == "ale/run-1/T1"
 
 
+def test_reattempt_reuses_per_task_worktree_and_branch(tmp_path, monkeypatch, capsys):
+    repo = _git_repo(tmp_path)
+    roster = _roster(tmp_path)
+    run = _run(tmp_path, {"T1": _label(mode="per_task")})
+    monkeypatch.setenv("ALE_SPAWN_DRY", "1")
+
+    assert main(_dispatch_args(run, roster, "--spawn", "--cwd", str(repo))) == 0
+    first = read_events(str(run / "events.jsonl"))[0]
+    from ale.events import append_event
+    append_event(str(run / "events.jsonl"), make_event(
+        "released", "run-1", 2, "T1", None, 1,
+        spawn_key=["T1", "executor", "ready"]))
+
+    result = main(_dispatch_args(run, roster, "--spawn", "--cwd", str(repo)))
+    error = capsys.readouterr().err
+    assert result == 0, error
+    events = read_events(str(run / "events.jsonl"))
+    second = [event for event in events if event["type"] == "spawned"][1]
+    assert second["worktree"] == first["worktree"]
+    assert second["branch"] == first["branch"]
+
+
 def test_fix_task_reuses_parent_worktree(tmp_path, monkeypatch, capsys):
     repo = _git_repo(tmp_path)
     roster = _roster(tmp_path)

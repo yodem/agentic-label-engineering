@@ -1126,8 +1126,37 @@ def _make_dispatch_request(c: Ctx, due: dict, project_cwd: str, n: int) -> dict:
 
 def _create_worktree(plan: dict, project_cwd: str) -> None:
     base = plan.get("base") or "HEAD"
-    proc = subprocess.run(["git", "worktree", "add", plan["path"], "-b", plan["branch"], base],
-                          cwd=project_cwd, capture_output=True, text=True)
+    path = os.path.abspath(plan["path"])
+    listed = subprocess.run(["git", "worktree", "list", "--porcelain"], cwd=project_cwd,
+                            capture_output=True, text=True)
+    if listed.returncode != 0:
+        message = (listed.stderr or listed.stdout).strip()
+        raise CliError(FAIL, message or "git worktree list failed")
+    registered = {}
+    current_path = None
+    for line in listed.stdout.splitlines():
+        if line.startswith("worktree "):
+            current_path = os.path.realpath(line[9:])
+            registered[current_path] = None
+        elif line.startswith("branch ") and current_path is not None:
+            registered[current_path] = line[7:].removeprefix("refs/heads/")
+    real_path = os.path.realpath(path)
+    if os.path.isdir(path) and real_path in registered:
+        if registered[real_path] != plan["branch"]:
+            raise CliError(FAIL, "worktree %s is registered on branch %s" %
+                           (path, registered[real_path] or "detached"))
+        return
+    if os.path.isdir(path):
+        subprocess.run(["git", "worktree", "prune"], cwd=project_cwd, check=True,
+                       capture_output=True, text=True)
+    elif real_path in registered:
+        subprocess.run(["git", "worktree", "prune"], cwd=project_cwd, check=True,
+                       capture_output=True, text=True)
+    branch = subprocess.run(["git", "show-ref", "--verify", "--quiet", "refs/heads/" + plan["branch"]],
+                            cwd=project_cwd)
+    command = (["git", "worktree", "add", path, plan["branch"]] if branch.returncode == 0
+               else ["git", "worktree", "add", path, "-b", plan["branch"], base])
+    proc = subprocess.run(command, cwd=project_cwd, capture_output=True, text=True)
     if proc.returncode != 0:
         message = (proc.stderr or proc.stdout).strip()
         raise CliError(FAIL, message or "git worktree add failed")
