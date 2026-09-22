@@ -205,3 +205,48 @@ assert main(['submit', '--task', task, '--agent', agent, '--summary', 'done', '-
     assert main(["run", str(plan), "--max-cycles", "20"]) == 0
     events_after = read_events(str(run_dir / "events.jsonl"))
     assert len(events_after) == len(events_before)
+
+
+def test_run_dry_run_prints_manual_acceptance_entries(tmp_path, monkeypatch, capsys):
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    (repo / ".ale").mkdir()
+    plan = repo / "PLAN.md"
+
+    def block(task_id, acceptance):
+        return """## Task %s: task %s
+
+**Files:** `%s.py`
+Run: `echo ok`
+```ale-label
+{
+ "task_id": "%s",
+ "title": "task %s",
+ "labels": {"role":"backend","model_tier":"cheap","risk":"low","effort":"S","lane":"inline"},
+ "lane_reason": "The task has a deterministic, bounded implementation.",
+ "acceptance": %s,
+ "allowed_paths": ["%s.py"],
+ "depends_on": [],
+ "worktree": "none",
+ "assignments": [{"kind":"executor","role":"backend","model_tier":"cheap","executor":"claude-headless","trigger":"ready"}]
+}
+```
+""" % (task_id[1:], task_id, task_id.lower(), task_id, task_id, json.dumps(acceptance), task_id.lower())
+
+    plan.write_text(
+        block("T1", [{"id": "A1", "cmd": "echo ok", "expect": "exit0"},
+                     {"id": "A2", "manual": "Live check pasted by the lead."}])
+        + "\n"
+        + block("T2", [{"id": "A1", "manual": "First manual item."},
+                       {"id": "A2", "manual": "Second manual item."}]))
+    monkeypatch.chdir(repo)
+    assert main(["setup"]) == 0
+    capsys.readouterr()
+    monkeypatch.delenv("ALE_RUN_DIR", raising=False)
+    monkeypatch.delenv("ALE_ROSTER", raising=False)
+
+    assert main(["run", str(plan), "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "task T1: dependencies=none acceptance=echo ok,manual: Live check pasted by the lead." in out
+    assert "task T2: dependencies=none acceptance=manual: First manual item.,manual: Second manual item." in out
+    assert not (repo / ".ale" / "runs" / "PLAN" / "events.jsonl").exists()

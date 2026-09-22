@@ -352,7 +352,8 @@ def cmd_run(a) -> int:
                    "start": "resume" if already_started else "init-run",
                    "tasks": [{"task_id": task_id,
                               "depends_on": labels[task_id].get("context", {}).get("depends_on", []),
-                              "acceptance": [item.get("cmd") for item in labels[task_id].get("acceptance", [])]}
+                              "acceptance": [item.get("cmd") or "manual: %s" % item.get("manual", "")
+                                             for item in labels[task_id].get("acceptance", [])]}
                              for task_id in sorted(labels)],
                    "loop": ["dispatch", "verify", "integrate", "fix", "watchdog"],
                    "max_cycles": a.max_cycles}
