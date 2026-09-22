@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import statistics
 from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
 
@@ -210,3 +211,52 @@ def task_metadata(events: List[dict], labels: Dict[str, dict], roster: dict,
                 summary["cost"] = (billable_input * float(rate.get("input_per_mtok", 0))
                                     + summary["tokens"]["output"] * float(rate.get("output_per_mtok", 0))) / 1000000.0
     return {"tasks": tasks, "agents": agents, "totals": totals}
+
+
+def agent_metadata(events: List[dict], labels: Dict[str, dict]) -> Dict[str, dict]:
+    """Summarize task outcomes and usage grouped by frozen agent identity."""
+    grouped = defaultdict(list)
+    for task_id, label in labels.items():
+        ref = (label.get("routing") or {}).get("agent") or {}
+        name, version = ref.get("name"), ref.get("version")
+        if name is None or version is None:
+            continue
+        grouped["%s@%s" % (name, version)].append(task_id)
+
+    output = {}
+    for identity, task_ids in sorted(grouped.items()):
+        task_set = set(task_ids)
+        fix_ids = {task_id for task_id in task_ids if labels[task_id].get("fixes")}
+        tasks_with_fixes = {labels[task_id].get("fixes") for task_id in fix_ids}
+        eligible = task_set - fix_ids - tasks_with_fixes
+        accepted = {
+            event.get("task_id") for event in events
+            if event.get("type") == "accepted" and event.get("task_id") in eligible
+            and int(event.get("attempt") or 0) == 1
+        }
+        breaches = sum(1 for event in events
+                       if event.get("type") == "breach" and event.get("task_id") in task_set)
+        billable_tokens = 0
+        durations = []
+        for task_id in task_ids:
+            task_events = [event for event in events if event.get("task_id") == task_id]
+            billable_tokens += sum(
+                int(event.get("gen_ai.usage.input_tokens") or 0)
+                + int(event.get("gen_ai.usage.output_tokens") or 0)
+                for event in task_events if event.get("type") == "usage"
+            )
+            timestamps = [float(event["ts"]) for event in task_events if event.get("ts") is not None]
+            durations.append(max(timestamps) - min(timestamps) if timestamps else 0.0)
+        count = len(accepted)
+        rate = float(count) / len(task_ids) if task_ids else 0.0
+        row = {
+            "tasks": len(task_ids),
+            "accepted_first_verify": {"count": count, "rate": rate},
+            "fix_tasks": len(fix_ids),
+            "breaches": breaches,
+            "billable_tokens": billable_tokens,
+            "wall_seconds_median": statistics.median(durations) if durations else 0.0,
+        }
+        row["rewrite_candidate"] = len(task_ids) >= 5 and rate < 0.7
+        output[identity] = row
+    return output
