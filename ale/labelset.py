@@ -18,6 +18,10 @@ def load_labels(run_dir: str) -> Dict[str, dict]:
     for path in sorted(glob.glob(os.path.join(run_dir, "labels", "*.json"))):
         with open(path, encoding="utf-8") as f:
             label = json.load(f)
+        agent = (label.get("routing") or {}).get("agent")
+        if isinstance(agent, dict):
+            for key in ("key", "name", "path", "sha256", "version", "matched", "model_tier_min"):
+                agent.setdefault(key, None)
         labels[label.get("task_id", os.path.basename(path))] = label
     return labels
 

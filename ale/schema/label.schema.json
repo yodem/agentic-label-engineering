@@ -33,12 +33,24 @@
           "anyOf": [
             {"type": "null"},
             {"type": "object", "required": ["key", "name", "path", "sha256", "version", "matched", "model_tier_min"],
-             "properties": {"key": {"type": "string"}, "name": {"type": "string"},
-                            "path": {"type": "string"}, "sha256": {"type": "string"},
-                            "version": {"type": "integer"}, "matched": {"type": "string"},
-                            "model_tier_min": {"type": "string"}}}
+             "properties": {"key": {"type": ["string", "null"]}, "name": {"type": ["string", "null"]},
+                            "path": {"type": ["string", "null"]}, "sha256": {"type": ["string", "null"]},
+                            "version": {"type": ["integer", "null"]}, "matched": {"type": ["string", "null"]},
+                            "model_tier_min": {"type": ["string", "null"]}}},
+            {"type": "object", "required": ["key", "name", "path", "sha256", "version", "matched"],
+             "properties": {"key": {"type": ["string", "null"]}, "name": {"type": ["string", "null"]},
+                            "path": {"type": ["string", "null"]}, "sha256": {"type": ["string", "null"]},
+                            "version": {"type": ["integer", "null"]}, "matched": {"type": ["string", "null"]}}}
           ]
         }
+      }
+    },
+    "effective_rules": {
+      "type": "object",
+      "properties": {
+        "deny_paths": {"type": "array", "items": {"type": "string"}},
+        "deny_tools": {"type": "array", "items": {"type": "string"}},
+        "require_before_submit": {"type": "array", "items": {"type": "string"}}
       }
     },
     "context": {
