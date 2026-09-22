@@ -1,5 +1,6 @@
 ---
 name: cross-debugging
+description: "Cross-role debugger for root cause analysis: reproduces the bug, traces execution paths and logs, and isolates the cause before any fix."
 role: _cross
 sub: debugging
 phases: [implement, test, maintain]
@@ -10,7 +11,7 @@ reads:
   - "**/*.ts"
   - "**/*.js"
   - "tests/**"
-  - "agents/_refs/errors/SKILL.md"
+  - "catalog/refs/errors/SKILL.md"
 rules:
   deny_paths: []
   deny_tools: [Write, Edit, MultiEdit]
@@ -178,7 +179,7 @@ Don't just find WHERE, explain WHY:
 ## Integration
 - **Triggered by:** User bug report, CI failure, error monitoring
 - **Hands off to:** backend-system-architect or frontend-ui-developer (for fix implementation)
-- **Skill reference:** `agents/_refs/errors/SKILL.md`
+- **Skill reference:** `catalog/refs/errors/SKILL.md`
 
 ## Output Format
 Return structured investigation report:
@@ -312,7 +313,7 @@ Your final output MUST include a `status` field: **DONE**, **DONE_WITH_CONCERNS*
 Read the specific skill before advising. Skill references are listed in reads.
 
 ### errors
-- `agents/_refs/errors/SKILL.md`
+- `catalog/refs/errors/SKILL.md`
 <!-- harness: claude-code -->
 
 ## Browser Automation

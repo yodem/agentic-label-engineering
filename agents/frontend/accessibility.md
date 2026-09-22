@@ -1,23 +1,24 @@
 ---
 name: frontend-accessibility
+description: "Accessibility specialist: audits and implements WCAG 2.2 AA, covering keyboard, screen reader, contrast and focus behaviour."
 role: frontend
 sub: accessibility
 phases: [implement, review, maintain]
 model_tier_min: standard
 reads:
-  - "agents/_refs/memory/SKILL.md"
-  - "agents/_refs/memory/references/memory-commands.md"
-  - "agents/_refs/memory/references/mermaid-patterns.md"
-  - "agents/_refs/memory/references/session-resume-patterns.md"
-  - "agents/_refs/remember/SKILL.md"
-  - "agents/_refs/remember/references/category-detection.md"
-  - "agents/_refs/remember/references/confirmation-templates.md"
-  - "agents/_refs/remember/references/entity-extraction-workflow.md"
-  - "agents/_refs/remember/references/examples.md"
-  - "agents/_refs/remember/references/graph-operations.md"
-  - "agents/_refs/testing-e2e/SKILL.md"
-  - "agents/_refs/testing-e2e/references/ork-delta.md"
-  - "agents/_refs/testing-e2e/references/playwright-setup.md"
+  - "catalog/refs/memory/SKILL.md"
+  - "catalog/refs/memory/references/memory-commands.md"
+  - "catalog/refs/memory/references/mermaid-patterns.md"
+  - "catalog/refs/memory/references/session-resume-patterns.md"
+  - "catalog/refs/remember/SKILL.md"
+  - "catalog/refs/remember/references/category-detection.md"
+  - "catalog/refs/remember/references/confirmation-templates.md"
+  - "catalog/refs/remember/references/entity-extraction-workflow.md"
+  - "catalog/refs/remember/references/examples.md"
+  - "catalog/refs/remember/references/graph-operations.md"
+  - "catalog/refs/testing-e2e/SKILL.md"
+  - "catalog/refs/testing-e2e/references/ork-delta.md"
+  - "catalog/refs/testing-e2e/references/playwright-setup.md"
 rules: {}
 checklist:
   - "All images have appropriate alt text"
@@ -299,19 +300,19 @@ Your final output MUST include a `status` field: **DONE**, **DONE_WITH_CONCERNS*
 
 ## Skill Index
 
-- Read `agents/_refs/memory/SKILL.md` before advising on that topic.
-- Read `agents/_refs/memory/references/memory-commands.md` before advising on that topic.
-- Read `agents/_refs/memory/references/mermaid-patterns.md` before advising on that topic.
-- Read `agents/_refs/memory/references/session-resume-patterns.md` before advising on that topic.
-- Read `agents/_refs/remember/SKILL.md` before advising on that topic.
-- Read `agents/_refs/remember/references/category-detection.md` before advising on that topic.
-- Read `agents/_refs/remember/references/confirmation-templates.md` before advising on that topic.
-- Read `agents/_refs/remember/references/entity-extraction-workflow.md` before advising on that topic.
-- Read `agents/_refs/remember/references/examples.md` before advising on that topic.
-- Read `agents/_refs/remember/references/graph-operations.md` before advising on that topic.
-- Read `agents/_refs/testing-e2e/SKILL.md` before advising on that topic.
-- Read `agents/_refs/testing-e2e/references/ork-delta.md` before advising on that topic.
-- Read `agents/_refs/testing-e2e/references/playwright-setup.md` before advising on that topic.
+- Read `catalog/refs/memory/SKILL.md` before advising on that topic.
+- Read `catalog/refs/memory/references/memory-commands.md` before advising on that topic.
+- Read `catalog/refs/memory/references/mermaid-patterns.md` before advising on that topic.
+- Read `catalog/refs/memory/references/session-resume-patterns.md` before advising on that topic.
+- Read `catalog/refs/remember/SKILL.md` before advising on that topic.
+- Read `catalog/refs/remember/references/category-detection.md` before advising on that topic.
+- Read `catalog/refs/remember/references/confirmation-templates.md` before advising on that topic.
+- Read `catalog/refs/remember/references/entity-extraction-workflow.md` before advising on that topic.
+- Read `catalog/refs/remember/references/examples.md` before advising on that topic.
+- Read `catalog/refs/remember/references/graph-operations.md` before advising on that topic.
+- Read `catalog/refs/testing-e2e/SKILL.md` before advising on that topic.
+- Read `catalog/refs/testing-e2e/references/ork-delta.md` before advising on that topic.
+- Read `catalog/refs/testing-e2e/references/playwright-setup.md` before advising on that topic.
 
 <!-- harness: claude-code -->
 

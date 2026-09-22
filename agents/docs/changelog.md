@@ -1,5 +1,6 @@
 ---
 name: docs-changelog
+description: "Changelog specialist: curates user-facing release notes and unreleased changes, including breaking changes and migrations."
 role: docs
 sub: changelog
 phases: [maintain, implement]

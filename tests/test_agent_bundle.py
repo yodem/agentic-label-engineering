@@ -9,6 +9,7 @@ from ale.validate import load_schema, validate
 
 ROOT = Path(__file__).resolve().parents[1]
 AGENTS = ROOT / "agents"
+REFS = ROOT / "catalog" / "refs"
 
 
 def test_agent_bundle_and_routing_fixtures():
@@ -17,6 +18,11 @@ def test_agent_bundle_and_routing_fixtures():
 
     schema = load_schema("agent.schema.json")
     forbidden = re.compile(r"MCP|Opus|Agent Teams|Browser Automation|CC 2\.|Claude Code 2|Delegation \(CC")
+    for path in sorted(REFS.rglob("*.md")):
+        source = path.read_text(encoding="utf-8")
+        assert "<<<<<<<" not in source and ">>>>>>>" not in source
+        assert not re.search(r"—|/Users/|@gmail|yonaigross", source)
+
     for path in sorted(AGENTS.rglob("*.md")):
         source = path.read_text(encoding="utf-8")
         assert "<<<<<<<" not in source and ">>>>>>>" not in source
@@ -39,7 +45,7 @@ def test_agent_bundle_and_routing_fixtures():
         assert "## Status Protocol" in before_marker, path
         assert 1 <= len(frontmatter["checklist"]) <= 12, path
         for read in frontmatter["reads"]:
-            if read.startswith("agents/_refs/"):
+            if read.startswith("catalog/refs/"):
                 assert (ROOT / read).is_file(), (path, read)
 
     for expected_path in sorted((ROOT / "tests/fixtures/agents").glob("*/expected.json")):
@@ -51,7 +57,19 @@ def test_agent_bundle_and_routing_fixtures():
 
 
 def test_reference_skills_have_origin_first_line_and_no_conflict_markers():
-    skills = sorted((AGENTS / "_refs").glob("*/SKILL.md"))
+    skills = sorted(REFS.glob("*/SKILL.md"))
     assert skills
     for path in skills:
         assert path.read_text(encoding="utf-8").splitlines()[0].startswith("origin:"), path
+
+
+def test_bundle_keeps_reference_material_outside_plugin_agents_tree():
+    assert (REFS / "api-design" / "SKILL.md").is_file()
+    assert not any("_refs" in path.relative_to(AGENTS).parts
+                   for path in AGENTS.rglob("*"))
+    for agent_path in AGENTS.rglob("*.md"):
+        frontmatter, _ = parse_frontmatter(agent_path.read_text(encoding="utf-8"))
+        for read in frontmatter["reads"]:
+            assert not read.startswith("agents/_refs/"), (agent_path, read)
+            if read.startswith("catalog/refs/"):
+                assert (ROOT / read).is_file(), (agent_path, read)

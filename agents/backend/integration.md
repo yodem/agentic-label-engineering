@@ -1,31 +1,32 @@
 ---
 name: backend-integration
+description: "Backend integration specialist: event-driven designs, message queues, event sourcing, CQRS and third-party service integration."
 role: backend
 sub: integration
 phases: [plan, design, implement, review, maintain]
 model_tier_min: cheap
 reads:
-  - "agents/_refs/api-design/SKILL.md"
-  - "agents/_refs/api-design/references/graphql-api.md"
-  - "agents/_refs/api-design/references/ork-delta.md"
-  - "agents/_refs/api-design/references/payload-vs-sanity.md"
-  - "agents/_refs/api-design/references/rest-patterns.md"
-  - "agents/_refs/api-design/references/telegram-bot-api.md"
-  - "agents/_refs/api-design/references/whatsapp-waha.md"
-  - "agents/_refs/python-backend/SKILL.md"
-  - "agents/_refs/python-backend/references/eager-loading.md"
-  - "agents/_refs/python-backend/references/fastapi-app-boilerplate.md"
-  - "agents/_refs/python-backend/references/ork-delta.md"
-  - "agents/_refs/remember/SKILL.md"
-  - "agents/_refs/remember/references/category-detection.md"
-  - "agents/_refs/remember/references/confirmation-templates.md"
-  - "agents/_refs/remember/references/entity-extraction-workflow.md"
-  - "agents/_refs/remember/references/examples.md"
-  - "agents/_refs/remember/references/graph-operations.md"
-  - "agents/_refs/memory/SKILL.md"
-  - "agents/_refs/memory/references/memory-commands.md"
-  - "agents/_refs/memory/references/mermaid-patterns.md"
-  - "agents/_refs/memory/references/session-resume-patterns.md"
+  - "catalog/refs/api-design/SKILL.md"
+  - "catalog/refs/api-design/references/graphql-api.md"
+  - "catalog/refs/api-design/references/ork-delta.md"
+  - "catalog/refs/api-design/references/payload-vs-sanity.md"
+  - "catalog/refs/api-design/references/rest-patterns.md"
+  - "catalog/refs/api-design/references/telegram-bot-api.md"
+  - "catalog/refs/api-design/references/whatsapp-waha.md"
+  - "catalog/refs/python-backend/SKILL.md"
+  - "catalog/refs/python-backend/references/eager-loading.md"
+  - "catalog/refs/python-backend/references/fastapi-app-boilerplate.md"
+  - "catalog/refs/python-backend/references/ork-delta.md"
+  - "catalog/refs/remember/SKILL.md"
+  - "catalog/refs/remember/references/category-detection.md"
+  - "catalog/refs/remember/references/confirmation-templates.md"
+  - "catalog/refs/remember/references/entity-extraction-workflow.md"
+  - "catalog/refs/remember/references/examples.md"
+  - "catalog/refs/remember/references/graph-operations.md"
+  - "catalog/refs/memory/SKILL.md"
+  - "catalog/refs/memory/references/memory-commands.md"
+  - "catalog/refs/memory/references/mermaid-patterns.md"
+  - "catalog/refs/memory/references/session-resume-patterns.md"
 rules: {}
 checklist:
   - "Verify integration contracts, retries, and failure behavior"
@@ -334,27 +335,27 @@ tools = [
 
 Read the specific referenced skill before applying its domain guidance.
 
-- `agents/_refs/api-design/SKILL.md`
-- `agents/_refs/api-design/references/graphql-api.md`
-- `agents/_refs/api-design/references/ork-delta.md`
-- `agents/_refs/api-design/references/payload-vs-sanity.md`
-- `agents/_refs/api-design/references/rest-patterns.md`
-- `agents/_refs/api-design/references/telegram-bot-api.md`
-- `agents/_refs/api-design/references/whatsapp-waha.md`
-- `agents/_refs/python-backend/SKILL.md`
-- `agents/_refs/python-backend/references/eager-loading.md`
-- `agents/_refs/python-backend/references/fastapi-app-boilerplate.md`
-- `agents/_refs/python-backend/references/ork-delta.md`
-- `agents/_refs/remember/SKILL.md`
-- `agents/_refs/remember/references/category-detection.md`
-- `agents/_refs/remember/references/confirmation-templates.md`
-- `agents/_refs/remember/references/entity-extraction-workflow.md`
-- `agents/_refs/remember/references/examples.md`
-- `agents/_refs/remember/references/graph-operations.md`
-- `agents/_refs/memory/SKILL.md`
-- `agents/_refs/memory/references/memory-commands.md`
-- `agents/_refs/memory/references/mermaid-patterns.md`
-- `agents/_refs/memory/references/session-resume-patterns.md`
+- `catalog/refs/api-design/SKILL.md`
+- `catalog/refs/api-design/references/graphql-api.md`
+- `catalog/refs/api-design/references/ork-delta.md`
+- `catalog/refs/api-design/references/payload-vs-sanity.md`
+- `catalog/refs/api-design/references/rest-patterns.md`
+- `catalog/refs/api-design/references/telegram-bot-api.md`
+- `catalog/refs/api-design/references/whatsapp-waha.md`
+- `catalog/refs/python-backend/SKILL.md`
+- `catalog/refs/python-backend/references/eager-loading.md`
+- `catalog/refs/python-backend/references/fastapi-app-boilerplate.md`
+- `catalog/refs/python-backend/references/ork-delta.md`
+- `catalog/refs/remember/SKILL.md`
+- `catalog/refs/remember/references/category-detection.md`
+- `catalog/refs/remember/references/confirmation-templates.md`
+- `catalog/refs/remember/references/entity-extraction-workflow.md`
+- `catalog/refs/remember/references/examples.md`
+- `catalog/refs/remember/references/graph-operations.md`
+- `catalog/refs/memory/SKILL.md`
+- `catalog/refs/memory/references/memory-commands.md`
+- `catalog/refs/memory/references/mermaid-patterns.md`
+- `catalog/refs/memory/references/session-resume-patterns.md`
 
 <!-- harness: claude-code -->
 

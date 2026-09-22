@@ -1,5 +1,6 @@
 ---
 name: general
+description: "General agent for work that fits no specialist: finds the outcome, reads the relevant context and makes the smallest reliable change."
 role: general
 sub: general
 phases: [plan, design, implement, test, review, deploy, operate, maintain]

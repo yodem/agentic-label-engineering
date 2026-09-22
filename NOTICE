@@ -1,4 +1,4 @@
-Parts of agents/ and agents/_refs/ are derived from OrchestKit
+Parts of agents/ and catalog/refs/ are derived from OrchestKit
 (https://github.com/yonatangross/orchestkit), version 9.8.0, under the MIT License.
 
 MIT License

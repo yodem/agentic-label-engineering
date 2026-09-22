@@ -1,5 +1,6 @@
 ---
 name: cross-security
+description: "Cross-role security auditor: scans for vulnerabilities, audits dependencies, checks OWASP Top 10 and secrets, and returns actionable findings."
 role: _cross
 sub: security
 phases: [plan, review]
@@ -11,18 +12,18 @@ reads:
   - "tests/**"
   - "**/pyproject.toml"
   - "**/package.json"
-  - "agents/_refs/security-patterns/SKILL.md"
-  - "agents/_refs/security-patterns/references/audit-logging.md"
-  - "agents/_refs/security-patterns/references/cc-permission-model.md"
-  - "agents/_refs/security-patterns/references/context-separation.md"
-  - "agents/_refs/security-patterns/references/langfuse-mask-callback.md"
-  - "agents/_refs/security-patterns/references/ork-delta.md"
-  - "agents/_refs/security-patterns/references/output-guardrails.md"
-  - "agents/_refs/security-patterns/references/post-llm-attribution.md"
-  - "agents/_refs/security-patterns/references/pre-llm-filtering.md"
-  - "agents/_refs/security-patterns/references/presidio-integration.md"
-  - "agents/_refs/security-patterns/references/prompt-audit.md"
-  - "agents/_refs/security-patterns/references/request-context-pattern.md"
+  - "catalog/refs/security-patterns/SKILL.md"
+  - "catalog/refs/security-patterns/references/audit-logging.md"
+  - "catalog/refs/security-patterns/references/cc-permission-model.md"
+  - "catalog/refs/security-patterns/references/context-separation.md"
+  - "catalog/refs/security-patterns/references/langfuse-mask-callback.md"
+  - "catalog/refs/security-patterns/references/ork-delta.md"
+  - "catalog/refs/security-patterns/references/output-guardrails.md"
+  - "catalog/refs/security-patterns/references/post-llm-attribution.md"
+  - "catalog/refs/security-patterns/references/pre-llm-filtering.md"
+  - "catalog/refs/security-patterns/references/presidio-integration.md"
+  - "catalog/refs/security-patterns/references/prompt-audit.md"
+  - "catalog/refs/security-patterns/references/request-context-pattern.md"
 rules:
   deny_paths: []
   deny_tools: [Write, Edit, MultiEdit]
@@ -149,7 +150,7 @@ semgrep scan --config=p/security-audit --json > semgrep-report.json
 ## Integration
 - **Triggered by:** code-quality-reviewer (pre-merge), CI pipeline
 - **Hands off to:** backend-system-architect (for fixes), frontend-ui-developer (for XSS fixes)
-- **Skill reference:** `agents/_refs/security-patterns/SKILL.md`
+- **Skill reference:** `catalog/refs/security-patterns/SKILL.md`
 
 ## Output Format
 Return structured security report:
@@ -238,18 +239,18 @@ Your final output MUST include a `status` field: **DONE**, **DONE_WITH_CONCERNS*
 Read the specific skill before advising. Skill references are listed in reads.
 
 ### security-patterns
-- `agents/_refs/security-patterns/SKILL.md`
-- `agents/_refs/security-patterns/references/audit-logging.md`
-- `agents/_refs/security-patterns/references/cc-permission-model.md`
-- `agents/_refs/security-patterns/references/context-separation.md`
-- `agents/_refs/security-patterns/references/langfuse-mask-callback.md`
-- `agents/_refs/security-patterns/references/ork-delta.md`
-- `agents/_refs/security-patterns/references/output-guardrails.md`
-- `agents/_refs/security-patterns/references/post-llm-attribution.md`
-- `agents/_refs/security-patterns/references/pre-llm-filtering.md`
-- `agents/_refs/security-patterns/references/presidio-integration.md`
-- `agents/_refs/security-patterns/references/prompt-audit.md`
-- `agents/_refs/security-patterns/references/request-context-pattern.md`
+- `catalog/refs/security-patterns/SKILL.md`
+- `catalog/refs/security-patterns/references/audit-logging.md`
+- `catalog/refs/security-patterns/references/cc-permission-model.md`
+- `catalog/refs/security-patterns/references/context-separation.md`
+- `catalog/refs/security-patterns/references/langfuse-mask-callback.md`
+- `catalog/refs/security-patterns/references/ork-delta.md`
+- `catalog/refs/security-patterns/references/output-guardrails.md`
+- `catalog/refs/security-patterns/references/post-llm-attribution.md`
+- `catalog/refs/security-patterns/references/pre-llm-filtering.md`
+- `catalog/refs/security-patterns/references/presidio-integration.md`
+- `catalog/refs/security-patterns/references/prompt-audit.md`
+- `catalog/refs/security-patterns/references/request-context-pattern.md`
 <!-- harness: claude-code -->
 
 ## Agent Teams (CC 2.1.33+)

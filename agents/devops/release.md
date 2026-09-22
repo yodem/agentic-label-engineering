@@ -1,28 +1,29 @@
 ---
 name: devops-release
+description: "Release specialist: GitHub releases, milestones, changelogs and semantic versioning, including release automation."
 role: devops
 sub: release
 phases: [implement, deploy, maintain]
 model_tier_min: cheap
 reads:
-  - "agents/_refs/github-operations/SKILL.md"
-  - "agents/_refs/github-operations/references/cli-vs-api-identifiers.md"
-  - "agents/_refs/github-operations/references/graphql-api.md"
-  - "agents/_refs/github-operations/references/issue-management.md"
-  - "agents/_refs/github-operations/references/milestone-api.md"
-  - "agents/_refs/github-operations/references/ork-delta.md"
-  - "agents/_refs/github-operations/references/pr-workflows.md"
-  - "agents/_refs/github-operations/references/projects-v2.md"
-  - "agents/_refs/remember/SKILL.md"
-  - "agents/_refs/remember/references/category-detection.md"
-  - "agents/_refs/remember/references/confirmation-templates.md"
-  - "agents/_refs/remember/references/entity-extraction-workflow.md"
-  - "agents/_refs/remember/references/examples.md"
-  - "agents/_refs/remember/references/graph-operations.md"
-  - "agents/_refs/memory/SKILL.md"
-  - "agents/_refs/memory/references/memory-commands.md"
-  - "agents/_refs/memory/references/mermaid-patterns.md"
-  - "agents/_refs/memory/references/session-resume-patterns.md"
+  - "catalog/refs/github-operations/SKILL.md"
+  - "catalog/refs/github-operations/references/cli-vs-api-identifiers.md"
+  - "catalog/refs/github-operations/references/graphql-api.md"
+  - "catalog/refs/github-operations/references/issue-management.md"
+  - "catalog/refs/github-operations/references/milestone-api.md"
+  - "catalog/refs/github-operations/references/ork-delta.md"
+  - "catalog/refs/github-operations/references/pr-workflows.md"
+  - "catalog/refs/github-operations/references/projects-v2.md"
+  - "catalog/refs/remember/SKILL.md"
+  - "catalog/refs/remember/references/category-detection.md"
+  - "catalog/refs/remember/references/confirmation-templates.md"
+  - "catalog/refs/remember/references/entity-extraction-workflow.md"
+  - "catalog/refs/remember/references/examples.md"
+  - "catalog/refs/remember/references/graph-operations.md"
+  - "catalog/refs/memory/SKILL.md"
+  - "catalog/refs/memory/references/memory-commands.md"
+  - "catalog/refs/memory/references/mermaid-patterns.md"
+  - "catalog/refs/memory/references/session-resume-patterns.md"
 rules:
   deny_paths: []
   deny_tools: []
@@ -232,28 +233,28 @@ Your final output MUST include a `status` field: **DONE**, **DONE_WITH_CONCERNS*
 Read the specific file before advising; do not rely on training data.
 
 ### github-operations
-- `agents/_refs/github-operations/SKILL.md`
-- `agents/_refs/github-operations/references/cli-vs-api-identifiers.md`
-- `agents/_refs/github-operations/references/graphql-api.md`
-- `agents/_refs/github-operations/references/issue-management.md`
-- `agents/_refs/github-operations/references/milestone-api.md`
-- `agents/_refs/github-operations/references/ork-delta.md`
-- `agents/_refs/github-operations/references/pr-workflows.md`
-- `agents/_refs/github-operations/references/projects-v2.md`
+- `catalog/refs/github-operations/SKILL.md`
+- `catalog/refs/github-operations/references/cli-vs-api-identifiers.md`
+- `catalog/refs/github-operations/references/graphql-api.md`
+- `catalog/refs/github-operations/references/issue-management.md`
+- `catalog/refs/github-operations/references/milestone-api.md`
+- `catalog/refs/github-operations/references/ork-delta.md`
+- `catalog/refs/github-operations/references/pr-workflows.md`
+- `catalog/refs/github-operations/references/projects-v2.md`
 
 ### remember
-- `agents/_refs/remember/SKILL.md`
-- `agents/_refs/remember/references/category-detection.md`
-- `agents/_refs/remember/references/confirmation-templates.md`
-- `agents/_refs/remember/references/entity-extraction-workflow.md`
-- `agents/_refs/remember/references/examples.md`
-- `agents/_refs/remember/references/graph-operations.md`
+- `catalog/refs/remember/SKILL.md`
+- `catalog/refs/remember/references/category-detection.md`
+- `catalog/refs/remember/references/confirmation-templates.md`
+- `catalog/refs/remember/references/entity-extraction-workflow.md`
+- `catalog/refs/remember/references/examples.md`
+- `catalog/refs/remember/references/graph-operations.md`
 
 ### memory
-- `agents/_refs/memory/SKILL.md`
-- `agents/_refs/memory/references/memory-commands.md`
-- `agents/_refs/memory/references/mermaid-patterns.md`
-- `agents/_refs/memory/references/session-resume-patterns.md`
+- `catalog/refs/memory/SKILL.md`
+- `catalog/refs/memory/references/memory-commands.md`
+- `catalog/refs/memory/references/mermaid-patterns.md`
+- `catalog/refs/memory/references/session-resume-patterns.md`
 
 <!-- harness: claude-code -->
 

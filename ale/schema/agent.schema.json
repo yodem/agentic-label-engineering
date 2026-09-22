@@ -4,6 +4,7 @@
   "required": ["name", "role", "phases", "model_tier_min", "reads", "rules", "checklist", "version"],
   "properties": {
     "name": {"type": "string", "minLength": 1},
+    "description": {"type": "string", "minLength": 1},
     "role": {"type": "string", "minLength": 1},
     "sub": {"type": ["string", "null"], "minLength": 1},
     "phases": {

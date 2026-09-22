@@ -1,5 +1,6 @@
 ---
 name: cross-review
+description: "Cross-role code reviewer: finds bugs, security issues, performance problems and test gaps in a diff, with linting and type checks."
 role: _cross
 sub: review
 phases: [plan, design, review]
@@ -11,55 +12,55 @@ reads:
   - "tests/**"
   - "**/pyproject.toml"
   - "**/package.json"
-  - "agents/_refs/code-review-playbook/SKILL.md"
-  - "agents/_refs/code-review-playbook/references/conventional-comments.md"
-  - "agents/_refs/code-review-playbook/references/ork-delta.md"
-  - "agents/_refs/security-patterns/SKILL.md"
-  - "agents/_refs/security-patterns/references/audit-logging.md"
-  - "agents/_refs/security-patterns/references/cc-permission-model.md"
-  - "agents/_refs/security-patterns/references/context-separation.md"
-  - "agents/_refs/security-patterns/references/langfuse-mask-callback.md"
-  - "agents/_refs/security-patterns/references/ork-delta.md"
-  - "agents/_refs/security-patterns/references/output-guardrails.md"
-  - "agents/_refs/security-patterns/references/post-llm-attribution.md"
-  - "agents/_refs/security-patterns/references/pre-llm-filtering.md"
-  - "agents/_refs/security-patterns/references/presidio-integration.md"
-  - "agents/_refs/security-patterns/references/prompt-audit.md"
-  - "agents/_refs/security-patterns/references/request-context-pattern.md"
-  - "agents/_refs/testing-unit/SKILL.md"
-  - "agents/_refs/testing-unit/references/aaa-pattern.md"
-  - "agents/_refs/testing-unit/references/factory-patterns.md"
-  - "agents/_refs/testing-unit/references/msw-2x-api.md"
-  - "agents/_refs/testing-unit/references/stateful-testing.md"
-  - "agents/_refs/testing-integration/SKILL.md"
-  - "agents/_refs/testing-integration/references/consumer-tests.md"
-  - "agents/_refs/testing-integration/references/ork-delta.md"
-  - "agents/_refs/testing-integration/references/strategies-guide.md"
-  - "agents/_refs/architecture-patterns/SKILL.md"
-  - "agents/_refs/architecture-patterns/references/naming-conventions.md"
-  - "agents/_refs/architecture-patterns/references/ork-delta.md"
-  - "agents/_refs/architecture-patterns/references/structure-import-direction.md"
-  - "agents/_refs/architecture-patterns/references/testing-naming-conventions.md"
-  - "agents/_refs/quality-gates/SKILL.md"
-  - "agents/_refs/quality-gates/references/ork-delta.md"
-  - "agents/_refs/quality-gates/references/unified-scoring-framework.md"
-  - "agents/_refs/architecture-decision-record/SKILL.md"
-  - "agents/_refs/architecture-decision-record/references/adr-best-practices.md"
-  - "agents/_refs/visualize-plan/SKILL.md"
-  - "agents/_refs/visualize-plan/references/before-after-arch-patterns.md"
-  - "agents/_refs/visualize-plan/references/blast-radius-patterns.md"
-  - "agents/_refs/visualize-plan/references/change-manifest-patterns.md"
-  - "agents/_refs/visualize-plan/references/decision-log-patterns.md"
-  - "agents/_refs/visualize-plan/references/decision-router.md"
-  - "agents/_refs/visualize-plan/references/deep-dives.md"
-  - "agents/_refs/visualize-plan/references/execution-swimlane-patterns.md"
-  - "agents/_refs/visualize-plan/references/format-dispatch.md"
-  - "agents/_refs/visualize-plan/references/risk-dashboard-patterns.md"
-  - "agents/_refs/visualize-plan/references/visualization-tiers.md"
-  - "agents/_refs/performance/SKILL.md"
-  - "agents/_refs/performance/references/cc-prompt-cache-guide.md"
-  - "agents/_refs/performance/references/database-optimization.md"
-  - "agents/_refs/performance/references/ork-delta.md"
+  - "catalog/refs/code-review-playbook/SKILL.md"
+  - "catalog/refs/code-review-playbook/references/conventional-comments.md"
+  - "catalog/refs/code-review-playbook/references/ork-delta.md"
+  - "catalog/refs/security-patterns/SKILL.md"
+  - "catalog/refs/security-patterns/references/audit-logging.md"
+  - "catalog/refs/security-patterns/references/cc-permission-model.md"
+  - "catalog/refs/security-patterns/references/context-separation.md"
+  - "catalog/refs/security-patterns/references/langfuse-mask-callback.md"
+  - "catalog/refs/security-patterns/references/ork-delta.md"
+  - "catalog/refs/security-patterns/references/output-guardrails.md"
+  - "catalog/refs/security-patterns/references/post-llm-attribution.md"
+  - "catalog/refs/security-patterns/references/pre-llm-filtering.md"
+  - "catalog/refs/security-patterns/references/presidio-integration.md"
+  - "catalog/refs/security-patterns/references/prompt-audit.md"
+  - "catalog/refs/security-patterns/references/request-context-pattern.md"
+  - "catalog/refs/testing-unit/SKILL.md"
+  - "catalog/refs/testing-unit/references/aaa-pattern.md"
+  - "catalog/refs/testing-unit/references/factory-patterns.md"
+  - "catalog/refs/testing-unit/references/msw-2x-api.md"
+  - "catalog/refs/testing-unit/references/stateful-testing.md"
+  - "catalog/refs/testing-integration/SKILL.md"
+  - "catalog/refs/testing-integration/references/consumer-tests.md"
+  - "catalog/refs/testing-integration/references/ork-delta.md"
+  - "catalog/refs/testing-integration/references/strategies-guide.md"
+  - "catalog/refs/architecture-patterns/SKILL.md"
+  - "catalog/refs/architecture-patterns/references/naming-conventions.md"
+  - "catalog/refs/architecture-patterns/references/ork-delta.md"
+  - "catalog/refs/architecture-patterns/references/structure-import-direction.md"
+  - "catalog/refs/architecture-patterns/references/testing-naming-conventions.md"
+  - "catalog/refs/quality-gates/SKILL.md"
+  - "catalog/refs/quality-gates/references/ork-delta.md"
+  - "catalog/refs/quality-gates/references/unified-scoring-framework.md"
+  - "catalog/refs/architecture-decision-record/SKILL.md"
+  - "catalog/refs/architecture-decision-record/references/adr-best-practices.md"
+  - "catalog/refs/visualize-plan/SKILL.md"
+  - "catalog/refs/visualize-plan/references/before-after-arch-patterns.md"
+  - "catalog/refs/visualize-plan/references/blast-radius-patterns.md"
+  - "catalog/refs/visualize-plan/references/change-manifest-patterns.md"
+  - "catalog/refs/visualize-plan/references/decision-log-patterns.md"
+  - "catalog/refs/visualize-plan/references/decision-router.md"
+  - "catalog/refs/visualize-plan/references/deep-dives.md"
+  - "catalog/refs/visualize-plan/references/execution-swimlane-patterns.md"
+  - "catalog/refs/visualize-plan/references/format-dispatch.md"
+  - "catalog/refs/visualize-plan/references/risk-dashboard-patterns.md"
+  - "catalog/refs/visualize-plan/references/visualization-tiers.md"
+  - "catalog/refs/performance/SKILL.md"
+  - "catalog/refs/performance/references/cc-prompt-cache-guide.md"
+  - "catalog/refs/performance/references/database-optimization.md"
+  - "catalog/refs/performance/references/ork-delta.md"
 rules:
   deny_paths: []
   deny_tools: [Write, Edit, MultiEdit]
@@ -712,71 +713,71 @@ Your final output MUST include a `status` field: **DONE**, **DONE_WITH_CONCERNS*
 Read the specific skill before advising. Skill references are listed in reads.
 
 ### code-review-playbook
-- `agents/_refs/code-review-playbook/SKILL.md`
-- `agents/_refs/code-review-playbook/references/conventional-comments.md`
-- `agents/_refs/code-review-playbook/references/ork-delta.md`
+- `catalog/refs/code-review-playbook/SKILL.md`
+- `catalog/refs/code-review-playbook/references/conventional-comments.md`
+- `catalog/refs/code-review-playbook/references/ork-delta.md`
 
 ### security-patterns
-- `agents/_refs/security-patterns/SKILL.md`
-- `agents/_refs/security-patterns/references/audit-logging.md`
-- `agents/_refs/security-patterns/references/cc-permission-model.md`
-- `agents/_refs/security-patterns/references/context-separation.md`
-- `agents/_refs/security-patterns/references/langfuse-mask-callback.md`
-- `agents/_refs/security-patterns/references/ork-delta.md`
-- `agents/_refs/security-patterns/references/output-guardrails.md`
-- `agents/_refs/security-patterns/references/post-llm-attribution.md`
-- `agents/_refs/security-patterns/references/pre-llm-filtering.md`
-- `agents/_refs/security-patterns/references/presidio-integration.md`
-- `agents/_refs/security-patterns/references/prompt-audit.md`
-- `agents/_refs/security-patterns/references/request-context-pattern.md`
+- `catalog/refs/security-patterns/SKILL.md`
+- `catalog/refs/security-patterns/references/audit-logging.md`
+- `catalog/refs/security-patterns/references/cc-permission-model.md`
+- `catalog/refs/security-patterns/references/context-separation.md`
+- `catalog/refs/security-patterns/references/langfuse-mask-callback.md`
+- `catalog/refs/security-patterns/references/ork-delta.md`
+- `catalog/refs/security-patterns/references/output-guardrails.md`
+- `catalog/refs/security-patterns/references/post-llm-attribution.md`
+- `catalog/refs/security-patterns/references/pre-llm-filtering.md`
+- `catalog/refs/security-patterns/references/presidio-integration.md`
+- `catalog/refs/security-patterns/references/prompt-audit.md`
+- `catalog/refs/security-patterns/references/request-context-pattern.md`
 
 ### testing-unit
-- `agents/_refs/testing-unit/SKILL.md`
-- `agents/_refs/testing-unit/references/aaa-pattern.md`
-- `agents/_refs/testing-unit/references/factory-patterns.md`
-- `agents/_refs/testing-unit/references/msw-2x-api.md`
-- `agents/_refs/testing-unit/references/stateful-testing.md`
+- `catalog/refs/testing-unit/SKILL.md`
+- `catalog/refs/testing-unit/references/aaa-pattern.md`
+- `catalog/refs/testing-unit/references/factory-patterns.md`
+- `catalog/refs/testing-unit/references/msw-2x-api.md`
+- `catalog/refs/testing-unit/references/stateful-testing.md`
 
 ### testing-integration
-- `agents/_refs/testing-integration/SKILL.md`
-- `agents/_refs/testing-integration/references/consumer-tests.md`
-- `agents/_refs/testing-integration/references/ork-delta.md`
-- `agents/_refs/testing-integration/references/strategies-guide.md`
+- `catalog/refs/testing-integration/SKILL.md`
+- `catalog/refs/testing-integration/references/consumer-tests.md`
+- `catalog/refs/testing-integration/references/ork-delta.md`
+- `catalog/refs/testing-integration/references/strategies-guide.md`
 
 ### architecture-patterns
-- `agents/_refs/architecture-patterns/SKILL.md`
-- `agents/_refs/architecture-patterns/references/naming-conventions.md`
-- `agents/_refs/architecture-patterns/references/ork-delta.md`
-- `agents/_refs/architecture-patterns/references/structure-import-direction.md`
-- `agents/_refs/architecture-patterns/references/testing-naming-conventions.md`
+- `catalog/refs/architecture-patterns/SKILL.md`
+- `catalog/refs/architecture-patterns/references/naming-conventions.md`
+- `catalog/refs/architecture-patterns/references/ork-delta.md`
+- `catalog/refs/architecture-patterns/references/structure-import-direction.md`
+- `catalog/refs/architecture-patterns/references/testing-naming-conventions.md`
 
 ### quality-gates
-- `agents/_refs/quality-gates/SKILL.md`
-- `agents/_refs/quality-gates/references/ork-delta.md`
-- `agents/_refs/quality-gates/references/unified-scoring-framework.md`
+- `catalog/refs/quality-gates/SKILL.md`
+- `catalog/refs/quality-gates/references/ork-delta.md`
+- `catalog/refs/quality-gates/references/unified-scoring-framework.md`
 
 ### architecture-decision-record
-- `agents/_refs/architecture-decision-record/SKILL.md`
-- `agents/_refs/architecture-decision-record/references/adr-best-practices.md`
+- `catalog/refs/architecture-decision-record/SKILL.md`
+- `catalog/refs/architecture-decision-record/references/adr-best-practices.md`
 
 ### visualize-plan
-- `agents/_refs/visualize-plan/SKILL.md`
-- `agents/_refs/visualize-plan/references/before-after-arch-patterns.md`
-- `agents/_refs/visualize-plan/references/blast-radius-patterns.md`
-- `agents/_refs/visualize-plan/references/change-manifest-patterns.md`
-- `agents/_refs/visualize-plan/references/decision-log-patterns.md`
-- `agents/_refs/visualize-plan/references/decision-router.md`
-- `agents/_refs/visualize-plan/references/deep-dives.md`
-- `agents/_refs/visualize-plan/references/execution-swimlane-patterns.md`
-- `agents/_refs/visualize-plan/references/format-dispatch.md`
-- `agents/_refs/visualize-plan/references/risk-dashboard-patterns.md`
-- `agents/_refs/visualize-plan/references/visualization-tiers.md`
+- `catalog/refs/visualize-plan/SKILL.md`
+- `catalog/refs/visualize-plan/references/before-after-arch-patterns.md`
+- `catalog/refs/visualize-plan/references/blast-radius-patterns.md`
+- `catalog/refs/visualize-plan/references/change-manifest-patterns.md`
+- `catalog/refs/visualize-plan/references/decision-log-patterns.md`
+- `catalog/refs/visualize-plan/references/decision-router.md`
+- `catalog/refs/visualize-plan/references/deep-dives.md`
+- `catalog/refs/visualize-plan/references/execution-swimlane-patterns.md`
+- `catalog/refs/visualize-plan/references/format-dispatch.md`
+- `catalog/refs/visualize-plan/references/risk-dashboard-patterns.md`
+- `catalog/refs/visualize-plan/references/visualization-tiers.md`
 
 ### performance
-- `agents/_refs/performance/SKILL.md`
-- `agents/_refs/performance/references/cc-prompt-cache-guide.md`
-- `agents/_refs/performance/references/database-optimization.md`
-- `agents/_refs/performance/references/ork-delta.md`
+- `catalog/refs/performance/SKILL.md`
+- `catalog/refs/performance/references/cc-prompt-cache-guide.md`
+- `catalog/refs/performance/references/database-optimization.md`
+- `catalog/refs/performance/references/ork-delta.md`
 <!-- harness: claude-code -->
 
 ## Agent Teams (CC 2.1.33+)

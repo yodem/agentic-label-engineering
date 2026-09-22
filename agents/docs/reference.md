@@ -1,5 +1,6 @@
 ---
 name: docs-reference
+description: "Reference specialist: precise reference pages for APIs, schemas, CLI commands, configuration and public interfaces."
 role: docs
 sub: reference
 phases: [implement, maintain, review]

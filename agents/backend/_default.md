@@ -1,64 +1,65 @@
 ---
-name: backend-architecture
+name: backend-default
+description: "Default backend agent for server work with no narrower specialist: APIs, data access, services and scripts."
 role: backend
 sub: _default
 phases: [plan, design, implement, review, maintain]
 model_tier_min: cheap
 reads:
-  - "agents/_refs/api-design/SKILL.md"
-  - "agents/_refs/api-design/references/graphql-api.md"
-  - "agents/_refs/api-design/references/ork-delta.md"
-  - "agents/_refs/api-design/references/payload-vs-sanity.md"
-  - "agents/_refs/api-design/references/rest-patterns.md"
-  - "agents/_refs/api-design/references/telegram-bot-api.md"
-  - "agents/_refs/api-design/references/whatsapp-waha.md"
-  - "agents/_refs/database-patterns/SKILL.md"
-  - "agents/_refs/database-patterns/references/cost-comparison.md"
-  - "agents/_refs/database-patterns/references/db-migration-paths.md"
-  - "agents/_refs/database-patterns/references/migration-testing.md"
-  - "agents/_refs/database-patterns/references/ork-delta.md"
-  - "agents/_refs/database-patterns/references/postgres-vs-mongodb.md"
-  - "agents/_refs/database-patterns/references/storage-and-cms.md"
-  - "agents/_refs/architecture-decision-record/SKILL.md"
-  - "agents/_refs/architecture-decision-record/references/adr-best-practices.md"
-  - "agents/_refs/architecture-patterns/SKILL.md"
-  - "agents/_refs/architecture-patterns/references/naming-conventions.md"
-  - "agents/_refs/architecture-patterns/references/ork-delta.md"
-  - "agents/_refs/architecture-patterns/references/structure-import-direction.md"
-  - "agents/_refs/architecture-patterns/references/testing-naming-conventions.md"
-  - "agents/_refs/scope-appropriate-architecture/SKILL.md"
-  - "agents/_refs/scope-appropriate-architecture/references/enterprise.md"
-  - "agents/_refs/scope-appropriate-architecture/references/interview-takehome.md"
-  - "agents/_refs/scope-appropriate-architecture/references/open-source.md"
-  - "agents/_refs/scope-appropriate-architecture/references/startup-mvp.md"
-  - "agents/_refs/security-patterns/references/audit-logging.md"
-  - "agents/_refs/security-patterns/references/context-separation.md"
-  - "agents/_refs/security-patterns/references/langfuse-mask-callback.md"
-  - "agents/_refs/security-patterns/references/ork-delta.md"
-  - "agents/_refs/security-patterns/references/output-guardrails.md"
-  - "agents/_refs/security-patterns/references/post-llm-attribution.md"
-  - "agents/_refs/security-patterns/references/pre-llm-filtering.md"
-  - "agents/_refs/security-patterns/references/presidio-integration.md"
-  - "agents/_refs/security-patterns/references/prompt-audit.md"
-  - "agents/_refs/security-patterns/references/request-context-pattern.md"
-  - "agents/_refs/performance/SKILL.md"
-  - "agents/_refs/performance/references/cc-prompt-cache-guide.md"
-  - "agents/_refs/performance/references/database-optimization.md"
-  - "agents/_refs/performance/references/ork-delta.md"
-  - "agents/_refs/python-backend/SKILL.md"
-  - "agents/_refs/python-backend/references/eager-loading.md"
-  - "agents/_refs/python-backend/references/fastapi-app-boilerplate.md"
-  - "agents/_refs/python-backend/references/ork-delta.md"
-  - "agents/_refs/remember/SKILL.md"
-  - "agents/_refs/remember/references/category-detection.md"
-  - "agents/_refs/remember/references/confirmation-templates.md"
-  - "agents/_refs/remember/references/entity-extraction-workflow.md"
-  - "agents/_refs/remember/references/examples.md"
-  - "agents/_refs/remember/references/graph-operations.md"
-  - "agents/_refs/memory/SKILL.md"
-  - "agents/_refs/memory/references/memory-commands.md"
-  - "agents/_refs/memory/references/mermaid-patterns.md"
-  - "agents/_refs/memory/references/session-resume-patterns.md"
+  - "catalog/refs/api-design/SKILL.md"
+  - "catalog/refs/api-design/references/graphql-api.md"
+  - "catalog/refs/api-design/references/ork-delta.md"
+  - "catalog/refs/api-design/references/payload-vs-sanity.md"
+  - "catalog/refs/api-design/references/rest-patterns.md"
+  - "catalog/refs/api-design/references/telegram-bot-api.md"
+  - "catalog/refs/api-design/references/whatsapp-waha.md"
+  - "catalog/refs/database-patterns/SKILL.md"
+  - "catalog/refs/database-patterns/references/cost-comparison.md"
+  - "catalog/refs/database-patterns/references/db-migration-paths.md"
+  - "catalog/refs/database-patterns/references/migration-testing.md"
+  - "catalog/refs/database-patterns/references/ork-delta.md"
+  - "catalog/refs/database-patterns/references/postgres-vs-mongodb.md"
+  - "catalog/refs/database-patterns/references/storage-and-cms.md"
+  - "catalog/refs/architecture-decision-record/SKILL.md"
+  - "catalog/refs/architecture-decision-record/references/adr-best-practices.md"
+  - "catalog/refs/architecture-patterns/SKILL.md"
+  - "catalog/refs/architecture-patterns/references/naming-conventions.md"
+  - "catalog/refs/architecture-patterns/references/ork-delta.md"
+  - "catalog/refs/architecture-patterns/references/structure-import-direction.md"
+  - "catalog/refs/architecture-patterns/references/testing-naming-conventions.md"
+  - "catalog/refs/scope-appropriate-architecture/SKILL.md"
+  - "catalog/refs/scope-appropriate-architecture/references/enterprise.md"
+  - "catalog/refs/scope-appropriate-architecture/references/interview-takehome.md"
+  - "catalog/refs/scope-appropriate-architecture/references/open-source.md"
+  - "catalog/refs/scope-appropriate-architecture/references/startup-mvp.md"
+  - "catalog/refs/security-patterns/references/audit-logging.md"
+  - "catalog/refs/security-patterns/references/context-separation.md"
+  - "catalog/refs/security-patterns/references/langfuse-mask-callback.md"
+  - "catalog/refs/security-patterns/references/ork-delta.md"
+  - "catalog/refs/security-patterns/references/output-guardrails.md"
+  - "catalog/refs/security-patterns/references/post-llm-attribution.md"
+  - "catalog/refs/security-patterns/references/pre-llm-filtering.md"
+  - "catalog/refs/security-patterns/references/presidio-integration.md"
+  - "catalog/refs/security-patterns/references/prompt-audit.md"
+  - "catalog/refs/security-patterns/references/request-context-pattern.md"
+  - "catalog/refs/performance/SKILL.md"
+  - "catalog/refs/performance/references/cc-prompt-cache-guide.md"
+  - "catalog/refs/performance/references/database-optimization.md"
+  - "catalog/refs/performance/references/ork-delta.md"
+  - "catalog/refs/python-backend/SKILL.md"
+  - "catalog/refs/python-backend/references/eager-loading.md"
+  - "catalog/refs/python-backend/references/fastapi-app-boilerplate.md"
+  - "catalog/refs/python-backend/references/ork-delta.md"
+  - "catalog/refs/remember/SKILL.md"
+  - "catalog/refs/remember/references/category-detection.md"
+  - "catalog/refs/remember/references/confirmation-templates.md"
+  - "catalog/refs/remember/references/entity-extraction-workflow.md"
+  - "catalog/refs/remember/references/examples.md"
+  - "catalog/refs/remember/references/graph-operations.md"
+  - "catalog/refs/memory/SKILL.md"
+  - "catalog/refs/memory/references/memory-commands.md"
+  - "catalog/refs/memory/references/mermaid-patterns.md"
+  - "catalog/refs/memory/references/session-resume-patterns.md"
 rules:
   deny_paths: ["frontend/**"]
 checklist:
@@ -317,60 +318,60 @@ Your final output MUST include a `status` field: **DONE**, **DONE_WITH_CONCERNS*
 
 Read the specific referenced skill before applying its domain guidance.
 
-- `agents/_refs/api-design/SKILL.md`
-- `agents/_refs/api-design/references/graphql-api.md`
-- `agents/_refs/api-design/references/ork-delta.md`
-- `agents/_refs/api-design/references/payload-vs-sanity.md`
-- `agents/_refs/api-design/references/rest-patterns.md`
-- `agents/_refs/api-design/references/telegram-bot-api.md`
-- `agents/_refs/api-design/references/whatsapp-waha.md`
-- `agents/_refs/database-patterns/SKILL.md`
-- `agents/_refs/database-patterns/references/cost-comparison.md`
-- `agents/_refs/database-patterns/references/db-migration-paths.md`
-- `agents/_refs/database-patterns/references/migration-testing.md`
-- `agents/_refs/database-patterns/references/ork-delta.md`
-- `agents/_refs/database-patterns/references/postgres-vs-mongodb.md`
-- `agents/_refs/database-patterns/references/storage-and-cms.md`
-- `agents/_refs/architecture-decision-record/SKILL.md`
-- `agents/_refs/architecture-decision-record/references/adr-best-practices.md`
-- `agents/_refs/architecture-patterns/SKILL.md`
-- `agents/_refs/architecture-patterns/references/naming-conventions.md`
-- `agents/_refs/architecture-patterns/references/ork-delta.md`
-- `agents/_refs/architecture-patterns/references/structure-import-direction.md`
-- `agents/_refs/architecture-patterns/references/testing-naming-conventions.md`
-- `agents/_refs/scope-appropriate-architecture/SKILL.md`
-- `agents/_refs/scope-appropriate-architecture/references/enterprise.md`
-- `agents/_refs/scope-appropriate-architecture/references/interview-takehome.md`
-- `agents/_refs/scope-appropriate-architecture/references/open-source.md`
-- `agents/_refs/scope-appropriate-architecture/references/startup-mvp.md`
-- `agents/_refs/security-patterns/references/audit-logging.md`
-- `agents/_refs/security-patterns/references/context-separation.md`
-- `agents/_refs/security-patterns/references/langfuse-mask-callback.md`
-- `agents/_refs/security-patterns/references/ork-delta.md`
-- `agents/_refs/security-patterns/references/output-guardrails.md`
-- `agents/_refs/security-patterns/references/post-llm-attribution.md`
-- `agents/_refs/security-patterns/references/pre-llm-filtering.md`
-- `agents/_refs/security-patterns/references/presidio-integration.md`
-- `agents/_refs/security-patterns/references/prompt-audit.md`
-- `agents/_refs/security-patterns/references/request-context-pattern.md`
-- `agents/_refs/performance/SKILL.md`
-- `agents/_refs/performance/references/cc-prompt-cache-guide.md`
-- `agents/_refs/performance/references/database-optimization.md`
-- `agents/_refs/performance/references/ork-delta.md`
-- `agents/_refs/python-backend/SKILL.md`
-- `agents/_refs/python-backend/references/eager-loading.md`
-- `agents/_refs/python-backend/references/fastapi-app-boilerplate.md`
-- `agents/_refs/python-backend/references/ork-delta.md`
-- `agents/_refs/remember/SKILL.md`
-- `agents/_refs/remember/references/category-detection.md`
-- `agents/_refs/remember/references/confirmation-templates.md`
-- `agents/_refs/remember/references/entity-extraction-workflow.md`
-- `agents/_refs/remember/references/examples.md`
-- `agents/_refs/remember/references/graph-operations.md`
-- `agents/_refs/memory/SKILL.md`
-- `agents/_refs/memory/references/memory-commands.md`
-- `agents/_refs/memory/references/mermaid-patterns.md`
-- `agents/_refs/memory/references/session-resume-patterns.md`
+- `catalog/refs/api-design/SKILL.md`
+- `catalog/refs/api-design/references/graphql-api.md`
+- `catalog/refs/api-design/references/ork-delta.md`
+- `catalog/refs/api-design/references/payload-vs-sanity.md`
+- `catalog/refs/api-design/references/rest-patterns.md`
+- `catalog/refs/api-design/references/telegram-bot-api.md`
+- `catalog/refs/api-design/references/whatsapp-waha.md`
+- `catalog/refs/database-patterns/SKILL.md`
+- `catalog/refs/database-patterns/references/cost-comparison.md`
+- `catalog/refs/database-patterns/references/db-migration-paths.md`
+- `catalog/refs/database-patterns/references/migration-testing.md`
+- `catalog/refs/database-patterns/references/ork-delta.md`
+- `catalog/refs/database-patterns/references/postgres-vs-mongodb.md`
+- `catalog/refs/database-patterns/references/storage-and-cms.md`
+- `catalog/refs/architecture-decision-record/SKILL.md`
+- `catalog/refs/architecture-decision-record/references/adr-best-practices.md`
+- `catalog/refs/architecture-patterns/SKILL.md`
+- `catalog/refs/architecture-patterns/references/naming-conventions.md`
+- `catalog/refs/architecture-patterns/references/ork-delta.md`
+- `catalog/refs/architecture-patterns/references/structure-import-direction.md`
+- `catalog/refs/architecture-patterns/references/testing-naming-conventions.md`
+- `catalog/refs/scope-appropriate-architecture/SKILL.md`
+- `catalog/refs/scope-appropriate-architecture/references/enterprise.md`
+- `catalog/refs/scope-appropriate-architecture/references/interview-takehome.md`
+- `catalog/refs/scope-appropriate-architecture/references/open-source.md`
+- `catalog/refs/scope-appropriate-architecture/references/startup-mvp.md`
+- `catalog/refs/security-patterns/references/audit-logging.md`
+- `catalog/refs/security-patterns/references/context-separation.md`
+- `catalog/refs/security-patterns/references/langfuse-mask-callback.md`
+- `catalog/refs/security-patterns/references/ork-delta.md`
+- `catalog/refs/security-patterns/references/output-guardrails.md`
+- `catalog/refs/security-patterns/references/post-llm-attribution.md`
+- `catalog/refs/security-patterns/references/pre-llm-filtering.md`
+- `catalog/refs/security-patterns/references/presidio-integration.md`
+- `catalog/refs/security-patterns/references/prompt-audit.md`
+- `catalog/refs/security-patterns/references/request-context-pattern.md`
+- `catalog/refs/performance/SKILL.md`
+- `catalog/refs/performance/references/cc-prompt-cache-guide.md`
+- `catalog/refs/performance/references/database-optimization.md`
+- `catalog/refs/performance/references/ork-delta.md`
+- `catalog/refs/python-backend/SKILL.md`
+- `catalog/refs/python-backend/references/eager-loading.md`
+- `catalog/refs/python-backend/references/fastapi-app-boilerplate.md`
+- `catalog/refs/python-backend/references/ork-delta.md`
+- `catalog/refs/remember/SKILL.md`
+- `catalog/refs/remember/references/category-detection.md`
+- `catalog/refs/remember/references/confirmation-templates.md`
+- `catalog/refs/remember/references/entity-extraction-workflow.md`
+- `catalog/refs/remember/references/examples.md`
+- `catalog/refs/remember/references/graph-operations.md`
+- `catalog/refs/memory/SKILL.md`
+- `catalog/refs/memory/references/memory-commands.md`
+- `catalog/refs/memory/references/mermaid-patterns.md`
+- `catalog/refs/memory/references/session-resume-patterns.md`
 
 <!-- harness: claude-code -->
 

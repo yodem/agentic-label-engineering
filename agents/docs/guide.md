@@ -1,5 +1,6 @@
 ---
 name: docs-guide
+description: "Guide specialist: task-oriented onboarding, setup, how-to and migration guides that take a reader to a concrete outcome."
 role: docs
 sub: guide
 phases: [plan, implement, maintain]

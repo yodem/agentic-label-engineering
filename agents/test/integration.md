@@ -1,5 +1,6 @@
 ---
 name: test-integration
+description: "Integration test specialist: tests across service, database and HTTP boundaries, with recorded or mocked dependencies."
 role: test
 sub: integration
 phases: [implement, test, maintain]
@@ -13,30 +14,30 @@ reads:
   - "**/pyproject.toml"
   - "**/package.json"
   - ".claude/rules/antipatterns.md"
-  - "agents/_refs/testing-unit/SKILL.md"
-  - "agents/_refs/testing-unit/references/aaa-pattern.md"
-  - "agents/_refs/testing-unit/references/factory-patterns.md"
-  - "agents/_refs/testing-unit/references/msw-2x-api.md"
-  - "agents/_refs/testing-unit/references/stateful-testing.md"
-  - "agents/_refs/testing-e2e/SKILL.md"
-  - "agents/_refs/testing-e2e/references/ork-delta.md"
-  - "agents/_refs/testing-e2e/references/playwright-setup.md"
-  - "agents/_refs/testing-llm/SKILL.md"
-  - "agents/_refs/testing-llm/references/healer-agent.md"
-  - "agents/_refs/testing-llm/references/ork-delta.md"
-  - "agents/_refs/testing-integration/SKILL.md"
-  - "agents/_refs/testing-integration/references/consumer-tests.md"
-  - "agents/_refs/testing-integration/references/ork-delta.md"
-  - "agents/_refs/testing-integration/references/strategies-guide.md"
-  - "agents/_refs/testing-perf/SKILL.md"
-  - "agents/_refs/testing-perf/references/custom-plugins.md"
-  - "agents/_refs/testing-perf/references/k6-patterns.md"
-  - "agents/_refs/testing-perf/references/xdist-parallel.md"
-  - "agents/_refs/architecture-patterns/SKILL.md"
-  - "agents/_refs/architecture-patterns/references/naming-conventions.md"
-  - "agents/_refs/architecture-patterns/references/ork-delta.md"
-  - "agents/_refs/architecture-patterns/references/structure-import-direction.md"
-  - "agents/_refs/architecture-patterns/references/testing-naming-conventions.md"
+  - "catalog/refs/testing-unit/SKILL.md"
+  - "catalog/refs/testing-unit/references/aaa-pattern.md"
+  - "catalog/refs/testing-unit/references/factory-patterns.md"
+  - "catalog/refs/testing-unit/references/msw-2x-api.md"
+  - "catalog/refs/testing-unit/references/stateful-testing.md"
+  - "catalog/refs/testing-e2e/SKILL.md"
+  - "catalog/refs/testing-e2e/references/ork-delta.md"
+  - "catalog/refs/testing-e2e/references/playwright-setup.md"
+  - "catalog/refs/testing-llm/SKILL.md"
+  - "catalog/refs/testing-llm/references/healer-agent.md"
+  - "catalog/refs/testing-llm/references/ork-delta.md"
+  - "catalog/refs/testing-integration/SKILL.md"
+  - "catalog/refs/testing-integration/references/consumer-tests.md"
+  - "catalog/refs/testing-integration/references/ork-delta.md"
+  - "catalog/refs/testing-integration/references/strategies-guide.md"
+  - "catalog/refs/testing-perf/SKILL.md"
+  - "catalog/refs/testing-perf/references/custom-plugins.md"
+  - "catalog/refs/testing-perf/references/k6-patterns.md"
+  - "catalog/refs/testing-perf/references/xdist-parallel.md"
+  - "catalog/refs/architecture-patterns/SKILL.md"
+  - "catalog/refs/architecture-patterns/references/naming-conventions.md"
+  - "catalog/refs/architecture-patterns/references/ork-delta.md"
+  - "catalog/refs/architecture-patterns/references/structure-import-direction.md"
+  - "catalog/refs/architecture-patterns/references/testing-naming-conventions.md"
 rules:
   deny_paths: []
   deny_tools: []
@@ -304,40 +305,40 @@ Your final output MUST include a `status` field: **DONE**, **DONE_WITH_CONCERNS*
 Read the specific skill before advising. Skill references are listed in reads.
 
 ### testing-unit
-- `agents/_refs/testing-unit/SKILL.md`
-- `agents/_refs/testing-unit/references/aaa-pattern.md`
-- `agents/_refs/testing-unit/references/factory-patterns.md`
-- `agents/_refs/testing-unit/references/msw-2x-api.md`
-- `agents/_refs/testing-unit/references/stateful-testing.md`
+- `catalog/refs/testing-unit/SKILL.md`
+- `catalog/refs/testing-unit/references/aaa-pattern.md`
+- `catalog/refs/testing-unit/references/factory-patterns.md`
+- `catalog/refs/testing-unit/references/msw-2x-api.md`
+- `catalog/refs/testing-unit/references/stateful-testing.md`
 
 ### testing-e2e
-- `agents/_refs/testing-e2e/SKILL.md`
-- `agents/_refs/testing-e2e/references/ork-delta.md`
-- `agents/_refs/testing-e2e/references/playwright-setup.md`
+- `catalog/refs/testing-e2e/SKILL.md`
+- `catalog/refs/testing-e2e/references/ork-delta.md`
+- `catalog/refs/testing-e2e/references/playwright-setup.md`
 
 ### testing-llm
-- `agents/_refs/testing-llm/SKILL.md`
-- `agents/_refs/testing-llm/references/healer-agent.md`
-- `agents/_refs/testing-llm/references/ork-delta.md`
+- `catalog/refs/testing-llm/SKILL.md`
+- `catalog/refs/testing-llm/references/healer-agent.md`
+- `catalog/refs/testing-llm/references/ork-delta.md`
 
 ### testing-integration
-- `agents/_refs/testing-integration/SKILL.md`
-- `agents/_refs/testing-integration/references/consumer-tests.md`
-- `agents/_refs/testing-integration/references/ork-delta.md`
-- `agents/_refs/testing-integration/references/strategies-guide.md`
+- `catalog/refs/testing-integration/SKILL.md`
+- `catalog/refs/testing-integration/references/consumer-tests.md`
+- `catalog/refs/testing-integration/references/ork-delta.md`
+- `catalog/refs/testing-integration/references/strategies-guide.md`
 
 ### testing-perf
-- `agents/_refs/testing-perf/SKILL.md`
-- `agents/_refs/testing-perf/references/custom-plugins.md`
-- `agents/_refs/testing-perf/references/k6-patterns.md`
-- `agents/_refs/testing-perf/references/xdist-parallel.md`
+- `catalog/refs/testing-perf/SKILL.md`
+- `catalog/refs/testing-perf/references/custom-plugins.md`
+- `catalog/refs/testing-perf/references/k6-patterns.md`
+- `catalog/refs/testing-perf/references/xdist-parallel.md`
 
 ### architecture-patterns
-- `agents/_refs/architecture-patterns/SKILL.md`
-- `agents/_refs/architecture-patterns/references/naming-conventions.md`
-- `agents/_refs/architecture-patterns/references/ork-delta.md`
-- `agents/_refs/architecture-patterns/references/structure-import-direction.md`
-- `agents/_refs/architecture-patterns/references/testing-naming-conventions.md`
+- `catalog/refs/architecture-patterns/SKILL.md`
+- `catalog/refs/architecture-patterns/references/naming-conventions.md`
+- `catalog/refs/architecture-patterns/references/ork-delta.md`
+- `catalog/refs/architecture-patterns/references/structure-import-direction.md`
+- `catalog/refs/architecture-patterns/references/testing-naming-conventions.md`
 <!-- harness: claude-code -->
 
 ## Agent Teams (CC 2.1.33+)

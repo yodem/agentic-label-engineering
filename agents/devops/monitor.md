@@ -1,34 +1,35 @@
 ---
 name: devops-monitor
+description: "Monitoring specialist: metrics, logs, traces, alerts and dashboards so systems are observable in production."
 role: devops
 sub: monitor
 phases: [implement, operate, maintain]
 model_tier_min: cheap
 reads:
-  - "agents/_refs/telemetry-inspect/SKILL.md"
-  - "agents/_refs/telemetry-inspect/references/telemetry-inventory.md"
-  - "agents/_refs/performance/SKILL.md"
-  - "agents/_refs/performance/references/cc-prompt-cache-guide.md"
-  - "agents/_refs/performance/references/database-optimization.md"
-  - "agents/_refs/performance/references/ork-delta.md"
-  - "agents/_refs/testing-perf/SKILL.md"
-  - "agents/_refs/testing-perf/references/custom-plugins.md"
-  - "agents/_refs/testing-perf/references/k6-patterns.md"
-  - "agents/_refs/testing-perf/references/xdist-parallel.md"
-  - "agents/_refs/testing-integration/SKILL.md"
-  - "agents/_refs/testing-integration/references/consumer-tests.md"
-  - "agents/_refs/testing-integration/references/ork-delta.md"
-  - "agents/_refs/testing-integration/references/strategies-guide.md"
-  - "agents/_refs/remember/SKILL.md"
-  - "agents/_refs/remember/references/category-detection.md"
-  - "agents/_refs/remember/references/confirmation-templates.md"
-  - "agents/_refs/remember/references/entity-extraction-workflow.md"
-  - "agents/_refs/remember/references/examples.md"
-  - "agents/_refs/remember/references/graph-operations.md"
-  - "agents/_refs/memory/SKILL.md"
-  - "agents/_refs/memory/references/memory-commands.md"
-  - "agents/_refs/memory/references/mermaid-patterns.md"
-  - "agents/_refs/memory/references/session-resume-patterns.md"
+  - "catalog/refs/telemetry-inspect/SKILL.md"
+  - "catalog/refs/telemetry-inspect/references/telemetry-inventory.md"
+  - "catalog/refs/performance/SKILL.md"
+  - "catalog/refs/performance/references/cc-prompt-cache-guide.md"
+  - "catalog/refs/performance/references/database-optimization.md"
+  - "catalog/refs/performance/references/ork-delta.md"
+  - "catalog/refs/testing-perf/SKILL.md"
+  - "catalog/refs/testing-perf/references/custom-plugins.md"
+  - "catalog/refs/testing-perf/references/k6-patterns.md"
+  - "catalog/refs/testing-perf/references/xdist-parallel.md"
+  - "catalog/refs/testing-integration/SKILL.md"
+  - "catalog/refs/testing-integration/references/consumer-tests.md"
+  - "catalog/refs/testing-integration/references/ork-delta.md"
+  - "catalog/refs/testing-integration/references/strategies-guide.md"
+  - "catalog/refs/remember/SKILL.md"
+  - "catalog/refs/remember/references/category-detection.md"
+  - "catalog/refs/remember/references/confirmation-templates.md"
+  - "catalog/refs/remember/references/entity-extraction-workflow.md"
+  - "catalog/refs/remember/references/examples.md"
+  - "catalog/refs/remember/references/graph-operations.md"
+  - "catalog/refs/memory/SKILL.md"
+  - "catalog/refs/memory/references/memory-commands.md"
+  - "catalog/refs/memory/references/mermaid-patterns.md"
+  - "catalog/refs/memory/references/session-resume-patterns.md"
 rules:
   deny_paths: []
   deny_tools: []
@@ -375,40 +376,40 @@ Your final output MUST include a `status` field: **DONE**, **DONE_WITH_CONCERNS*
 Read the specific file before advising; do not rely on training data.
 
 ### telemetry-inspect
-- `agents/_refs/telemetry-inspect/SKILL.md`
-- `agents/_refs/telemetry-inspect/references/telemetry-inventory.md`
+- `catalog/refs/telemetry-inspect/SKILL.md`
+- `catalog/refs/telemetry-inspect/references/telemetry-inventory.md`
 
 ### performance
-- `agents/_refs/performance/SKILL.md`
-- `agents/_refs/performance/references/cc-prompt-cache-guide.md`
-- `agents/_refs/performance/references/database-optimization.md`
-- `agents/_refs/performance/references/ork-delta.md`
+- `catalog/refs/performance/SKILL.md`
+- `catalog/refs/performance/references/cc-prompt-cache-guide.md`
+- `catalog/refs/performance/references/database-optimization.md`
+- `catalog/refs/performance/references/ork-delta.md`
 
 ### testing-perf
-- `agents/_refs/testing-perf/SKILL.md`
-- `agents/_refs/testing-perf/references/custom-plugins.md`
-- `agents/_refs/testing-perf/references/k6-patterns.md`
-- `agents/_refs/testing-perf/references/xdist-parallel.md`
+- `catalog/refs/testing-perf/SKILL.md`
+- `catalog/refs/testing-perf/references/custom-plugins.md`
+- `catalog/refs/testing-perf/references/k6-patterns.md`
+- `catalog/refs/testing-perf/references/xdist-parallel.md`
 
 ### testing-integration
-- `agents/_refs/testing-integration/SKILL.md`
-- `agents/_refs/testing-integration/references/consumer-tests.md`
-- `agents/_refs/testing-integration/references/ork-delta.md`
-- `agents/_refs/testing-integration/references/strategies-guide.md`
+- `catalog/refs/testing-integration/SKILL.md`
+- `catalog/refs/testing-integration/references/consumer-tests.md`
+- `catalog/refs/testing-integration/references/ork-delta.md`
+- `catalog/refs/testing-integration/references/strategies-guide.md`
 
 ### remember
-- `agents/_refs/remember/SKILL.md`
-- `agents/_refs/remember/references/category-detection.md`
-- `agents/_refs/remember/references/confirmation-templates.md`
-- `agents/_refs/remember/references/entity-extraction-workflow.md`
-- `agents/_refs/remember/references/examples.md`
-- `agents/_refs/remember/references/graph-operations.md`
+- `catalog/refs/remember/SKILL.md`
+- `catalog/refs/remember/references/category-detection.md`
+- `catalog/refs/remember/references/confirmation-templates.md`
+- `catalog/refs/remember/references/entity-extraction-workflow.md`
+- `catalog/refs/remember/references/examples.md`
+- `catalog/refs/remember/references/graph-operations.md`
 
 ### memory
-- `agents/_refs/memory/SKILL.md`
-- `agents/_refs/memory/references/memory-commands.md`
-- `agents/_refs/memory/references/mermaid-patterns.md`
-- `agents/_refs/memory/references/session-resume-patterns.md`
+- `catalog/refs/memory/SKILL.md`
+- `catalog/refs/memory/references/memory-commands.md`
+- `catalog/refs/memory/references/mermaid-patterns.md`
+- `catalog/refs/memory/references/session-resume-patterns.md`
 
 <!-- harness: claude-code -->
 

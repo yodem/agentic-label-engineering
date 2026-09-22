@@ -56,12 +56,13 @@ frontmatter and first heading of the bundled `agents/frontend/css.md` example:
 ```yaml
 ---
 name: frontend-css
+description: "CSS specialist: layout, responsive styling, design tokens in CSS and visual polish for existing components."
 role: frontend
 sub: css
 phases: [implement, review, maintain]
 model_tier_min: cheap
 reads:
-  - "agents/_refs/architecture-patterns/SKILL.md"
+  - "catalog/refs/architecture-patterns/SKILL.md"
 ---
 ```
 
@@ -71,7 +72,11 @@ reads:
 
 Required frontmatter includes `name`, `role`, `sub`, `phases`,
 `model_tier_min`, `reads`, `rules`, `checklist`, and `version`. `origin` is
-optional provenance. The body follows this order: Directive, Grounding
+optional provenance. `description` is optional for ALE but required for every
+bundled file: Claude Code loads each Markdown file under the plugin's `agents/`
+directory as a subagent and needs `name` and `description`, and names must be
+unique. Reference material the agents read lives in `catalog/refs/`, outside
+that directory, so it is never loaded as an agent. The body follows this order: Directive, Grounding
 Protocol, Concrete Objectives, Methodology, Output Format, Task Boundaries,
 Example, and Status Protocol. Portable content comes first; optional
 Claude-only instructions follow `<!-- harness: claude-code -->`.

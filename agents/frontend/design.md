@@ -1,38 +1,39 @@
 ---
 name: frontend-design
+description: "Design system specialist: token architecture, theming, component library structure and design-to-code workflows."
 role: frontend
 sub: design
 phases: [design, implement, review]
 model_tier_min: standard
 reads:
-  - "agents/_refs/component-search/SKILL.md"
-  - "agents/_refs/design-context-extract/SKILL.md"
-  - "agents/_refs/design-system-tokens/SKILL.md"
-  - "agents/_refs/design-system-tokens/references/style-dictionary-config.md"
-  - "agents/_refs/design-system-tokens/references/token-naming-conventions.md"
-  - "agents/_refs/design-system-tokens/references/w3c-token-spec.md"
-  - "agents/_refs/memory/SKILL.md"
-  - "agents/_refs/memory/references/memory-commands.md"
-  - "agents/_refs/memory/references/mermaid-patterns.md"
-  - "agents/_refs/memory/references/session-resume-patterns.md"
-  - "agents/_refs/performance/SKILL.md"
-  - "agents/_refs/performance/references/cc-prompt-cache-guide.md"
-  - "agents/_refs/performance/references/database-optimization.md"
-  - "agents/_refs/performance/references/ork-delta.md"
-  - "agents/_refs/remember/SKILL.md"
-  - "agents/_refs/remember/references/category-detection.md"
-  - "agents/_refs/remember/references/confirmation-templates.md"
-  - "agents/_refs/remember/references/entity-extraction-workflow.md"
-  - "agents/_refs/remember/references/examples.md"
-  - "agents/_refs/remember/references/graph-operations.md"
-  - "agents/_refs/testing-e2e/SKILL.md"
-  - "agents/_refs/testing-e2e/references/ork-delta.md"
-  - "agents/_refs/testing-e2e/references/playwright-setup.md"
-  - "agents/_refs/testing-unit/SKILL.md"
-  - "agents/_refs/testing-unit/references/aaa-pattern.md"
-  - "agents/_refs/testing-unit/references/factory-patterns.md"
-  - "agents/_refs/testing-unit/references/msw-2x-api.md"
-  - "agents/_refs/testing-unit/references/stateful-testing.md"
+  - "catalog/refs/component-search/SKILL.md"
+  - "catalog/refs/design-context-extract/SKILL.md"
+  - "catalog/refs/design-system-tokens/SKILL.md"
+  - "catalog/refs/design-system-tokens/references/style-dictionary-config.md"
+  - "catalog/refs/design-system-tokens/references/token-naming-conventions.md"
+  - "catalog/refs/design-system-tokens/references/w3c-token-spec.md"
+  - "catalog/refs/memory/SKILL.md"
+  - "catalog/refs/memory/references/memory-commands.md"
+  - "catalog/refs/memory/references/mermaid-patterns.md"
+  - "catalog/refs/memory/references/session-resume-patterns.md"
+  - "catalog/refs/performance/SKILL.md"
+  - "catalog/refs/performance/references/cc-prompt-cache-guide.md"
+  - "catalog/refs/performance/references/database-optimization.md"
+  - "catalog/refs/performance/references/ork-delta.md"
+  - "catalog/refs/remember/SKILL.md"
+  - "catalog/refs/remember/references/category-detection.md"
+  - "catalog/refs/remember/references/confirmation-templates.md"
+  - "catalog/refs/remember/references/entity-extraction-workflow.md"
+  - "catalog/refs/remember/references/examples.md"
+  - "catalog/refs/remember/references/graph-operations.md"
+  - "catalog/refs/testing-e2e/SKILL.md"
+  - "catalog/refs/testing-e2e/references/ork-delta.md"
+  - "catalog/refs/testing-e2e/references/playwright-setup.md"
+  - "catalog/refs/testing-unit/SKILL.md"
+  - "catalog/refs/testing-unit/references/aaa-pattern.md"
+  - "catalog/refs/testing-unit/references/factory-patterns.md"
+  - "catalog/refs/testing-unit/references/msw-2x-api.md"
+  - "catalog/refs/testing-unit/references/stateful-testing.md"
 rules: {}
 checklist:
   - "- Uses semantic tokens (never global primitives directly in components)"
@@ -418,34 +419,34 @@ Your final output MUST include a `status` field: **DONE**, **DONE_WITH_CONCERNS*
 
 ## Skill Index
 
-- Read `agents/_refs/component-search/SKILL.md` before advising on that topic.
-- Read `agents/_refs/design-context-extract/SKILL.md` before advising on that topic.
-- Read `agents/_refs/design-system-tokens/SKILL.md` before advising on that topic.
-- Read `agents/_refs/design-system-tokens/references/style-dictionary-config.md` before advising on that topic.
-- Read `agents/_refs/design-system-tokens/references/token-naming-conventions.md` before advising on that topic.
-- Read `agents/_refs/design-system-tokens/references/w3c-token-spec.md` before advising on that topic.
-- Read `agents/_refs/memory/SKILL.md` before advising on that topic.
-- Read `agents/_refs/memory/references/memory-commands.md` before advising on that topic.
-- Read `agents/_refs/memory/references/mermaid-patterns.md` before advising on that topic.
-- Read `agents/_refs/memory/references/session-resume-patterns.md` before advising on that topic.
-- Read `agents/_refs/performance/SKILL.md` before advising on that topic.
-- Read `agents/_refs/performance/references/cc-prompt-cache-guide.md` before advising on that topic.
-- Read `agents/_refs/performance/references/database-optimization.md` before advising on that topic.
-- Read `agents/_refs/performance/references/ork-delta.md` before advising on that topic.
-- Read `agents/_refs/remember/SKILL.md` before advising on that topic.
-- Read `agents/_refs/remember/references/category-detection.md` before advising on that topic.
-- Read `agents/_refs/remember/references/confirmation-templates.md` before advising on that topic.
-- Read `agents/_refs/remember/references/entity-extraction-workflow.md` before advising on that topic.
-- Read `agents/_refs/remember/references/examples.md` before advising on that topic.
-- Read `agents/_refs/remember/references/graph-operations.md` before advising on that topic.
-- Read `agents/_refs/testing-e2e/SKILL.md` before advising on that topic.
-- Read `agents/_refs/testing-e2e/references/ork-delta.md` before advising on that topic.
-- Read `agents/_refs/testing-e2e/references/playwright-setup.md` before advising on that topic.
-- Read `agents/_refs/testing-unit/SKILL.md` before advising on that topic.
-- Read `agents/_refs/testing-unit/references/aaa-pattern.md` before advising on that topic.
-- Read `agents/_refs/testing-unit/references/factory-patterns.md` before advising on that topic.
-- Read `agents/_refs/testing-unit/references/msw-2x-api.md` before advising on that topic.
-- Read `agents/_refs/testing-unit/references/stateful-testing.md` before advising on that topic.
+- Read `catalog/refs/component-search/SKILL.md` before advising on that topic.
+- Read `catalog/refs/design-context-extract/SKILL.md` before advising on that topic.
+- Read `catalog/refs/design-system-tokens/SKILL.md` before advising on that topic.
+- Read `catalog/refs/design-system-tokens/references/style-dictionary-config.md` before advising on that topic.
+- Read `catalog/refs/design-system-tokens/references/token-naming-conventions.md` before advising on that topic.
+- Read `catalog/refs/design-system-tokens/references/w3c-token-spec.md` before advising on that topic.
+- Read `catalog/refs/memory/SKILL.md` before advising on that topic.
+- Read `catalog/refs/memory/references/memory-commands.md` before advising on that topic.
+- Read `catalog/refs/memory/references/mermaid-patterns.md` before advising on that topic.
+- Read `catalog/refs/memory/references/session-resume-patterns.md` before advising on that topic.
+- Read `catalog/refs/performance/SKILL.md` before advising on that topic.
+- Read `catalog/refs/performance/references/cc-prompt-cache-guide.md` before advising on that topic.
+- Read `catalog/refs/performance/references/database-optimization.md` before advising on that topic.
+- Read `catalog/refs/performance/references/ork-delta.md` before advising on that topic.
+- Read `catalog/refs/remember/SKILL.md` before advising on that topic.
+- Read `catalog/refs/remember/references/category-detection.md` before advising on that topic.
+- Read `catalog/refs/remember/references/confirmation-templates.md` before advising on that topic.
+- Read `catalog/refs/remember/references/entity-extraction-workflow.md` before advising on that topic.
+- Read `catalog/refs/remember/references/examples.md` before advising on that topic.
+- Read `catalog/refs/remember/references/graph-operations.md` before advising on that topic.
+- Read `catalog/refs/testing-e2e/SKILL.md` before advising on that topic.
+- Read `catalog/refs/testing-e2e/references/ork-delta.md` before advising on that topic.
+- Read `catalog/refs/testing-e2e/references/playwright-setup.md` before advising on that topic.
+- Read `catalog/refs/testing-unit/SKILL.md` before advising on that topic.
+- Read `catalog/refs/testing-unit/references/aaa-pattern.md` before advising on that topic.
+- Read `catalog/refs/testing-unit/references/factory-patterns.md` before advising on that topic.
+- Read `catalog/refs/testing-unit/references/msw-2x-api.md` before advising on that topic.
+- Read `catalog/refs/testing-unit/references/stateful-testing.md` before advising on that topic.
 
 <!-- harness: claude-code -->
 

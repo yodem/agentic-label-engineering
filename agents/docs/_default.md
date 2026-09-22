@@ -1,5 +1,6 @@
 ---
 name: docs-default
+description: "Default docs agent: picks the smallest useful document type and grounds every claim in the current implementation."
 role: docs
 sub: _default
 phases: [plan, implement, review, maintain]
