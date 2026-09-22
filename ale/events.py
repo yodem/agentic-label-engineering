@@ -155,7 +155,7 @@ def _apply(st: dict, ev: dict, tasks: Dict[str, dict], labels: Dict[str, dict]) 
         if st["state"] == "stale":
             st["state"] = "released"
     elif kind == "usage":
-        st["tokens"] += ev["gen_ai.usage.input_tokens"] + ev["gen_ai.usage.output_tokens"]
+        st["tokens"] += max(0, ev["gen_ai.usage.input_tokens"] - ev.get("gen_ai.usage.cache_read_input_tokens", 0)) + ev["gen_ai.usage.output_tokens"]
         st["cost_usd"] += ev.get("cost_usd") or 0.0
     elif kind == "breach":
         st["breaches_seen"].append([ev["breach"], st["attempt"]])
@@ -182,7 +182,7 @@ def reduce_run(events: List[dict], labels: Dict[str, dict]) -> dict:
             run["finished"] = True
             continue
         if kind == "usage":
-            run["tokens"] += ev["gen_ai.usage.input_tokens"] + ev["gen_ai.usage.output_tokens"]
+            run["tokens"] += max(0, ev["gen_ai.usage.input_tokens"] - ev.get("gen_ai.usage.cache_read_input_tokens", 0)) + ev["gen_ai.usage.output_tokens"]
             run["cost_usd"] += ev.get("cost_usd") or 0.0
         if kind == "breach" and ev.get("task_id") is None:
             run["breaches_seen"].append(ev["breach"])

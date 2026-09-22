@@ -43,6 +43,24 @@ def test_over_budget(roster, label_t01):
     assert "over_budget" in names(run([ev("claimed", 0), ev("usage", 1, **usage)], label_t01, roster, 2))
 
 
+def test_cached_input_is_excluded_from_task_and_run_budgets(roster, label_t01):
+    roster["cost_gate"]["max_run_budget_tokens"] = 100000
+    label_t01["watch"] = {"budget_tokens": 100000}
+    usage = {"gen_ai.request.model": "m", "gen_ai.usage.input_tokens": 200000,
+             "gen_ai.usage.cache_read_input_tokens": 150000,
+             "gen_ai.usage.output_tokens": 1, "usage_source": "adapter"}
+    assert names(run([ev("claimed", 0), ev("usage", 1, **usage)], label_t01, roster, 2)) == []
+
+
+def test_billable_input_never_goes_below_zero(roster, label_t01):
+    roster["cost_gate"]["max_run_budget_tokens"] = 1
+    label_t01["watch"] = {"budget_tokens": 1}
+    usage = {"gen_ai.request.model": "m", "gen_ai.usage.input_tokens": 10,
+             "gen_ai.usage.cache_read_input_tokens": 100,
+             "gen_ai.usage.output_tokens": 1, "usage_source": "adapter"}
+    assert names(run([ev("claimed", 0), ev("usage", 1, **usage)], label_t01, roster, 2)) == []
+
+
 def test_input_required_surfaces_and_does_not_expire(roster, label_t01):
     got = run([ev("claimed", 0), ev("input_required", 1, question="q?")], label_t01, roster, 99999)
     assert names(got) == ["input_required", "overrun"]

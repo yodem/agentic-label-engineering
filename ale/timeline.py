@@ -206,6 +206,7 @@ def task_metadata(events: List[dict], labels: Dict[str, dict], roster: dict,
             if summary["cost"] is None:
                 model = summary.get("model")
                 rate = prices.get(model, {}) if model else {}
-                summary["cost"] = (summary["tokens"]["input"] * float(rate.get("input_per_mtok", 0))
+                billable_input = max(0, summary["tokens"]["input"] - summary["tokens"]["cache_read"])
+                summary["cost"] = (billable_input * float(rate.get("input_per_mtok", 0))
                                     + summary["tokens"]["output"] * float(rate.get("output_per_mtok", 0))) / 1000000.0
     return {"tasks": tasks, "agents": agents, "totals": totals}

@@ -445,6 +445,14 @@ def _finish_run(context, code: int) -> int:
     roster = getattr(context, "roster_path", _resolve_roster(argparse.Namespace()))
     main(["timeline", "--tail", "20", "--run-dir", context.run_dir, "--roster", roster])
     main(["meta", "--run-dir", context.run_dir, "--roster", roster])
+    breaches = [event for event in E.read_events(context.events_path) if event.get("type") == "breach"]
+    by_task = {}
+    for event in breaches:
+        task_id = event.get("task_id") or "run"
+        by_task.setdefault(task_id, []).append(event.get("breach", "unknown"))
+    for task_id in sorted(by_task):
+        print("%s breaches: %s" % (task_id, ", ".join(by_task[task_id])))
+    print("breaches: %d" % len(breaches))
     return code
 
 
@@ -642,7 +650,10 @@ def cmd_usage(a) -> int:
     c = Ctx(a)
     st = c.task(a.task)
     extra = {"gen_ai.request.model": a.model, "gen_ai.usage.input_tokens": a.input_tokens,
-             "gen_ai.usage.output_tokens": a.output_tokens, "usage_source": a.source}
+             "gen_ai.usage.output_tokens": a.output_tokens,
+             "gen_ai.usage.cache_read_input_tokens": a.cache_read_tokens,
+             "gen_ai.usage.cache_creation_input_tokens": a.cache_write_tokens,
+             "usage_source": a.source}
     if a.cost_usd is not None:
         extra["cost_usd"] = a.cost_usd
     c.emit("usage", a.task, a.agent, st["attempt"], **extra)
@@ -2207,6 +2218,8 @@ def _parser() -> argparse.ArgumentParser:
     us.add_argument("--model", required=True)
     us.add_argument("--input-tokens", type=int, required=True)
     us.add_argument("--output-tokens", type=int, required=True)
+    us.add_argument("--cache-read-tokens", type=int, default=0)
+    us.add_argument("--cache-write-tokens", type=int, default=0)
     us.add_argument("--cost-usd", type=float)
     us.add_argument("--source", default="self_report", choices=["adapter", "self_report", "unknown"])
     add("decide", cmd_decide).add_argument("--text", required=True)

@@ -5,9 +5,27 @@ import shutil
 
 import pytest
 
+import ale.cli as cli
 from ale.cli import main
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def test_run_finish_lists_all_breaches_even_for_accepted_task(monkeypatch, capsys):
+    events = [
+        {"type": "accepted", "task_id": "T1"},
+        {"type": "breach", "task_id": "T1", "breach": "stuck"},
+        {"type": "breach", "task_id": "T1", "breach": "over_budget"},
+    ]
+    monkeypatch.setattr(cli, "main", lambda args: 0)
+    monkeypatch.setattr(cli.E, "read_events", lambda path: events)
+    context = type("Context", (), {"run_dir": "/tmp/run", "events_path": "/tmp/run/events.jsonl",
+                                   "roster_path": "/tmp/roster.json"})()
+
+    assert cli._finish_run(context, 0) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert any("T1" in line and "stuck" in line and "over_budget" in line for line in lines)
+    assert lines[-1] == "breaches: 2"
 
 
 @pytest.fixture

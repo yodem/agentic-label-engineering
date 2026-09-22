@@ -74,6 +74,17 @@ def test_metadata_optional_prices():
     assert out["tasks"]["T1"]["cost"] == 8.0
 
 
+def test_metadata_cost_excludes_cached_input_and_clamps_billable_input():
+    events = [{"ts": 1, "type": "usage", "task_id": "T1", "agent_id": "a",
+               "gen_ai.usage.input_tokens": 10, "gen_ai.usage.cache_read_input_tokens": 8,
+               "gen_ai.usage.output_tokens": 2}]
+    out = task_metadata(events, labels(), {}, {"m": {"input_per_mtok": 2, "output_per_mtok": 3}})
+    assert out["tasks"]["T1"]["cost"] == 0.00001
+    events[0]["gen_ai.usage.cache_read_input_tokens"] = 100
+    out = task_metadata(events, labels(), {}, {"m": {"input_per_mtok": 2, "output_per_mtok": 3}})
+    assert out["tasks"]["T1"]["cost"] == 0.000006
+
+
 def test_metadata_without_prices_has_unknown_cost():
     events = [{"ts": 1, "type": "usage", "task_id": "T1", "agent_id": "a", "gen_ai.usage.input_tokens": 1, "gen_ai.usage.output_tokens": 2}]
     assert task_metadata(events, labels(), {})["tasks"]["T1"]["cost"] is None

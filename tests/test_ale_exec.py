@@ -156,6 +156,38 @@ def test_codex_usage_event_is_recorded(harness, tmp_path):
     assert "24763" in usage[0] and "122" in usage[0] and "codex-test" in usage[0]
 
 
+def test_codex_usage_records_cache_counters(harness, tmp_path):
+    child = tmp_path / "child.sh"
+    event = json.dumps({"type": "turn.completed", "usage": {
+        "input_tokens": 24763, "cached_input_tokens": 24448,
+        "cache_write_input_tokens": 100, "output_tokens": 122,
+    }})
+    child.write_text("#!/bin/sh\nprintf '%s\\n' '%s'\n" % (event, event))
+    child.chmod(0o755)
+    proc = run_exec(harness, [str(child)], "--usage-from", "codex-json")
+    assert proc.returncode == 0
+    usage = [line for line in log_text(harness).splitlines() if line.startswith("usage ")]
+    assert len(usage) == 1
+    assert "--cache-read-tokens 24448" in usage[0]
+    assert "--cache-write-tokens 100" in usage[0]
+
+
+def test_pi_usage_records_cache_counters(harness, tmp_path):
+    child = tmp_path / "child.sh"
+    event = json.dumps({"type": "message_end", "message": {"usage": {
+        "input": 200, "output": 10, "cacheRead": 150, "cacheWrite": 20,
+    }}})
+    child.write_text("#!/bin/sh\nprintf '%s\\n' '%s'\n" % (event, event))
+    child.chmod(0o755)
+    proc = run_exec(harness, [str(child)], "--usage-from", "pi-json")
+    assert proc.returncode == 0
+    usage = [line for line in log_text(harness).splitlines() if line.startswith("usage ")]
+    assert len(usage) == 1
+    assert "--input-tokens 200" in usage[0] and "--output-tokens 10" in usage[0]
+    assert "--cache-read-tokens 150" in usage[0]
+    assert "--cache-write-tokens 20" in usage[0]
+
+
 def test_codex_usage_event_attributes_wrapper_agent(tmp_path):
     run_dir = tmp_path / "run"
     shutil.copytree(os.path.join(ROOT, "examples", "run"), str(run_dir))

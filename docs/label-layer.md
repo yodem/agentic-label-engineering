@@ -60,6 +60,8 @@ Each label is a JSON object in an `ale-label` fenced block or in `run/labels/TAS
 | `fixes` | Parent task ID on a generated fix label. |
 | `provenance` | Rule, planner, or judge evidence, including `lane_reason`. |
 
+Token budgets and estimated input cost use billable tokens: `max(0, input_tokens - cache_read_input_tokens) + output_tokens`. Cached reads are excluded from the budget and input-cost calculation; cache writes remain included in input tokens.
+
 ### Worktrees
 
 `context.worktree.mode` defaults to `per_task` when the task has allowed paths. Dispatch creates `run/wt/TASK` and uses branch `ale/RUN/TASK`; the request's working directory points there. A fix task reuses its parent's worktree. Use `none` only for tasks that do not write project files. Use `shared` only with an explicit reason. Write tasks should use per-task worktrees so concurrent changes cannot overlap accidentally.

@@ -31,7 +31,7 @@ def check(run_state: dict, labels: Dict[str, dict], roster: dict, now: float) ->
         if state in LIVE and now - st["started_ts"] > watch["max_duration_s"]:
             found.append(_breach(tid, "overrun", attempt, "running for %ds" % int(now - st["started_ts"])))
         if state not in TERMINAL and st["tokens"] > watch["budget_tokens"]:
-            found.append(_breach(tid, "over_budget", attempt, "%d tokens > %d" % (st["tokens"], watch["budget_tokens"])))
+            found.append(_breach(tid, "over_budget", attempt, "%d billable tokens > %d" % (st["tokens"], watch["budget_tokens"])))
         if state == "submitted" and now - st["submitted_ts"] > watch["heartbeat_timeout_s"]:
             found.append(_breach(tid, "unverified", attempt,
                                  "submitted %ds ago with no verdict" % int(now - st["submitted_ts"])))
@@ -46,5 +46,5 @@ def check(run_state: dict, labels: Dict[str, dict], roster: dict, now: float) ->
                    (b["breach"], b["attempt"]) not in seen)
     cap = roster["cost_gate"]["max_run_budget_tokens"]
     if run_state["run"]["tokens"] > cap and "run_budget" not in run_state["run"]["breaches_seen"]:
-        out.append(_breach(None, "run_budget", None, "%d tokens > %d" % (run_state["run"]["tokens"], cap)))
+        out.append(_breach(None, "run_budget", None, "%d billable tokens > %d" % (run_state["run"]["tokens"], cap)))
     return out
