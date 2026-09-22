@@ -1,4 +1,5 @@
 import copy
+import warnings
 
 import pytest
 
@@ -62,6 +63,27 @@ def test_acceptance_change_after_submit_is_ignored():
     with pytest.warns(RuntimeWarning):
         result = effective_labels({"T1": lab()}, events, lambda p: lab())
     assert len(result["T1"]["acceptance"]) == 2
+
+
+def test_lead_acceptance_relabel_replays_without_warning():
+    previous = lab()["acceptance"]
+    updated = [{"id": "A1", "cmd": "pytest -q", "expect": "exit0"},
+               {"id": "A2", "cmd": "python -m compileall .", "expect": "exit0"}]
+    events = [ev("submitted", ts=1),
+              ev("label_changed", ts=2, field="acceptance", old=previous, new=updated, reason="repair check"),
+              ev("relabeled", ts=3, field="acceptance", old=previous, new=updated, reason="repair check")]
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = effective_labels({"T1": lab()}, events, lambda path: lab())
+    assert result["T1"]["acceptance"] == updated
+    assert caught == []
+
+
+def test_executor_authored_label_change_warns():
+    event = ev("label_changed", agent="worker", field="labels.role", old="backend", new="docs")
+    with pytest.warns(RuntimeWarning, match="executor-authored"):
+        result = effective_labels({"T1": lab()}, [event], lambda path: lab())
+    assert result["T1"]["labels"]["role"] == "backend"
 
 
 def test_lane_change_requires_reason():

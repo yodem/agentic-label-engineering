@@ -1,6 +1,13 @@
 from __future__ import annotations
 
 
+def unresolved_fixes(task_id: str, tasks: dict, labels: dict) -> list:
+    resolved_states = ("accepted", "rejected", "failed", "canceled")
+    return [fix_id for fix_id, label in labels.items()
+            if label.get("fixes") == task_id
+            and tasks.get(fix_id, {}).get("state") not in resolved_states]
+
+
 def next_actions(state: dict, labels: dict, events: list) -> list:
     tasks = state.get("tasks", {})
     actions = []
@@ -16,6 +23,8 @@ def next_actions(state: dict, labels: dict, events: list) -> list:
         last_acceptance_change = max((index for index, event in enumerate(events)
                                       if event.get("task_id") == task_id and event.get("type") == "relabeled"
                                       and event.get("field") == "acceptance"), default=-1)
+        last_reopened = max((index for index, event in enumerate(events)
+                             if event.get("task_id") == task_id and event.get("type") == "reopened"), default=-1)
         last_rejection = max((index for index, event in enumerate(events)
                               if event.get("task_id") == task_id and event.get("type") == "rejected"), default=-1)
         last_fix_accept = max((index for index, event in enumerate(events)
@@ -24,6 +33,7 @@ def next_actions(state: dict, labels: dict, events: list) -> list:
         needs_verification = last_submit is not None and (
             last_result < last_submit or last_acceptance_change > last_result
             or (last_fix_accept > last_rejection and last_result < last_fix_accept))
+        needs_verification = needs_verification or last_reopened > last_result
         if status.get("state") == "submitted" and needs_verification:
             actions.append(("verify", task_id))
         elif status.get("state") == "accepted" and not status.get("integrated") and not is_fix:
@@ -35,6 +45,8 @@ def next_actions(state: dict, labels: dict, events: list) -> list:
             rejected_fixes = [fix_id for fix_id in fixes
                               if tasks.get(fix_id, {}).get("state") == "rejected"]
             if status.get("state") == "fixing" and not rejected_fixes:
+                continue
+            if unresolved_fixes(task_id, tasks, labels):
                 continue
             if len(fixes) < 2:
                 actions.append(("fix", task_id))

@@ -96,3 +96,24 @@ def test_run_budget(roster, label_t01):
              "usage_source": "adapter"}
     got = run([ev("claimed", 0), ev("usage", 1, **usage)], label_t01, roster, 2)
     assert {"task_id": None, "breach": "run_budget"}.items() <= [b for b in got if b["breach"] == "run_budget"][0].items()
+
+
+def test_pending_fix_suppresses_watchdog_exhaustion(roster, label_t01):
+    import copy
+    parent = copy.deepcopy(label_t01)
+    first = copy.deepcopy(parent)
+    first["task_id"] = "T01.fix1"
+    first["fixes"] = "T01"
+    second = copy.deepcopy(parent)
+    second["task_id"] = "T01.fix2"
+    second["fixes"] = "T01"
+    labels = {"T01": parent, "T01.fix1": first, "T01.fix2": second}
+    run_state = reduce_run([], labels)
+    run_state["tasks"]["T01"].update(state="rejected", attempt=3)
+    run_state["tasks"]["T01.fix1"]["state"] = "rejected"
+    run_state["tasks"]["T01.fix2"].update(state="submitted", submitted_ts=1)
+    roster["watch_defaults"]["*:M"]["max_attempts"] = 2
+
+    assert "attempts_exhausted" not in names(check(run_state, labels, roster, 1))
+    run_state["tasks"]["T01.fix2"]["state"] = "rejected"
+    assert "attempts_exhausted" in names(check(run_state, labels, roster, 1))

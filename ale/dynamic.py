@@ -7,7 +7,7 @@ from typing import Callable, Dict, List
 from .labelset import check_labelset, globs_overlap
 
 
-_ALLOWED = ("labels.", "assignments", "watch.", "context.allowed_paths", "context.depends_on")
+_ALLOWED = ("labels.", "assignments", "watch.", "context.allowed_paths", "context.depends_on", "acceptance")
 
 
 def _set_field(label: dict, field: str, value) -> bool:
@@ -21,6 +21,8 @@ def _set_field(label: dict, field: str, value) -> bool:
         label.setdefault("context", {})["allowed_paths"] = value
     elif field == "context.depends_on":
         label.setdefault("context", {})["depends_on"] = value
+    elif field == "acceptance":
+        label["acceptance"] = value
     else:
         return False
     return True
@@ -63,7 +65,6 @@ def _has_cycle(labels: Dict[str, dict]) -> bool:
 
 def effective_labels(frozen: Dict[str, dict], events: List[dict], load_added: Callable[[str], dict]) -> Dict[str, dict]:
     labels = copy.deepcopy(frozen)
-    submitted = set()
     states = {}
     for event in events:
         event_task = event.get("task_id")
@@ -74,9 +75,10 @@ def effective_labels(frozen: Dict[str, dict], events: List[dict], load_added: Ca
                 "input_answered": "working", "submitted": "submitted", "accepted": "accepted",
                 "rejected": "rejected", "failed": "failed", "canceled": "canceled",
                 "lease_expired": "stale", "released": "released"}.get(event_kind, states.get(event_task, "planned"))
-        if event.get("type") == "submitted" and event.get("task_id"):
-            submitted.add(event["task_id"])
         if event.get("agent_id") is not None:
+            if event.get("type") == "label_changed":
+                warnings.warn("ignored executor-authored label change to %s" % event.get("field", ""),
+                              RuntimeWarning)
             continue
         kind, task_id = event.get("type"), event.get("task_id")
         if kind == "task_added":
@@ -102,11 +104,12 @@ def effective_labels(frozen: Dict[str, dict], events: List[dict], load_added: Ca
         if not any(field == allowed or field.startswith(allowed) for allowed in _ALLOWED):
             warnings.warn("ignored label change to %s" % field, RuntimeWarning)
             continue
-        if field == "acceptance" and task_id in submitted:
-            warnings.warn("ignored acceptance change after submit for %s" % task_id, RuntimeWarning)
-            continue
         if field == "labels.lane" and not event.get("reason"):
             warnings.warn("ignored lane change without reason for %s" % task_id, RuntimeWarning)
+            continue
+        if field == "acceptance" and (not isinstance(event.get("new"), list)
+                                      or not 2 <= len(event["new"]) <= 5):
+            warnings.warn("ignored invalid acceptance change for %s" % task_id, RuntimeWarning)
             continue
         candidate = copy.deepcopy(labels)
         if not _set_field(candidate[task_id], field, event.get("new")):

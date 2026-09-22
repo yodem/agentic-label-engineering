@@ -1014,12 +1014,27 @@ def cmd_guard_path(a) -> int:
     return OK if not V.paths_within([relative], label["context"]["allowed_paths"]) else FAIL
 
 
-def cmd_decide(a) -> int:
-    c = Ctx(a)
-    text = a.text[:TEXT_MAX]
+def _record_decision(c: Ctx, text: str) -> None:
     c.emit("decision", text=text)
     with open(os.path.join(c.run_dir, "decisions.md"), "a", encoding="utf-8") as f:
         f.write("- [%d] %s\n" % (int(c.now), text))
+
+
+def cmd_decide(a) -> int:
+    c = Ctx(a)
+    _record_decision(c, a.text[:TEXT_MAX])
+    return OK
+
+
+def cmd_reopen(a) -> int:
+    c = Ctx(a)
+    st = c.task(a.task)
+    state = "integrated" if st.get("integrated") else st["state"]
+    if state not in ("rejected", "failed", "fixing"):
+        raise CliError(FAIL, "task %s is %s and cannot be reopened" % (a.task, state))
+    reason = a.reason[:TEXT_MAX]
+    c.emit("reopened", a.task, None, st["attempt"], reason=reason)
+    _record_decision(c, "Reopened %s: %s" % (a.task, reason))
     return OK
 
 
@@ -2455,6 +2470,7 @@ def _parser() -> argparse.ArgumentParser:
     nt.add_argument("--to")
     add("input-required", cmd_input_required, task=True, agent=True).add_argument("--question", required=True)
     add("answer", cmd_answer, task=True).add_argument("--text", required=True)
+    add("reopen", cmd_reopen, task=True).add_argument("--reason", required=True)
     add("submit", cmd_submit, task=True, agent=True).add_argument("--summary", required=True)
     vf = add("verify", cmd_verify, task=True)
     vf.add_argument("--cwd")

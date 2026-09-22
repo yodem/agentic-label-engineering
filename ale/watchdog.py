@@ -4,6 +4,7 @@ from typing import Dict, List, Optional
 
 from .events import LIVE, TERMINAL
 from .labelset import effective_watch
+from .runner import unresolved_fixes
 
 
 def _breach(task_id: Optional[str], name: str, attempt: Optional[int], detail: str) -> dict:
@@ -39,7 +40,8 @@ def check(run_state: dict, labels: Dict[str, dict], roster: dict, now: float) ->
             found.append(_breach(tid, "input_required", attempt, st["waiting_on"] or ""))
         if state not in TERMINAL and st["rejections"] >= 2:
             found.append(_breach(tid, "rejected_twice", attempt, st["last_reject_reason"] or ""))
-        if state == "rejected" and attempt > watch["max_attempts"]:
+        if (state == "rejected" and attempt > watch["max_attempts"]
+                and not unresolved_fixes(tid, run_state["tasks"], labels)):
             found.append(_breach(tid, "attempts_exhausted", attempt, "%d attempts used" % (attempt - 1)))
         seen = {(b, a) for b, a in st["breaches_seen"]}
         out.extend(b for b in found if b["breach"] == "orphaned_dependency" or

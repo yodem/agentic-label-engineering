@@ -4,6 +4,7 @@ import fcntl
 import functools
 import json
 import os
+import copy
 from typing import Dict, List, Optional
 
 from . import SCHEMA_VERSION
@@ -15,7 +16,7 @@ TERMINAL = ("accepted", "failed", "canceled")
 _OPEN = ("planned", "released", "rejected")
 _NEEDS_EVIDENCE = ("verified", "accepted", "rejected")
 _AUTHORITY = ("verified", "accepted", "rejected", "failed", "canceled", "lease_expired", "released", "input_answered",
-              "task_added", "label_changed", "label_removed", "spawned", "integrated", "monitor_verdict")
+              "task_added", "label_changed", "label_removed", "spawned", "integrated", "monitor_verdict", "reopened")
 _DYNAMIC_EVENT_FIELDS = {
     "task_added": ("label_file", "reason"),
     "label_changed": ("field", "old", "new", "reason"),
@@ -23,6 +24,7 @@ _DYNAMIC_EVENT_FIELDS = {
     "spawned": ("agent_id_minted", "assignment_kind", "executor", "model"),
     "integrated": ("commit",),
     "monitor_verdict": ("agent_id_minted", "verdict", "text"),
+    "reopened": ("reason",),
 }
 
 
@@ -44,7 +46,11 @@ def make_event(type: str, run_id: str, ts: float, task_id: Optional[str] = None,
 
 
 def check_event(ev: dict) -> List[str]:
-    errs = validate(ev, _schema("event.schema.json"))
+    schema = _schema("event.schema.json")
+    if ev.get("type") == "reopened":
+        schema = copy.deepcopy(schema)
+        schema["properties"]["type"]["enum"].append("reopened")
+    errs = validate(ev, schema)
     if errs:
         return errs
     for key in _schema("event_types.json").get(ev["type"], []):
@@ -53,6 +59,11 @@ def check_event(ev: dict) -> List[str]:
     for key in _DYNAMIC_EVENT_FIELDS.get(ev["type"], []):
         if key not in ev:
             errs.append("event %s: missing key %r" % (ev["type"], key))
+    if ev["type"] == "reopened":
+        if not isinstance(ev.get("task_id"), str):
+            errs.append("event reopened: task_id must be a string")
+        if not isinstance(ev.get("reason"), str):
+            errs.append("event reopened: reason must be a string")
     if ev["type"] in _NEEDS_EVIDENCE and not ev.get("evidence"):
         errs.append("event %s: evidence must be non-empty" % ev["type"])
     return errs
@@ -154,6 +165,12 @@ def _apply(st: dict, ev: dict, tasks: Dict[str, dict], labels: Dict[str, dict]) 
     elif kind in ("failed", "canceled"):
         if st["state"] not in TERMINAL:
             st.update(state=kind, owner=None)
+    elif kind == "reopened":
+        if st["state"] in ("rejected", "failed", "fixing"):
+            st.update(state="submitted", owner=None, attempt=st["attempt"] + 1, submitted_ts=ts,
+                      summary="Reopened: %s" % ev["reason"], evidence=None, waiting_on=None)
+            st["breaches_seen"] = [breach for breach in st["breaches_seen"]
+                                   if breach[0] != "attempts_exhausted"]
     elif kind == "lease_expired":
         if st["state"] in LIVE:
             st.update(state="stale", owner=None)
@@ -215,8 +232,13 @@ def reduce_run(events: List[dict], labels: Dict[str, dict]) -> dict:
             st["state"] = "ready"
     for tid, label in labels.items():
         parent = label.get("fixes")
-        if parent in tasks and tasks[tid]["state"] != "accepted":
-            tasks[parent]["state"] = "fixing"
+        if parent in tasks and tasks[parent]["state"] != "accepted" and tasks[tid]["state"] != "accepted":
+            last_reopen = max((index for index, event in enumerate(events)
+                               if event.get("task_id") == parent and event.get("type") == "reopened"), default=-1)
+            last_child_event = max((index for index, event in enumerate(events)
+                                    if event.get("task_id") == tid), default=-1)
+            if last_reopen <= last_child_event:
+                tasks[parent]["state"] = "fixing"
         elif parent in tasks and tasks[tid]["state"] == "accepted":
             parent_rejections = [i for i, event in enumerate(events)
                                  if event.get("task_id") == parent and event.get("type") == "rejected"]

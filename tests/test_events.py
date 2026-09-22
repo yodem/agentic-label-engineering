@@ -189,3 +189,15 @@ def test_new_input_required_after_answer_blocks_again(label_t01):
     assert st["state"] == "input-required"
     assert st["breaches_seen"] == [["input_required", 1]]
     assert st["claimable"] is False
+
+
+def test_reopened_lead_event_increments_attempt_clears_exhaustion_and_ignores_executor(label_t01):
+    events = [ev("claimed", 1), ev("submitted", 2, summary="done"),
+              ev("rejected", 3, agent=None, evidence=EVID, reason="failed"),
+              ev("breach", 4, agent=None, breach="attempts_exhausted", detail="spent"),
+              ev("reopened", 5, agent=None, reason="manual repair"),
+              ev("reopened", 6, agent="worker", attempt=3, reason="forged")]
+    st = reduce_run(events, labels_of(label_t01))["tasks"]["T01"]
+    assert st["state"] == "submitted"
+    assert st["attempt"] == 3
+    assert st["breaches_seen"] == []
