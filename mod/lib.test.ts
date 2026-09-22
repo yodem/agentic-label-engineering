@@ -7,6 +7,7 @@ import {
   groupTaskIds,
   reduceEvents,
   resolveRunDirectory,
+  runDirFromCurrent,
   unknownRunArgumentMessage,
   noRunMessage,
   parseStatusOutput,
@@ -43,6 +44,47 @@ describe('resolveRunDirectory', () => {
     expect(unknownRunArgumentMessage('missing')).toContain('unknown argument')
   })
 })
+
+describe('runDirFromCurrent', () => {
+  test('resolves a text file containing a run id', () => {
+    expect(runDirFromCurrent({ runsDir: '/repo/.ale/runs', kind: 'file', text: 'run-7' })).toBe('/repo/.ale/runs/run-7')
+  })
+  test('trims a trailing newline from a run id', () => {
+    expect(runDirFromCurrent({ runsDir: '/repo/.ale/runs', kind: 'file', text: 'run-7\n' })).toBe('/repo/.ale/runs/run-7')
+  })
+  test('accepts an absolute path from a text file', () => {
+    expect(runDirFromCurrent({ runsDir: '/repo/.ale/runs', kind: 'file', text: '/tmp/run-7\n' })).toBe('/tmp/run-7')
+  })
+  test('rejects an empty file', () => {
+    expect(runDirFromCurrent({ runsDir: '/repo/.ale/runs', kind: 'file', text: ' \n' })).toBeUndefined()
+  })
+  test('rejects relative file text containing a slash', () => {
+    expect(runDirFromCurrent({ runsDir: '/repo/.ale/runs', kind: 'file', text: 'nested/run-7' })).toBeUndefined()
+  })
+  test('uses a directory symlink target when realPath is available', () => {
+    expect(runDirFromCurrent({ runsDir: '/repo/.ale/runs', kind: 'dir', realPath: '/repo/.ale/runs/run-7' })).toBe('/repo/.ale/runs/run-7')
+  })
+  test('uses current when a directory has no realPath', () => {
+    expect(runDirFromCurrent({ runsDir: '/repo/.ale/runs', kind: 'dir' })).toBe('/repo/.ale/runs/current')
+  })
+  test('rejects other filesystem entries', () => {
+    expect(runDirFromCurrent({ runsDir: '/repo/.ale/runs', kind: 'other' })).toBeUndefined()
+  })
+})
+
+describe('register source shape', () => {
+  test('imports called lib helpers and avoids Node process globals', async () => {
+    const source = await Bun.file(`${import.meta.dir}/register.tsx`).text()
+    expect(source).not.toContain('process.')
+    const importBlock = source.match(/import\s*\{([\s\S]*?)\}\s*from\s*'\.\/lib\.ts'/)?.[1] ?? ''
+    for (const identifier of ['resolveRunDirectory', 'unknownRunArgumentMessage', 'runDirFromCurrent']) {
+      expect(importBlock).toContain(identifier)
+    }
+    expect(source).toContain("on('command.run', { command: COMMAND }")
+    expect(source).toContain("const COMMAND = 'ale-board'")
+  })
+})
+
 const basicEvents = (await Bun.file(`${fixtureDir}/events.jsonl`).text()).trim().split('\n').map(line => JSON.parse(line))
 const basicStatus = await Bun.file(`${fixtureDir}/status.json`).json() as { run: Record<string, unknown>; tasks: Record<string, Record<string, unknown>> }
 const basicLabels: Record<string, Record<string, any>> = {}

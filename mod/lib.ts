@@ -39,6 +39,21 @@ export type AleEvent = Record<string, any> & { type: string; ts?: number; task_i
 
 export type RunResolution = { runDir: string; source: 'env' | 'cwd' | 'launch' | 'arg' }
 
+export function runDirFromCurrent(input: {
+  runsDir: string
+  kind: 'file' | 'dir' | 'other'
+  realPath?: string
+  text?: string
+}): string | undefined {
+  if (input.kind === 'dir') return input.realPath ?? `${input.runsDir}/current`
+  if (input.kind !== 'file') return undefined
+  const text = input.text?.trim() ?? ''
+  if (!text) return undefined
+  if (text.startsWith('/')) return text
+  if (text.includes('/')) return undefined
+  return `${input.runsDir}/${text}`
+}
+
 export function resolveRunDirectory(input: {
   envDir?: string
   cwdRunDir?: string

@@ -1,6 +1,15 @@
 # Changelog
 
+## 0.2.1 (2026-09-22)
+
+- `/ale-board` answers its command again, with or without an argument: the hooks module called `process.cwd()`, which does not exist in the function-hook environment, and two resolver helpers it called were never imported, so every `command.run` and every board refresh threw
+- Run discovery reads the live session directory from `$.session.cwd()`, so the band and board find the run from a git worktree cwd
+- `.ale/runs/current` is followed whether it is a file naming a run id or path, a symlink to a run directory, or a directory
+- A failing `/ale-board` now answers with the error instead of leaving the command unanswered
+
 ## 0.2.0 (2026-09-22)
+
+- Worktree setup commands before an executor starts (`worktree_setup_defaults`, label `context.worktree.setup`, `setup_outputs`); `ale note` by the lead on an unowned task
 
 - Agent layer: labels gain sub and phase, roster vocabulary for subs, cross subs and phases, catalog-aware label checks
 - Agent-resolved prompts and enforcement: reads, checklist, harness split, deny paths and tools, required commands, agents list and show, relabel re-resolution, stale marker, tier floor on assignments

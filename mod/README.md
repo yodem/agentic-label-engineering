@@ -27,7 +27,7 @@ silently ignored).
 
 ## Run discovery
 
-Resolution precedence is `/ale-board <absolute-run-dir>` or `<run-id>` first (run ids resolve under the nearest `.ale/runs`), then `ALE_RUN_DIR`, then the nearest `.ale/runs/current` found from the live working directory, and finally the same lookup from the session launch directory; the band and pane identify the selected source as `arg`, `env`, `cwd`, or `launch`. Function hooks expose `cwd` on `session.start` but not per render/event, so live-cwd discovery reads `process.cwd()` at resolution time. If no run resolves, the pane displays a single no-run line, and an invalid argument returns one line naming the argument tried.
+Resolution precedence is `/ale-board <absolute-run-dir>` or `<run-id>` first (run ids resolve under the nearest `.ale/runs`), then `ALE_RUN_DIR`, then the nearest `.ale/runs/current` found from the live working directory, and finally the same lookup from the session launch directory; the band and pane identify the selected source as `arg`, `env`, `cwd`, or `launch`. Live-cwd discovery uses the session API and falls back to the session launch directory if it fails. If no run resolves, the pane displays a single no-run line, and an invalid argument returns one line naming the argument tried.
 
 ## Board columns
 

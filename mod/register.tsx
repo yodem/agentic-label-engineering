@@ -20,7 +20,10 @@ import {
   groupTaskIds,
   noRunMessage,
   reduceEvents,
+  resolveRunDirectory,
+  runDirFromCurrent,
   truncateTo,
+  unknownRunArgumentMessage,
 } from './lib.ts'
 
 const PLUGIN = 'ale'
@@ -48,11 +51,11 @@ type Timer = { cancel: () => void }
  * a fake in a future test. */
 type Host = {
   cwd: string
-  liveCwd: () => string
+  liveCwd: () => Promise<string>
   envGetAleRunDir: () => Promise<string | undefined>
   envGetAleRoster: () => Promise<string | undefined>
   fsList: (path?: string) => Promise<readonly { name: string; kind: string }[]>
-  fsStat: (path: string) => Promise<{ mtimeMs: number }>
+  fsStat: (path: string, options: { resolve: boolean }) => Promise<{ kind: 'file' | 'dir' | 'other'; isLink?: boolean; realPath?: string; mtimeMs?: number }>
   fsRead: (path: string) => Promise<string>
   fsExists: (path: string) => Promise<boolean>
   storeGet: (key: string) => Promise<unknown>
@@ -76,14 +79,12 @@ let pollTimer: Timer | undefined
 function bind($: EngineInterface, options: Readonly<Record<string, string | number | boolean | readonly string[]>>): Host {
   return {
     cwd: '',
-    // The function-hook API exposes cwd on session.start only, not per event.
-    // Read process.cwd() at resolution time to follow a worktree switch.
-    liveCwd: () => process.cwd(),
+    liveCwd: () => $.session.cwd(),
     // $.env.get names must be string literals (book rule 4), so one method per variable.
     envGetAleRunDir: () => $.env.get('ALE_RUN_DIR'),
     envGetAleRoster: () => $.env.get('ALE_ROSTER'),
     fsList: path => $.fs.list(path),
-    fsStat: path => $.fs.stat(path),
+    fsStat: (path, statOptions) => $.fs.stat(path, statOptions),
     fsRead: path => $.fs.read(path),
     fsExists: path => $.fs.exists(path),
     storeGet: key => $.store.get(key),
@@ -126,9 +127,10 @@ async function nearestRun(engine: Host, start: string): Promise<{ runDir?: strin
     const current = `${runsDir}/current`
     const hasRunsDir = await engine.fsExists(runsDir).catch(() => false)
     if (hasRunsDir && nearestRunsDir === undefined) nearestRunsDir = runsDir
-    if (await engine.fsExists(current).catch(() => false)) {
-      const runId = (await engine.fsRead(current).catch(() => '')).trim()
-      return { runDir: runId ? `${runsDir}/${runId}` : undefined, runsDir: nearestRunsDir }
+    const currentStat = await engine.fsStat(current, { resolve: true }).catch(() => undefined)
+    if (currentStat) {
+      const text = currentStat.kind === 'file' ? await engine.fsRead(current).catch(() => '') : undefined
+      return { runDir: runDirFromCurrent({ runsDir, kind: currentStat.kind, realPath: currentStat.realPath, text }), runsDir: nearestRunsDir }
     }
     const parent = dir.slice(0, dir.lastIndexOf('/'))
     if (!parent || parent === dir) break
@@ -139,9 +141,12 @@ async function nearestRun(engine: Host, start: string): Promise<{ runDir?: strin
 
 async function discoverRun(engine: Host): Promise<{ runDir: string; source: 'env' | 'cwd' | 'launch' } | undefined> {
   const envDir = await engine.envGetAleRunDir().catch(() => undefined)
-  const cwd = await nearestRun(engine, engine.liveCwd())
+  const liveCwd = await engine.liveCwd().catch(() => engine.cwd)
+  const cwd = await nearestRun(engine, liveCwd)
   const launch = await nearestRun(engine, engine.cwd)
-  return resolveRunDirectory({ envDir, cwdRunDir: cwd.runDir, launchRunDir: launch.runDir })
+  const resolved = resolveRunDirectory({ envDir, cwdRunDir: cwd.runDir, launchRunDir: launch.runDir })
+  if (!resolved || resolved.source === 'arg') return undefined
+  return { runDir: resolved.runDir, source: resolved.source }
 }
 
 async function resolveRosterPath(engine: Host): Promise<string> {
@@ -240,7 +245,17 @@ async function refresh(engine: Host): Promise<BoardModel> {
     model = next
     engine.invalidate()
     return next
-  })()
+  })().catch(err => {
+    const next: BoardModel = {
+      kind: 'error',
+      runLabel: selectedRun ? runLabelOf(selectedRun.runDir) : 'unknown run',
+      source: selectedRun?.source ?? 'launch',
+      message: err instanceof Error ? err.message : String(err),
+    }
+    model = next
+    engine.invalidate()
+    return next
+  })
   try {
     return await refreshing
   } finally {
@@ -316,6 +331,7 @@ export const register: Register = (on: On) => {
   })
 
   on('command.run', { command: COMMAND }, async ($, e) => {
+    try {
     if (!host) return { text: 'not ready yet, try again in a moment' }
     const engine = host
     const arg = e.args.trim()
@@ -334,7 +350,8 @@ export const register: Register = (on: On) => {
     }
     if (lower.startsWith('run ') || arg) {
       const runArg = lower.startsWith('run ') ? arg.slice('run '.length).trim() : arg
-      const cwd = await nearestRun(engine, engine.liveCwd())
+      const liveCwd = await engine.liveCwd().catch(() => engine.cwd)
+      const cwd = await nearestRun(engine, liveCwd)
       const launch = await nearestRun(engine, engine.cwd)
       const resolved = resolveRunDirectory({ arg: runArg, cwdRunsDir: cwd.runsDir, launchRunsDir: launch.runsDir })
       if (!resolved || !await engine.fsExists(resolved.runDir).catch(() => false)) return { text: unknownRunArgumentMessage(runArg || arg) }
@@ -355,6 +372,9 @@ export const register: Register = (on: On) => {
       scheduleRefresh(engine)
     }
     return { text: current.kind === 'error' ? `board above the prompt (last refresh failed) · /${COMMAND} close closes` : `board above the prompt · /${COMMAND} close closes` }
+    } catch (err) {
+      return { text: `ale-board error: ${err instanceof Error ? err.message : String(err)}` }
+    }
   })
 
   on('ui.close', { id: PANE_ID }, async ($, e, next) => {
