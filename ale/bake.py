@@ -5,7 +5,6 @@ from __future__ import annotations
 import copy
 import json
 import re
-import re
 from typing import Dict, List, Tuple
 
 from .labeling.merge import LaneVoteError
@@ -20,6 +19,51 @@ class BakeError(ValueError):
 _OPEN = re.compile(r"^```ale-label\s*$")
 _FENCE = re.compile(r"^\s*([`~]{3,})(.*)$")
 _GLOB = re.compile(r"[*?\[]")
+_COMPACT_KEYS = ("task_id", "title", "labels", "lane_reason", "acceptance", "allowed_paths",
+                 "depends_on", "worktree", "assignments", "fixes", "spec_path", "pointers",
+                 "watch", "milestone")
+_LABEL_KEYS = ("role", "model_tier", "lane", "risk", "effort")
+_ASSIGNMENT_KEYS = ("kind", "role", "model_tier", "executor", "trigger")
+_ACCEPTANCE_KEYS = ("id", "cmd", "expect", "manual")
+_WORKTREE_KEYS = ("mode", "worktree_reason")
+_WATCH_KEYS = ("heartbeat_timeout_s", "stuck_after_s", "max_duration_s", "budget_tokens", "max_attempts")
+
+
+def _check_compact_keys(task_id: str, value: dict, allowed: Tuple[str, ...], location: str) -> None:
+    for key in value:
+        if key not in allowed:
+            raise BakeError("%s: unknown key '%s' in %s; expected one of %s" %
+                            (task_id, key, location, ", ".join(allowed)))
+
+
+def _validate_compact_block(compact: dict) -> None:
+    task_id = compact.get("task_id") or "<unknown task>"
+    _check_compact_keys(task_id, compact, _COMPACT_KEYS, "ale-label block")
+    labels = compact.get("labels")
+    if isinstance(labels, dict):
+        _check_compact_keys(task_id, labels, _LABEL_KEYS, "labels")
+    assignments = compact.get("assignments")
+    if isinstance(assignments, list):
+        for assignment in assignments:
+            if isinstance(assignment, dict):
+                _check_compact_keys(task_id, assignment, _ASSIGNMENT_KEYS, "assignment")
+    acceptance = compact.get("acceptance")
+    if isinstance(acceptance, list):
+        for entry in acceptance:
+            if isinstance(entry, dict):
+                _check_compact_keys(task_id, entry, _ACCEPTANCE_KEYS, "acceptance entry")
+    worktree = compact.get("worktree")
+    if isinstance(worktree, dict):
+        _check_compact_keys(task_id, worktree, _WORKTREE_KEYS, "worktree")
+    watch = compact.get("watch")
+    if isinstance(watch, dict):
+        _check_compact_keys(task_id, watch, _WATCH_KEYS, "watch")
+
+
+def validate_compact_blocks(text: str) -> None:
+    """Raise for unknown fields in any compact label blocks in a plan."""
+    for _, compact in extract_blocks(text):
+        _validate_compact_block(compact)
 
 
 def _fence_states(lines: List[str]) -> List[Tuple[str, int]]:
@@ -251,11 +295,11 @@ def bake(text: str, labels) -> str:
 
 def compile_plan(text: str, run_id: str = "run-1", provenance: dict = None) -> Dict[str, dict]:
     blocks = extract_blocks(text)
+    for _, compact in blocks:
+        _validate_compact_block(compact)
     parsed_tasks = {task["task_id"]: task for task in parse_plan(text)}
     labels = {}
     for _, compact in blocks:
-        if "run_id" in compact:
-            raise BakeError("compact ale-label block must not contain run_id; pass --run-id")
         label = {
             "schema_version": "1.0", "run_id": run_id,
             "task_id": compact.get("task_id"), "title": compact.get("title"),

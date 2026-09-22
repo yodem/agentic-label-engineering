@@ -169,3 +169,39 @@ def test_plan_compile_failure_does_not_replace_existing_label_directory(tmp_path
 
     assert main(["plan", "compile", str(plan), "--run-dir", str(run_dir), "--roster", roster]) == 1
     assert marker.read_text() == "keep"
+
+
+def _add_unknown_context_key(plan):
+    text = plan.read_text()
+    plan.write_text(text.replace(' "task_id": "T1",', ' "context": {},\n "task_id": "T1",', 1))
+
+
+def test_plan_bake_diff_reports_unknown_compact_key(tmp_path, capsys):
+    roster = _roster(tmp_path)
+    plan = _valid_plan(tmp_path, roster)
+    _add_unknown_context_key(plan)
+
+    assert main(["plan", "bake", str(plan), "--no-judge", "--roster", roster]) == 1
+    assert "T1: unknown key 'context'" in capsys.readouterr().err
+
+
+def test_plan_bake_write_reports_unknown_compact_key_without_rewriting(tmp_path, capsys):
+    roster = _roster(tmp_path)
+    plan = _valid_plan(tmp_path, roster)
+    _add_unknown_context_key(plan)
+    before = plan.read_bytes()
+
+    assert main(["plan", "bake", str(plan), "--no-judge", "--write", "--roster", roster]) == 1
+    assert "T1: unknown key 'context'" in capsys.readouterr().err
+    assert plan.read_bytes() == before
+
+
+def test_plan_compile_reports_unknown_compact_key(tmp_path, capsys):
+    roster = _roster(tmp_path)
+    plan = _valid_plan(tmp_path, roster)
+    _add_unknown_context_key(plan)
+    run_dir = tmp_path / "run"
+
+    assert main(["plan", "compile", str(plan), "--run-dir", str(run_dir), "--roster", roster]) == 1
+    assert "T1: unknown key 'context'" in capsys.readouterr().err
+    assert not (run_dir / "labels").exists()

@@ -106,6 +106,45 @@ def test_compile_requires_a_block_for_every_task(roster):
                      "## Task 2: Screen\n")
 
 
+def _plan_with_compact_block(block):
+    other = {"task_id": "T2", "title": "Screen task", "labels": {}}
+    return ("## Task 1: Model\n```ale-label\n%s\n```\n"
+            "## Task 2: Screen\n```ale-label\n%s\n```\n" % (json.dumps(block), json.dumps(other)))
+
+
+def test_compile_rejects_nested_context_key_in_compact_block():
+    block = {"task_id": "T1", "title": "Model task", "labels": {}, "context": {}}
+    with pytest.raises(BakeError, match="T1: unknown key 'context'.*expected one of"):
+        compile_plan(_plan_with_compact_block(block))
+
+
+def test_compile_rejects_misspelled_acceptance_key_in_compact_block():
+    block = {"task_id": "T1", "title": "Model task", "labels": {}, "acceptence": []}
+    with pytest.raises(BakeError, match="T1: unknown key 'acceptence'.*expected one of"):
+        compile_plan(_plan_with_compact_block(block))
+
+
+def test_compile_rejects_unknown_label_key_in_compact_block():
+    block = {"task_id": "T1", "title": "Model task", "labels": {"roel": "backend"}}
+    with pytest.raises(BakeError, match="T1: unknown key 'roel'.*labels.*expected one of"):
+        compile_plan(_plan_with_compact_block(block))
+
+
+def test_compile_rejects_unknown_assignment_key_in_compact_block():
+    block = {"task_id": "T1", "title": "Model task", "labels": {},
+             "assignments": [{"kind": "executor", "role": "backend", "model_tier": "standard",
+                              "executor": None, "trigger": "ready", "modle": "x"}]}
+    with pytest.raises(BakeError, match="T1: unknown key 'modle'.*assignment.*expected one of"):
+        compile_plan(_plan_with_compact_block(block))
+
+
+def test_compile_rejects_unknown_acceptance_entry_key_in_compact_block():
+    block = {"task_id": "T1", "title": "Model task", "labels": {},
+             "acceptance": [{"id": "A1", "cmd": "true", "expect": "exit0", "exepct": "exit0"}]}
+    with pytest.raises(BakeError, match="T1: unknown key 'exepct'.*acceptance.*expected one of"):
+        compile_plan(_plan_with_compact_block(block))
+
+
 def test_gaps_names_lane_lane_reason_acceptance_role_and_paths(roster):
     label = _label(roster)
     label["labels"]["lane"] = None

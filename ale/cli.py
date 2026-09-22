@@ -1596,7 +1596,7 @@ def cmd_plan_parse(a) -> int:
 
 
 def cmd_plan_bake(a) -> int:
-    from .bake import bake
+    from .bake import bake, validate_compact_blocks
     from .planparse import PlanParseError
     with open(a.plan_path, encoding="utf-8") as handle:
         text = handle.read()
@@ -1608,6 +1608,7 @@ def cmd_plan_bake(a) -> int:
         except CliError as exc:
             shadow_error = exc
     try:
+        validate_compact_blocks(text)
         labels, shadow = _plan_labels(text, a.plan_path, _plan_run_id(a.plan_path, a.run_id),
                                       roster, a.no_judge)
         baked = bake(text, labels)
