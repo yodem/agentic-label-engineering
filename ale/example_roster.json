@@ -22,37 +22,139 @@
       "medium": "Touches shared interfaces or data shape.",
       "high": "Auth, money, deletion, migrations. Needs sign-off before acceptance."
     },
-    "effort": {"S": "Under 15 minutes.", "M": "15 to 60 minutes.", "L": "Over an hour."},
-    "sub": {
-      "frontend": {"css": "CSS and styling work.", "ux": "Interaction and usability work.", "design": "Visual and product design implementation.", "components": "Reusable UI component work.", "performance": "Frontend performance work.", "accessibility": "Accessibility implementation and fixes."},
-      "backend": {"architecture": "Backend architecture work.", "api": "API and endpoint work.", "data": "Data storage and migration work.", "integration": "External and internal integration work.", "performance": "Backend performance work."},
-      "devops": {"ci": "Continuous integration work.", "deploy": "Deployment pipeline work.", "infra": "Infrastructure configuration work.", "monitor": "Monitoring and observability work.", "release": "Release management work."},
-      "test": {"unit": "Unit testing work.", "integration": "Integration testing work.", "e2e": "End-to-end testing work.", "coverage": "Test coverage work."},
-      "docs": {"reference": "Reference documentation work.", "guide": "Guide and tutorial writing.", "changelog": "Changelog maintenance."}
+    "effort": {
+      "S": "Under 15 minutes.",
+      "M": "15 to 60 minutes.",
+      "L": "Over an hour."
     },
-    "cross_sub": ["debugging", "review", "security"],
-    "phase": ["plan", "design", "implement", "test", "review", "deploy", "operate", "maintain"]
+    "sub": {
+      "frontend": {
+        "css": "CSS and styling work.",
+        "ux": "Interaction and usability work.",
+        "design": "Visual and product design implementation.",
+        "components": "Reusable UI component work.",
+        "performance": "Frontend performance work.",
+        "accessibility": "Accessibility implementation and fixes."
+      },
+      "backend": {
+        "architecture": "Backend architecture work.",
+        "api": "API and endpoint work.",
+        "data": "Data storage and migration work.",
+        "integration": "External and internal integration work.",
+        "performance": "Backend performance work."
+      },
+      "devops": {
+        "ci": "Continuous integration work.",
+        "deploy": "Deployment pipeline work.",
+        "infra": "Infrastructure configuration work.",
+        "monitor": "Monitoring and observability work.",
+        "release": "Release management work."
+      },
+      "test": {
+        "unit": "Unit testing work.",
+        "integration": "Integration testing work.",
+        "e2e": "End-to-end testing work.",
+        "coverage": "Test coverage work."
+      },
+      "docs": {
+        "reference": "Reference documentation work.",
+        "guide": "Guide and tutorial writing.",
+        "changelog": "Changelog maintenance."
+      }
+    },
+    "cross_sub": [
+      "debugging",
+      "review",
+      "security"
+    ],
+    "phase": [
+      "plan",
+      "design",
+      "implement",
+      "test",
+      "review",
+      "deploy",
+      "operate",
+      "maintain"
+    ]
   },
   "routing": [
-    {"role": "*", "model_tier": "cheap", "executor": "claude-headless", "model": "claude-haiku-4-5-20251001"},
-    {"role": "*", "model_tier": "standard", "executor": "claude-headless", "model": "claude-sonnet-5"},
-    {"role": "*", "model_tier": "frontier", "executor": "claude-headless", "model": "claude-opus-5"},
-    {"role": "backend", "model_tier": "standard", "executor": "codex-exec", "model": "gpt-5-codex"},
-    {"role": "monitor", "model_tier": "standard", "executor": "claude-headless", "model": "claude-sonnet-5"},
-    {"role": "fixer", "model_tier": "standard", "executor": "claude-headless", "model": "claude-sonnet-5"}
+    {
+      "role": "*",
+      "model_tier": "cheap",
+      "executor": "claude-headless",
+      "model": "claude-haiku-4-5-20251001"
+    },
+    {
+      "role": "*",
+      "model_tier": "standard",
+      "executor": "claude-headless",
+      "model": "claude-sonnet-5"
+    },
+    {
+      "role": "*",
+      "model_tier": "frontier",
+      "executor": "claude-headless",
+      "model": "claude-opus-5"
+    },
+    {
+      "role": "backend",
+      "model_tier": "standard",
+      "executor": "codex-exec",
+      "model": "gpt-5-codex"
+    },
+    {
+      "role": "monitor",
+      "model_tier": "standard",
+      "executor": "claude-headless",
+      "model": "claude-sonnet-5"
+    },
+    {
+      "role": "fixer",
+      "model_tier": "standard",
+      "executor": "claude-headless",
+      "model": "claude-sonnet-5"
+    }
   ],
   "watch_defaults": {
-    "*:S": {"heartbeat_timeout_s": 600, "stuck_after_s": 600, "max_duration_s": 1800, "budget_tokens": 150000, "max_attempts": 3},
-    "*:M": {"heartbeat_timeout_s": 900, "stuck_after_s": 1200, "max_duration_s": 5400, "budget_tokens": 400000, "max_attempts": 3},
-    "*:L": {"heartbeat_timeout_s": 900, "stuck_after_s": 1800, "max_duration_s": 10800, "budget_tokens": 900000, "max_attempts": 3}
+    "*:S": {
+      "heartbeat_timeout_s": 600,
+      "stuck_after_s": 600,
+      "max_duration_s": 1800,
+      "budget_tokens": 150000,
+      "max_attempts": 3
+    },
+    "*:M": {
+      "heartbeat_timeout_s": 900,
+      "stuck_after_s": 1200,
+      "max_duration_s": 5400,
+      "budget_tokens": 400000,
+      "max_attempts": 3
+    },
+    "*:L": {
+      "heartbeat_timeout_s": 900,
+      "stuck_after_s": 1800,
+      "max_duration_s": 10800,
+      "budget_tokens": 900000,
+      "max_attempts": 3
+    }
   },
   "uncertain_below": 0.6,
   "judge": {
     "plugin": "command",
-    "command": ["jev-ask"],
+    "command": [
+      "jev-ask"
+    ],
     "timeout_s": 30,
     "threshold": 0.75,
-    "modes": {"role": "shadow", "model_tier": "shadow", "risk": "shadow", "effort": "shadow", "sub": "shadow", "phase": "shadow"},
+    "modes": {
+      "role": "shadow",
+      "model_tier": "shadow",
+      "risk": "shadow",
+      "effort": "shadow",
+      "sub": "shadow",
+      "phase": "shadow"
+    },
     "questions": {
       "role": "Which kind of engineering work is this task?",
       "model_tier": "How much model capability does this task need?",
@@ -61,24 +163,205 @@
     }
   },
   "rules": [
-    {"field": "role", "when": {"path_prefix": "docs/"}, "value": "docs"},
-    {"field": "role", "when": {"keyword": "(?i)\\b(pytest|unit tests?|e2e|test suite)\\b"}, "value": "test"},
-    {"field": "risk", "when": {"keyword": "(?i)\\b(auth|payment|delete|migration|credential)\\b"}, "value": "high"},
-    {"field": "role", "when": {"path_prefix": "re:(?:^|/)(?:[^/]+\\.css|[^/]+\\.scss|tailwind[^/]*)$"}, "value": "sub:frontend/css"},
-    {"field": "role", "when": {"path_prefix": "re:(?:^|/)components/.+\\.(?:tsx|jsx)$"}, "value": "sub:frontend/components"},
-    {"field": "role", "when": {"path_prefix": "re:(?:^|/)dockerfile$|(?:^|/)(?:\\.github|ci)/.*\\.ya?ml$"}, "value": "sub:devops/ci"},
-    {"field": "role", "when": {"path_prefix": "re:(?:^|/)(?:terraform|k8s|helm)(?:/|$)"}, "value": "sub:devops/infra"},
-    {"field": "role", "when": {"path_prefix": "re:(?:^|/)migrations/|\\.sql$"}, "value": "sub:backend/data"},
-    {"field": "role", "when": {"path_prefix": "re:(?:^|/)(?:[^/]*openapi[^/]*|routes|controllers)(?:/|$)"}, "value": "sub:backend/api"},
-    {"field": "role", "when": {"path_prefix": "re:(?:^|/)tests?/unit(?:/|$)"}, "value": "sub:test/unit"},
-    {"field": "role", "when": {"path_prefix": "re:(?:^|/)tests?/integration(?:/|$)"}, "value": "sub:test/integration"},
-    {"field": "role", "when": {"path_prefix": "re:(?:^|/)tests?/e2e(?:/|$)"}, "value": "sub:test/e2e"},
-    {"field": "role", "when": {"keyword": "(?i)\\breview\\b"}, "value": "phase:review"},
-    {"field": "role", "when": {"keyword": "(?i)\\b(deploy|release)\\b"}, "value": "phase:deploy"},
-    {"field": "role", "when": {"keyword": "(?i)\\b(debug|fix|investigate)\\b"}, "value": "sub:debugging"},
-    {"field": "role", "when": {"keyword": "(?i)\\b(design|mock|figma)\\b"}, "value": "sub:frontend/design"},
-    {"field": "role", "when": {"keyword": "(?i)\\b(design|mock|figma)\\b"}, "value": "phase:design"}
+    {
+      "field": "role",
+      "when": {
+        "path_prefix": "docs/"
+      },
+      "value": "docs"
+    },
+    {
+      "field": "role",
+      "when": {
+        "keyword": "(?i)\\b(pytest|unit tests?|e2e|test suite)\\b"
+      },
+      "value": "test"
+    },
+    {
+      "field": "risk",
+      "when": {
+        "keyword": "(?i)\\b(auth|payment|delete|migration|credential)\\b"
+      },
+      "value": "high"
+    },
+    {
+      "field": "role",
+      "when": {
+        "path_prefix": "re:(?:^|/)(?:[^/]+\\.css|[^/]+\\.scss|tailwind[^/]*)$"
+      },
+      "value": "sub:frontend/css"
+    },
+    {
+      "field": "role",
+      "when": {
+        "path_prefix": "re:(?:^|/)(?:[^/]+\\.css|[^/]+\\.scss|tailwind[^/]*)$"
+      },
+      "value": "frontend"
+    },
+    {
+      "field": "role",
+      "when": {
+        "path_prefix": "re:(?:^|/)components/.+\\.(?:tsx|jsx)$"
+      },
+      "value": "sub:frontend/components"
+    },
+    {
+      "field": "role",
+      "when": {
+        "path_prefix": "re:(?:^|/)components/.+\\.(?:tsx|jsx)$"
+      },
+      "value": "frontend"
+    },
+    {
+      "field": "role",
+      "when": {
+        "path_prefix": "re:(?:^|/)dockerfile$|(?:^|/)(?:\\.github|ci)/.*\\.ya?ml$"
+      },
+      "value": "sub:devops/ci"
+    },
+    {
+      "field": "role",
+      "when": {
+        "path_prefix": "re:(?:^|/)dockerfile$|(?:^|/)(?:\\.github|ci)/.*\\.ya?ml$"
+      },
+      "value": "devops"
+    },
+    {
+      "field": "role",
+      "when": {
+        "path_prefix": "re:(?:^|/)(?:terraform|k8s|helm)(?:/|$)"
+      },
+      "value": "sub:devops/infra"
+    },
+    {
+      "field": "role",
+      "when": {
+        "path_prefix": "re:(?:^|/)(?:terraform|k8s|helm)(?:/|$)"
+      },
+      "value": "devops"
+    },
+    {
+      "field": "role",
+      "when": {
+        "path_prefix": "re:(?:^|/)migrations/|\\.sql$"
+      },
+      "value": "sub:backend/data"
+    },
+    {
+      "field": "role",
+      "when": {
+        "path_prefix": "re:(?:^|/)migrations/|\\.sql$"
+      },
+      "value": "backend"
+    },
+    {
+      "field": "role",
+      "when": {
+        "path_prefix": "re:(?:^|/)(?:[^/]*openapi[^/]*|routes|controllers)(?:/|$)"
+      },
+      "value": "sub:backend/api"
+    },
+    {
+      "field": "role",
+      "when": {
+        "path_prefix": "re:(?:^|/)(?:[^/]*openapi[^/]*|routes|controllers)(?:/|$)"
+      },
+      "value": "backend"
+    },
+    {
+      "field": "role",
+      "when": {
+        "path_prefix": "re:(?:^|/)tests?/unit(?:/|$)"
+      },
+      "value": "sub:test/unit"
+    },
+    {
+      "field": "role",
+      "when": {
+        "path_prefix": "re:(?:^|/)tests?/unit(?:/|$)"
+      },
+      "value": "test"
+    },
+    {
+      "field": "role",
+      "when": {
+        "path_prefix": "re:(?:^|/)tests?/integration(?:/|$)"
+      },
+      "value": "sub:test/integration"
+    },
+    {
+      "field": "role",
+      "when": {
+        "path_prefix": "re:(?:^|/)tests?/integration(?:/|$)"
+      },
+      "value": "test"
+    },
+    {
+      "field": "role",
+      "when": {
+        "path_prefix": "re:(?:^|/)tests?/e2e(?:/|$)"
+      },
+      "value": "sub:test/e2e"
+    },
+    {
+      "field": "role",
+      "when": {
+        "path_prefix": "re:(?:^|/)tests?/e2e(?:/|$)"
+      },
+      "value": "test"
+    },
+    {
+      "field": "role",
+      "when": {
+        "keyword": "(?i)\\breview\\b"
+      },
+      "value": "phase:review"
+    },
+    {
+      "field": "role",
+      "when": {
+        "keyword": "(?i)\\b(deploy|release)\\b"
+      },
+      "value": "phase:deploy"
+    },
+    {
+      "field": "role",
+      "when": {
+        "keyword": "(?i)\\b(debug|fix|investigate)\\b"
+      },
+      "value": "sub:debugging"
+    },
+    {
+      "field": "role",
+      "when": {
+        "keyword": "(?i)\\b(design|mock|figma)\\b"
+      },
+      "value": "sub:frontend/design"
+    },
+    {
+      "field": "role",
+      "when": {
+        "keyword": "(?i)\\b(design|mock|figma)\\b"
+      },
+      "value": "frontend"
+    },
+    {
+      "field": "role",
+      "when": {
+        "keyword": "(?i)\\b(design|mock|figma)\\b"
+      },
+      "value": "phase:design"
+    }
   ],
-  "promotion": {"min_cases": 100, "tolerance": 0.03, "min_coverage": 0.6, "demote_window": 50},
-  "cost_gate": {"max_concurrent": 3, "max_tasks_per_run": 20, "max_run_budget_tokens": 3000000}
+  "promotion": {
+    "min_cases": 100,
+    "tolerance": 0.03,
+    "min_coverage": 0.6,
+    "demote_window": 50
+  },
+  "cost_gate": {
+    "max_concurrent": 3,
+    "max_tasks_per_run": 20,
+    "max_run_budget_tokens": 3000000
+  }
 }

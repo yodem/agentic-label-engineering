@@ -129,8 +129,9 @@ def test_css_rule_bakes_sub(roster, label_t01):
 def test_review_rule_bakes_phase(roster, label_t01):
     final, _ = label_task(label_t01, "Please review this change", roster, judge=None)
 
+    review_index = next(i for i, r in enumerate(roster["rules"]) if r["value"] == "phase:review")
     assert final["labels"]["phase"] == "review"
-    assert final["provenance"]["phase"]["by"] == "rule:12"
+    assert final["provenance"]["phase"]["by"] == "rule:%d" % review_index
 
 
 def test_unmatched_task_does_not_invent_sub(roster, label_t01):
@@ -170,8 +171,12 @@ def test_css_sub_is_rejected_when_merged_role_is_backend(roster, label_t01):
     draft["labels"].pop("sub", None)
     draft["labels"]["role"] = "backend"
     draft["context"]["allowed_paths"] = ["styles.css"]
+    # Force a role conflict (test vs. the css rule's own frontend companion vote) so the
+    # merged role falls back to the planner's explicit "backend" instead of being flipped
+    # to "frontend" by the now-present companion role rule.
     with pytest.warns(RuntimeWarning, match="css.*backend"):
-        final, _ = label_task(draft, "Create styles.css", roster, judge=None)
+        final, _ = label_task(draft, "Run pytest on styles.css", roster, judge=None)
+    assert final["labels"]["role"] == "backend"
     assert "sub" not in final["labels"]
 
 
