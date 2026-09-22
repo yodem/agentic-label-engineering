@@ -9,6 +9,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from typing import List, Optional
 
@@ -145,8 +146,52 @@ def effective_rules(label: dict, agent: Optional[dict]) -> dict:
             for key in ("deny_paths", "deny_tools", "require_before_submit")}
 
 
-def _resolve_run_agents(c: "Ctx") -> bool:
+def _parse_agent_variants(values: Optional[List[str]]) -> dict:
+    variants = {}
+    for value in values or []:
+        if "=" not in value:
+            raise CliError(USAGE, "--agent-variant must be <role>/<sub>=<path>")
+        key, path = value.split("=", 1)
+        parts = key.split("/")
+        if len(parts) != 2 or not all(re.fullmatch(r"[A-Za-z0-9_-]+", part) for part in parts) or not path:
+            raise CliError(USAGE, "--agent-variant must be <role>/<sub>=<path>")
+        if key in variants:
+            raise CliError(USAGE, "duplicate --agent-variant for %s" % key)
+        variants[key] = os.path.abspath(path)
+    return variants
+
+
+def _load_variant_agent(key: str, path: str) -> dict:
+    parts = key.split("/")
+    if (len(parts) != 2 or not all(re.fullmatch(r"[A-Za-z0-9_-]+", part) for part in parts)
+            or not os.path.isfile(path)):
+        raise CliError(USAGE, "invalid agent variant %s=%s" % (key, path))
+    try:
+        with open(path, "rb") as source:
+            contents = source.read()
+    except OSError as exc:
+        raise CliError(USAGE, "cannot read agent variant %s: %s" % (path, exc))
+    with tempfile.TemporaryDirectory(prefix="ale-agent-variant-") as root:
+        staged = os.path.join(root, parts[0], parts[1] + ".md")
+        os.makedirs(os.path.dirname(staged), exist_ok=True)
+        with open(staged, "wb") as destination:
+            destination.write(contents)
+        try:
+            catalog = AC.load_catalog([root])
+        except (AC.CatalogError, OSError, UnicodeError) as exc:
+            raise CliError(USAGE, "invalid agent variant %s: %s" % (path, exc))
+        if key not in catalog:
+            raise CliError(USAGE, "agent variant does not declare %s" % key)
+        agent = dict(catalog[key])
+        agent["path"] = os.path.realpath(path)
+        return agent
+
+
+def _resolve_run_agents(c: "Ctx", agent_variants: Optional[List[str]] = None) -> bool:
     catalog = AC.load_catalog(_agent_roots())
+    variants = _parse_agent_variants(agent_variants)
+    variant_agents = {key: _load_variant_agent(key, path) for key, path in variants.items()}
+    catalog.update(variant_agents)
     unresolved = []
     for task_id, label in c.labels.items():
         labels = label.get("labels", {})
@@ -158,6 +203,8 @@ def _resolve_run_agents(c: "Ctx") -> bool:
             continue
         label["routing"] = dict(label.get("routing") or {})
         label["routing"]["agent"] = {key: ref[key] for key in ("key", "path", "name", "sha256", "version", "matched")}
+        if ref["key"] in variant_agents:
+            label["routing"]["agent"].update({"variant": True, "path": variant_agents[ref["key"]]["path"]})
         agent = catalog.get(ref.get("key"))
         rules = effective_rules(label, agent)
         label["effective_rules"] = rules
@@ -308,7 +355,7 @@ def cmd_init_run(a) -> int:
         for e in errs:
             print(e, file=sys.stderr)
         return FAIL
-    if not _resolve_run_agents(c):
+    if not _resolve_run_agents(c, getattr(a, "agent_variant", None)):
         return FAIL
     if any(e["type"] == "run_started" for e in E.read_events(c.events_path)):
         raise CliError(FAIL, "run already initialised: %s" % c.events_path)
@@ -360,7 +407,15 @@ def cmd_run(a) -> int:
 
     with open(a.plan_path, encoding="utf-8") as handle:
         plan_text = handle.read()
+    variants = _parse_agent_variants(getattr(a, "agent_variant", None))
+    variant_agents = {key: _load_variant_agent(key, path) for key, path in variants.items()}
     run_id = _plan_run_id(a.plan_path, a.run_id)
+    if variants and a.run_id is None:
+        variant_hashes = [(key, variant_agents[key]["sha256"]) for key in sorted(variants)]
+        digest = variant_hashes[0][1] if len(variant_hashes) == 1 else hashlib.sha256(
+            json.dumps(variant_hashes, separators=(",", ":")).encode("utf-8")).hexdigest()
+        run_id += "-v%s" % digest[:8]
+    a.run_id = run_id
     roster = _resolve_roster(a)
     missing = []
     try:
@@ -396,6 +451,8 @@ def cmd_run(a) -> int:
     if not already_started and not a.dry_run:
         init_args = ["init-run", "--plan", a.plan_path, "--run-id", run_id,
                      "--run-dir", run_dir, "--roster", roster]
+        for variant in getattr(a, "agent_variant", None) or []:
+            init_args.extend(["--agent-variant", variant])
         result = main(init_args)
         if result:
             return result
@@ -1021,6 +1078,8 @@ def _make_dispatch_request(c: Ctx, due: dict, project_cwd: str, n: int) -> dict:
     label = c.labels[due["task_id"]]
     ref = (label.get("routing") or {}).get("agent") or {}
     agent_catalog = AC.load_catalog(_agent_roots())
+    if ref.get("variant") and ref.get("key") and ref.get("path"):
+        agent_catalog[ref["key"]] = _load_variant_agent(ref["key"], ref["path"])
     routed_agent = agent_catalog.get(ref.get("key"))
     assignment = _dispatch_assignment(label, due)
     assignment["roster"] = c.roster_path if hasattr(c, "roster_path") else _resolve_roster(argparse.Namespace())
@@ -1454,11 +1513,13 @@ def _meta_prices(roster: dict) -> Optional[dict]:
 def _meta_csv(meta: dict) -> None:
     fields = ["kind", "id", "input", "output", "cache_read", "cache_write",
               "wall_seconds", "attempts", "breaches", "model", "executor",
-              "files_touched", "cost"]
+              "files_touched", "cost", "accepted_first_verify_count",
+              "accepted_first_verify_rate", "fix_tasks",
+              "billable_tokens", "wall_seconds_median", "rewrite_candidate"]
     writer = csv.DictWriter(sys.stdout, fieldnames=fields, lineterminator="\n")
     writer.writeheader()
-    for kind in ("task", "agent"):
-        for ident, summary in sorted(meta[kind + "s"].items()):
+    for kind, section in (("task", "tasks"), ("agent_instance", "agent_instances")):
+        for ident, summary in sorted(meta.get(section, {}).items()):
             row = {"kind": kind, "id": ident}
             row.update({key: summary.get(key) for key in fields if key in summary})
             row["wall_seconds"] = json.dumps(summary.get("wall_seconds", {}), sort_keys=True)
@@ -1469,6 +1530,12 @@ def _meta_csv(meta: dict) -> None:
             row["cache_read"] = summary["tokens"]["cache_read"]
             row["cache_write"] = summary["tokens"]["cache_write"]
             writer.writerow(row)
+    for ident, summary in sorted(meta.get("agents", {}).items()):
+        row = {"kind": "agent", "id": ident}
+        row.update({key: summary.get(key) for key in fields if key in summary})
+        row["accepted_first_verify_count"] = summary["accepted_first_verify"]["count"]
+        row["accepted_first_verify_rate"] = summary["accepted_first_verify"]["rate"]
+        writer.writerow(row)
     summary = meta["totals"]
     row = {"kind": "total", "id": "totals"}
     row["input"] = summary["tokens"]["input"]
@@ -1483,6 +1550,8 @@ def cmd_meta(a) -> int:
     c = Ctx(a)
     meta = TL.task_metadata(E.read_events(c.events_path), c.labels, c.roster,
                             _meta_prices(c.roster))
+    meta["agent_instances"] = meta.pop("agents")
+    meta["agents"] = TL.agent_metadata(E.read_events(c.events_path), c.labels)
     if a.csv:
         _meta_csv(meta)
     elif a.json:
@@ -2253,7 +2322,7 @@ def cmd_init_run_plan(a) -> int:
         for error in errors:
             print(error, file=sys.stderr)
         return FAIL
-    if not _resolve_run_agents(c):
+    if not _resolve_run_agents(c, getattr(a, "agent_variant", None)):
         return FAIL
     if any(event["type"] == "run_started" for event in E.read_events(c.events_path)):
         raise CliError(FAIL, "run already initialised: %s" % c.events_path)
@@ -2294,6 +2363,7 @@ def _parser() -> argparse.ArgumentParser:
     va.add_argument("--cwd")
     init_run = add("init-run", cmd_init_run)
     init_run.add_argument("--plan")
+    init_run.add_argument("--agent-variant", action="append")
     init_run.set_defaults(fn=cmd_init_run_plan)
     setup = sub.add_parser("setup")
     setup.add_argument("--force", action="store_true")
@@ -2304,6 +2374,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--max-cycles", type=int, default=20)
     run.add_argument("--dry-run", action="store_true")
     run.add_argument("--json", action="store_true")
+    run.add_argument("--agent-variant", action="append", metavar="<role>/<sub>=<path>")
     plan = sub.add_parser("plan")
     plan_sub = plan.add_subparsers(dest="plan_cmd")
     plan_parse = plan_sub.add_parser("parse")

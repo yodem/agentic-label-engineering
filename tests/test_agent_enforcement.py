@@ -51,3 +51,45 @@ def test_required_commands_run_in_requested_directory(tmp_path):
     result = run_required(["pwd"], str(tmp_path))
     assert result[0]["ok"] is True
     assert str(tmp_path) in result[0]["output"]
+
+
+def _symlink_deny_case(tmp_path):
+    import os
+
+    from ale.cli import _resolved_hook_input
+    from ale.hooks import decide_pre_tool
+
+    root = tmp_path / "project"
+    secrets = root / "secrets"
+    source = root / "src"
+    secrets.mkdir(parents=True)
+    source.mkdir()
+    target = secrets / "key.pem"
+    target.write_text("secret", encoding="utf-8")
+    os.symlink(target, source / "ok.py")
+    label = {
+        "context": {"allowed_paths": ["src/**"]},
+        "effective_rules": {"deny_paths": ["secrets/**"]},
+    }
+    unresolved = {"file_path": "src/ok.py"}
+    resolved = _resolved_hook_input("Write", unresolved, str(root))
+    return root, label, unresolved, resolved, decide_pre_tool
+
+
+def test_pre_tool_edge_denies_symlink_to_denied_target(tmp_path):
+    root, label, _, resolved, decide_pre_tool = _symlink_deny_case(tmp_path)
+
+    result = decide_pre_tool({"agent_id": "a"}, label, {"owner": "a"}, "Write",
+                             resolved, str(root))
+
+    assert result["action"] == "deny"
+    assert "secrets/key.pem" in result["reason"]
+
+
+def test_pre_tool_lexical_layer_allows_unresolved_symlink_path(tmp_path):
+    root, label, unresolved, _, decide_pre_tool = _symlink_deny_case(tmp_path)
+
+    result = decide_pre_tool({"agent_id": "a"}, label, {"owner": "a"}, "Write",
+                             unresolved, str(root))
+
+    assert result["action"] == "allow"
