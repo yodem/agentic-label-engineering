@@ -64,28 +64,28 @@ def test_verdict_questions_are_evidence_not_verdicts():
     """Rule 9.9: no question may start with should / decide whether, or offer actions."""
     with open(SHIPPED, encoding="utf-8") as handle:
         questions = json.load(handle)["judge"]["questions"]
-    for key in ("over_an_hour", "unattended", "external_side_effects", "locality",
+    for key in ("large_change", "needs_person", "external_side_effects", "locality",
                 "rejection_environment", "rejection_spec_conflict", "rejection_needs_human",
-                "monitor_reports_defect", "monitor_agent_blocked", "monitor_unsafe"):
+                "monitor_reports_specific_failure", "monitor_agent_blocked", "monitor_unsafe"):
         text = questions[key].lower()
         assert not text.startswith(("should", "what should", "decide whether"))
         assert text.startswith(("does", "do ", "will", "can", "is ")), key
         assert "\u2014" not in questions[key]
 
 
-# Lane mirrors orchestration flow.mjs decideLane: effort L (here: over_an_hour)
-# -> pane; unattended -> pane; role test/review -> workflow; >= 2 independent
+# Lane mirrors orchestration flow.mjs decideLane: effort L (here: large_change)
+# -> pane; needs_person -> pane; role test/review -> workflow; >= 2 independent
 # tasks -> workflow; else inline.
 @pytest.mark.parametrize("answers,facts,expected,rule", [
-    ({"over_an_hour": .9, "unattended": .1}, {"role": "backend", "independent_tasks": 0}, "pane", "over_an_hour"),
-    ({"over_an_hour": .1, "unattended": .9}, {"role": "backend", "independent_tasks": 0}, "pane", "unattended"),
-    ({"over_an_hour": .1, "unattended": .1}, {"role": "test", "independent_tasks": 0}, "workflow",
+    ({"large_change": .9, "needs_person": .1}, {"role": "backend", "independent_tasks": 0}, "pane", "large_change"),
+    ({"large_change": .1, "needs_person": .1}, {"role": "backend", "independent_tasks": 0}, "pane", "needs_person"),
+    ({"large_change": .1, "needs_person": .9}, {"role": "test", "independent_tasks": 0}, "workflow",
      "verification_role"),
-    ({"over_an_hour": .1, "unattended": .1}, {"role": "review", "independent_tasks": 5}, "workflow",
+    ({"large_change": .1, "needs_person": .9}, {"role": "review", "independent_tasks": 5}, "workflow",
      "verification_role"),
-    ({"over_an_hour": .1, "unattended": .1}, {"role": "backend", "independent_tasks": 2}, "workflow",
+    ({"large_change": .1, "needs_person": .9}, {"role": "backend", "independent_tasks": 2}, "workflow",
      "independent_tasks"),
-    ({"over_an_hour": .1, "unattended": .1}, {"role": "backend", "independent_tasks": 1}, "inline",
+    ({"large_change": .1, "needs_person": .9}, {"role": "backend", "independent_tasks": 1}, "inline",
      "single_attended_task"),
 ])
 def test_lane_rule_table(answers, facts, expected, rule):
@@ -113,17 +113,17 @@ def test_rejection_action_rule_table(answers, facts, expected, rule):
 
 
 @pytest.mark.parametrize("answers,facts,expected,rule", [
-    ({"monitor_reports_defect": .1, "monitor_agent_blocked": .1, "monitor_unsafe": .1},
+    ({"monitor_reports_specific_failure": .1, "monitor_agent_blocked": .1, "monitor_unsafe": .1},
      {"monitor_wrote_files": True}, "escalate", "monitor_wrote_files"),
-    ({"monitor_reports_defect": .1, "monitor_agent_blocked": .1, "monitor_unsafe": .1},
+    ({"monitor_reports_specific_failure": .1, "monitor_agent_blocked": .1, "monitor_unsafe": .1},
      {"attempts_exhausted": True}, "escalate", "attempts_exhausted"),
-    ({"monitor_reports_defect": .9, "monitor_agent_blocked": .1, "monitor_unsafe": .9}, {}, "escalate", "unsafe"),
-    ({"monitor_reports_defect": .9, "monitor_agent_blocked": .9, "monitor_unsafe": .1}, {}, "fix", "defect"),
-    ({"monitor_reports_defect": .1, "monitor_agent_blocked": .9, "monitor_unsafe": .1}, {}, "nudge",
+    ({"monitor_reports_specific_failure": .9, "monitor_agent_blocked": .1, "monitor_unsafe": .9}, {}, "escalate", "unsafe"),
+    ({"monitor_reports_specific_failure": .9, "monitor_agent_blocked": .9, "monitor_unsafe": .1}, {}, "fix", "defect"),
+    ({"monitor_reports_specific_failure": .1, "monitor_agent_blocked": .9, "monitor_unsafe": .1}, {}, "nudge",
      "agent_blocked"),
-    ({"monitor_reports_defect": .1, "monitor_agent_blocked": .1, "monitor_unsafe": .1},
+    ({"monitor_reports_specific_failure": .1, "monitor_agent_blocked": .1, "monitor_unsafe": .1},
      {"breach": "lease_expired"}, "nudge", "liveness_breach"),
-    ({"monitor_reports_defect": .1, "monitor_agent_blocked": .1, "monitor_unsafe": .1},
+    ({"monitor_reports_specific_failure": .1, "monitor_agent_blocked": .1, "monitor_unsafe": .1},
      {"breach": "over_budget"}, "continue", "default"),
 ])
 def test_monitor_verdict_rule_table(answers, facts, expected, rule):
@@ -132,12 +132,11 @@ def test_monitor_verdict_rule_table(answers, facts, expected, rule):
 
 
 @pytest.mark.parametrize("answers,facts,expected,rule", [
-    ({"over_an_hour": .1, "unattended": .1, "external_side_effects": .1}, {"risk": "high"}, "yes", "high_risk"),
-    ({"over_an_hour": .9, "unattended": .9, "external_side_effects": .1}, {"risk": "low"}, "yes",
-     "long_unattended"),
-    ({"over_an_hour": .9, "unattended": .1, "external_side_effects": .9}, {"risk": "low"}, "yes",
-     "external_side_effects"),
-    ({"over_an_hour": .9, "unattended": .1, "external_side_effects": .1}, {"risk": "low"}, "no", "default"),
+    ({"large_change": .1, "needs_person": .1, "external_side_effects": .1}, {"risk": "high"}, "yes", "high_risk"),
+    ({"large_change": .9, "needs_person": .1, "external_side_effects": .1}, {"risk": "low"}, "yes", "large_unattended"),
+    ({"large_change": .9, "needs_person": .9, "external_side_effects": .1}, {"risk": "low"}, "no", "default"),
+    ({"large_change": .1, "needs_person": .1, "external_side_effects": .9}, {"risk": "low"}, "yes", "external_side_effects"),
+    ({"large_change": .1, "needs_person": .1, "external_side_effects": .1}, {"risk": "low"}, "no", "default"),
 ])
 def test_needs_monitor_rule_table(answers, facts, expected, rule):
     result = compute_decision("needs_monitor", answers, facts)

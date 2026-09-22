@@ -60,11 +60,11 @@ CHOICE_QUESTION_KEYS = {
 
 # Evidence decisions ask one Noul per key, each from judge.questions[<key>].
 EVIDENCE_QUESTIONS = {
-    "lane": ["over_an_hour", "unattended"],
-    "needs_monitor": ["over_an_hour", "unattended", "external_side_effects"],
+    "lane": ["large_change", "needs_person"],
+    "needs_monitor": ["large_change", "needs_person", "external_side_effects"],
     "locality": ["locality"],
     "rejection_action": ["rejection_environment", "rejection_spec_conflict", "rejection_needs_human"],
-    "monitor_verdict": ["monitor_reports_defect", "monitor_agent_blocked", "monitor_unsafe"],
+    "monitor_verdict": ["monitor_reports_specific_failure", "monitor_agent_blocked", "monitor_unsafe"],
 }
 
 # Facts are computed from labels, the plan graph, or events. They are never asked.
@@ -82,15 +82,15 @@ LIVENESS_BREACHES = ("stuck", "lease_expired", "overrun", "input_required")
 # "yes(k)" means the Noul probability for evidence key k is at least 0.5.
 RULE_TABLES = {
     "lane": [
-        ("over_an_hour", "yes(over_an_hour) -> pane"),
-        ("unattended", "yes(unattended) -> pane"),
+        ("large_change", "yes(large_change) -> pane"),
+        ("needs_person", "no(needs_person) -> pane"),
         ("verification_role", "role in {test, review} -> workflow"),
         ("independent_tasks", "independent_tasks >= 2 -> workflow"),
         ("single_attended_task", "otherwise -> inline"),
     ],
     "needs_monitor": [
         ("high_risk", "risk == high -> yes"),
-        ("long_unattended", "yes(over_an_hour) and yes(unattended) -> yes"),
+        ("large_unattended", "yes(large_change) and no(needs_person) -> yes"),
         ("external_side_effects", "yes(external_side_effects) -> yes"),
         ("default", "otherwise -> no"),
     ],
@@ -109,7 +109,7 @@ RULE_TABLES = {
         ("monitor_wrote_files", "monitor_wrote_files -> escalate"),
         ("attempts_exhausted", "attempts_exhausted -> escalate"),
         ("unsafe", "yes(monitor_unsafe) -> escalate"),
-        ("defect", "yes(monitor_reports_defect) -> fix"),
+        ("defect", "yes(monitor_reports_specific_failure) -> fix"),
         ("agent_blocked", "yes(monitor_agent_blocked) -> nudge"),
         ("liveness_breach", "breach in {stuck, lease_expired, overrun, input_required} -> nudge"),
         ("default", "otherwise -> continue"),
@@ -234,10 +234,10 @@ def compute_decision(decision: str, answers: Dict[str, Optional[float]], facts: 
 
 def _apply_table(decision: str, yes, facts: Dict[str, object]):
     if decision == "lane":
-        if yes("over_an_hour"):
-            return "pane", "over_an_hour"
-        if yes("unattended"):
-            return "pane", "unattended"
+        if yes("large_change"):
+            return "pane", "large_change"
+        if not yes("needs_person"):
+            return "pane", "needs_person"
         if facts.get("role") in ("test", "review"):
             return "workflow", "verification_role"
         if int(facts.get("independent_tasks") or 0) >= 2:
@@ -246,8 +246,8 @@ def _apply_table(decision: str, yes, facts: Dict[str, object]):
     if decision == "needs_monitor":
         if facts.get("risk") == "high":
             return "yes", "high_risk"
-        if yes("over_an_hour") and yes("unattended"):
-            return "yes", "long_unattended"
+        if yes("large_change") and not yes("needs_person"):
+            return "yes", "large_unattended"
         if yes("external_side_effects"):
             return "yes", "external_side_effects"
         return "no", "default"
@@ -270,7 +270,7 @@ def _apply_table(decision: str, yes, facts: Dict[str, object]):
             return "escalate", "attempts_exhausted"
         if yes("monitor_unsafe"):
             return "escalate", "unsafe"
-        if yes("monitor_reports_defect"):
+        if yes("monitor_reports_specific_failure"):
             return "fix", "defect"
         if yes("monitor_agent_blocked"):
             return "nudge", "agent_blocked"

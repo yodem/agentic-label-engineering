@@ -21,7 +21,7 @@ def test_judge_stats_reports_judged_decisions_and_skips_executor(tmp_path, capsy
     common = dict(authority="lead", additive=True, model="fake-jev")
     _append(events, "shadow_vote", 1, "T1", decision="lane", options=["inline", "workflow", "pane"],
             choice="pane", confidence=0.6, latency_ms=12, uncertain=True, source="bake",
-            answers={"over_an_hour": 0.6, "unattended": 0.2}, rule="over_an_hour", **common)
+            answers={"large_change": 0.6, "needs_person": 0.2}, rule="large_change", **common)
     _append(events, "decision_outcome", 2, "T1", decision="lane", choice="inline", source="planner",
             authority="lead", additive=True)
     _append(events, "shadow_vote", 3, "T1", decision="role", options=["backend", "frontend"],

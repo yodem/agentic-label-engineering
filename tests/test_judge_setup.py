@@ -95,7 +95,7 @@ def test_shadow_default_collects_without_a_flag(tmp_path, monkeypatch):
     assert calls and (repo / ".ale" / "shadow").exists()
     questions = {call["question"] for call in calls}
     shipped = json.loads(SHIPPED.read_text())["judge"]["questions"]
-    assert shipped["over_an_hour"] in questions and shipped["sub"] in questions
+    assert shipped["large_change"] in questions and shipped["sub"] in questions
 
 
 def test_legacy_default_keeps_the_old_opt_in_and_asks_no_part_b_question(tmp_path, monkeypatch):
@@ -105,3 +105,18 @@ def test_legacy_default_keeps_the_old_opt_in_and_asks_no_part_b_question(tmp_pat
     shipped = json.loads(SHIPPED.read_text())["judge"]["questions"]
     legacy = {shipped[key] for key in ("role", "model_tier", "risk", "effort", "locality")}
     assert calls and {call["question"] for call in calls} <= legacy
+
+
+def test_legacy_evidence_question_keys_still_load(tmp_path):
+    source = json.loads(SHIPPED.read_text())
+    questions = source["judge"]["questions"]
+    questions.pop("large_change", None)
+    questions.pop("needs_person", None)
+    questions.pop("monitor_reports_specific_failure", None)
+    questions.update({"over_an_hour": "Old duration question?",
+                      "unattended": "Old autonomy question?",
+                      "monitor_reports_defect": "Old defect question?"})
+    path = tmp_path / "legacy-roster.json"
+    path.write_text(json.dumps(source))
+    loaded = load_roster(str(path))
+    assert loaded["judge"]["questions"]["over_an_hour"] == "Old duration question?"

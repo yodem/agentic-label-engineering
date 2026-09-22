@@ -143,37 +143,37 @@ class _Judge:
 
 
 def test_evidence_vote_records_uncertain_and_missing_answers():
-    roster = {"judge": {"questions": {"over_an_hour": "Q1?", "unattended": "Q2?"}}}
-    uncertain = EV.evidence_vote(_Judge({"over_an_hour": 0.55, "unattended": 0.1}), "lane", roster, "{}",
+    roster = {"judge": {"questions": {"large_change": "Q1?", "needs_person": "Q2?"}}}
+    uncertain = EV.evidence_vote(_Judge({"large_change": 0.55, "needs_person": 0.1}), "lane", roster, "{}",
                                  {"role": "backend", "independent_tasks": 0})
     assert uncertain["choice"] == "pane" and uncertain["uncertain"] is True
-    assert uncertain["latency_ms"] == 10 and uncertain["answers"] == {"over_an_hour": 0.55, "unattended": 0.1}
-    missing = EV.evidence_vote(_Judge({"unattended": 0.1}), "lane", roster, "{}",
+    assert uncertain["latency_ms"] == 10 and uncertain["answers"] == {"large_change": 0.55, "needs_person": 0.1}
+    missing = EV.evidence_vote(_Judge({"needs_person": 0.1}), "lane", roster, "{}",
                                {"role": "backend", "independent_tasks": 0})
     assert missing["choice"] is None and missing["rule"] == "missing_evidence"
     assert "timeout" in missing["error"]
 
 
 def test_evidence_vote_without_a_roster_question_abstains_and_asks_nothing():
-    judge = _Judge({"over_an_hour": 0.9, "unattended": 0.9})
+    judge = _Judge({"large_change": 0.9, "needs_person": 0.9})
     vote = EV.evidence_vote(judge, "lane", {"judge": {"questions": {}}}, "{}",
                             {"role": "backend", "independent_tasks": 0})
     assert judge.asked == [] and vote["choice"] is None and "missing_question" in vote["error"]
 
 
 def test_shared_evidence_is_asked_once_per_state():
-    roster = {"judge": {"questions": {"over_an_hour": "Q1?", "unattended": "Q2?", "external_side_effects": "Q3?"}}}
-    judge = _Judge({"over_an_hour": 0.1, "unattended": 0.1, "external_side_effects": 0.1})
+    roster = {"judge": {"questions": {"large_change": "Q1?", "needs_person": "Q2?", "external_side_effects": "Q3?"}}}
+    judge = _Judge({"large_change": 0.1, "needs_person": 0.1, "external_side_effects": 0.1})
     cache = {}
     EV.evidence_vote(judge, "lane", roster, "{}", {"role": "backend", "independent_tasks": 0}, cache)
     EV.evidence_vote(judge, "needs_monitor", roster, "{}", {"risk": "low"}, cache)
-    assert judge.asked == ["over_an_hour", "unattended", "external_side_effects"]
+    assert judge.asked == ["large_change", "needs_person", "external_side_effects"]
 
 
 def test_shared_evidence_latency_is_counted_once_per_call():
     from ale.labeling.shadow import summarize_shadow
-    roster = {"judge": {"questions": {"over_an_hour": "Q1?", "unattended": "Q2?", "external_side_effects": "Q3?"}}}
-    judge = _Judge({"over_an_hour": 0.1, "unattended": 0.1, "external_side_effects": 0.1})
+    roster = {"judge": {"questions": {"large_change": "Q1?", "needs_person": "Q2?", "external_side_effects": "Q3?"}}}
+    judge = _Judge({"large_change": 0.1, "needs_person": 0.1, "external_side_effects": 0.1})
     cache = {}
     lane = EV.evidence_vote(judge, "lane", roster, "{}", {"role": "backend", "independent_tasks": 0}, cache)
     monitor = EV.evidence_vote(judge, "needs_monitor", roster, "{}", {"risk": "low"}, cache)

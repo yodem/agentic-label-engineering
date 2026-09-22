@@ -174,15 +174,15 @@
       "locality": "Does this task need the planner's own machine (GUI, keychain, unsynced files)?",
       "sub": "Within the task's role, which specialty does the work in task_text mainly fall under?",
       "phase": "Which delivery stage does the work in task_text belong to?",
-      "over_an_hour": "Will the work in task_text take a competent engineer more than one hour?",
-      "unattended": "Can the work in task_text be finished without a person answering questions or approving steps along the way?",
       "external_side_effects": "Does task_text say the work changes something outside its own files, such as shared infrastructure, a database, or a deployed service?",
       "rejection_environment": "Do rejection_reason and failing_checks show a problem with the environment or tools (a missing command, network access, or permissions) rather than with the task's own code?",
       "rejection_spec_conflict": "Do rejection_reason and failing_checks show that the failing check contradicts what task_title asks for?",
       "rejection_needs_human": "Do rejection_reason and failing_checks show that the repair needs something only a person can provide, such as credentials or a product decision?",
-      "monitor_reports_defect": "Does monitor_report name a concrete defect in the task's work that a follow-up fix could repair?",
       "monitor_agent_blocked": "Does last_agent_note say the agent is blocked or waiting for something it cannot get itself?",
-      "monitor_unsafe": "Does monitor_report say that continuing could cause harm or that a person must decide?"
+      "monitor_unsafe": "Does monitor_report say that continuing could cause harm or that a person must decide?",
+      "large_change": "Does task_text say the work touches more than five files, several components, or a data migration?",
+      "needs_person": "Does task_text name a step where a person must approve, answer a question, choose between options, or provide credentials?",
+      "monitor_reports_specific_failure": "Does monitor_report quote a specific failing test, error message, or wrong file?"
     }
   },
   "rules": [

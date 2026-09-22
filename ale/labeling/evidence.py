@@ -69,7 +69,7 @@ def evidence_vote(judge, decision: str, roster: dict, state: str, facts: Dict[st
     """Ask the decision's evidence Nouls and compute the decision with its rule table.
 
     ``cache`` shares answers for the same state across decisions (for example
-    ``over_an_hour`` feeds both lane and needs_monitor), so each question is
+    ``large_change`` feeds both lane and needs_monitor), so each question is
     asked once per state.
     """
     cache = {} if cache is None else cache
