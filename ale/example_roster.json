@@ -5,6 +5,7 @@
       "backend": "Server code, APIs, data access, scripts.",
       "frontend": "UI components, styling, client state.",
       "infra": "CI, deployment, containers, cloud config.",
+      "devops": "CI, deployment, infrastructure, monitoring, and release work.",
       "test": "Test suites, fixtures, coverage work.",
       "docs": "Documentation and written guides only.",
       "fixer": "Focused repair work after an acceptance failure.",
@@ -21,7 +22,16 @@
       "medium": "Touches shared interfaces or data shape.",
       "high": "Auth, money, deletion, migrations. Needs sign-off before acceptance."
     },
-    "effort": {"S": "Under 15 minutes.", "M": "15 to 60 minutes.", "L": "Over an hour."}
+    "effort": {"S": "Under 15 minutes.", "M": "15 to 60 minutes.", "L": "Over an hour."},
+    "sub": {
+      "frontend": {"css": "CSS and styling work.", "ux": "Interaction and usability work.", "design": "Visual and product design implementation.", "components": "Reusable UI component work.", "performance": "Frontend performance work.", "accessibility": "Accessibility implementation and fixes."},
+      "backend": {"architecture": "Backend architecture work.", "api": "API and endpoint work.", "data": "Data storage and migration work.", "integration": "External and internal integration work.", "performance": "Backend performance work."},
+      "devops": {"ci": "Continuous integration work.", "deploy": "Deployment pipeline work.", "infra": "Infrastructure configuration work.", "monitor": "Monitoring and observability work.", "release": "Release management work."},
+      "test": {"unit": "Unit testing work.", "integration": "Integration testing work.", "e2e": "End-to-end testing work.", "coverage": "Test coverage work."},
+      "docs": {"reference": "Reference documentation work.", "guide": "Guide and tutorial writing.", "changelog": "Changelog maintenance."}
+    },
+    "cross_sub": ["debugging", "review", "security"],
+    "phase": ["plan", "design", "implement", "test", "review", "deploy", "operate", "maintain"]
   },
   "routing": [
     {"role": "*", "model_tier": "cheap", "executor": "claude-headless", "model": "claude-haiku-4-5-20251001"},

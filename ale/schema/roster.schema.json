@@ -12,7 +12,10 @@
         "role": {"type": "object"},
         "model_tier": {"type": "object"},
         "risk": {"type": "object"},
-        "effort": {"type": "object"}
+        "effort": {"type": "object"},
+        "sub": {"type": "object", "additionalProperties": {"type": "object", "additionalProperties": {"type": "string"}}},
+        "cross_sub": {"type": "array", "items": {"type": "string"}},
+        "phase": {"type": "array", "items": {"type": "string", "enum": ["plan", "design", "implement", "test", "review", "deploy", "operate", "maintain"]}}
       }
     },
     "routing": {

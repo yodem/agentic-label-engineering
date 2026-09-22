@@ -2,9 +2,36 @@ from __future__ import annotations
 
 import hashlib
 import json
+import copy
 from typing import Dict
 
 from .validate import load_schema, validate
+
+
+_DEFAULT_SUB_NAMES = {
+    "frontend": ("css", "ux", "design", "components", "performance", "accessibility"),
+    "backend": ("architecture", "api", "data", "integration", "performance"),
+    "devops": ("ci", "deploy", "infra", "monitor", "release"),
+    "test": ("unit", "integration", "e2e", "coverage"),
+    "docs": ("reference", "guide", "changelog"),
+}
+_DEFAULT_CROSS_SUBS = ["debugging", "review", "security"]
+_DEFAULT_PHASES = ["plan", "design", "implement", "test", "review", "deploy", "operate", "maintain"]
+
+
+def _default_sub_vocab() -> dict:
+    return {role: {sub: "%s-focused work." % sub for sub in subs}
+            for role, subs in _DEFAULT_SUB_NAMES.items()}
+
+
+def _apply_vocab_defaults(roster: dict) -> None:
+    vocab = roster.setdefault("vocab", {})
+    subs = _default_sub_vocab()
+    for role, entries in vocab.get("sub", {}).items():
+        subs.setdefault(role, {}).update(entries)
+    vocab["sub"] = subs
+    vocab.setdefault("cross_sub", list(_DEFAULT_CROSS_SUBS))
+    vocab.setdefault("phase", list(_DEFAULT_PHASES))
 
 
 class RosterError(Exception):
@@ -17,6 +44,7 @@ def load_roster(path: str) -> dict:
             roster = json.load(f)
     except (OSError, ValueError) as exc:
         raise RosterError("cannot read roster %s: %s" % (path, exc))
+    _apply_vocab_defaults(roster)
     for row in roster.get("routing", []):
         if row.get("executor") == "claude_code":
             row["executor"] = "claude-subagent"
@@ -41,6 +69,8 @@ def load_roster(path: str) -> dict:
 
 
 def roster_hash(roster: dict) -> str:
+    roster = copy.deepcopy(roster)
+    _apply_vocab_defaults(roster)
     blob = json.dumps(roster, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(blob).hexdigest()[:8]
 

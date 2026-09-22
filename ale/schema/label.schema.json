@@ -16,7 +16,9 @@
         "model_tier": {"type": "string", "minLength": 1},
         "lane": {"type": ["string", "null"], "enum": ["inline", "workflow", "pane", null]},
         "risk": {"type": "string", "minLength": 1},
-        "effort": {"type": "string", "minLength": 1}
+        "effort": {"type": "string", "minLength": 1},
+        "sub": {"type": ["string", "null"]},
+        "phase": {"type": ["string", "null"], "enum": ["plan", "design", "implement", "test", "review", "deploy", "operate", "maintain", null]}
       }
     },
     "routing": {
@@ -26,7 +28,17 @@
       "properties": {
         "executor": {"type": ["string", "null"]},
         "model": {"type": ["string", "null"]},
-        "resolved_from": {"type": ["string", "null"]}
+        "resolved_from": {"type": ["string", "null"]},
+        "agent": {
+          "anyOf": [
+            {"type": "null"},
+            {"type": "object", "required": ["key", "name", "path", "sha256", "version", "matched", "model_tier_min"],
+             "properties": {"key": {"type": "string"}, "name": {"type": "string"},
+                            "path": {"type": "string"}, "sha256": {"type": "string"},
+                            "version": {"type": "integer"}, "matched": {"type": "string"},
+                            "model_tier_min": {"type": "string"}}}
+          ]
+        }
       }
     },
     "context": {
