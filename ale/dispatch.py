@@ -129,6 +129,8 @@ def held_for_integration(run_state: dict, labels: Dict[str, dict]) -> List[Tuple
         if not due:
             continue
         for dependency_id in labels[task_id].get("context", {}).get("depends_on", []):
+            if labels.get(dependency_id, {}).get("fixes"):
+                continue
             dependency = tasks.get(dependency_id, {})
             if dependency.get("state") == "accepted" and not dependency.get("integrated"):
                 held.append((task_id, dependency_id))

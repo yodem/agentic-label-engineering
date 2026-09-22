@@ -6,9 +6,23 @@ import stat
 from ale.cli import main
 import ale.cli as cli
 from ale.events import make_event, read_events
+from ale.dispatch import held_for_integration
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def test_dependency_on_fix_task_does_not_hold_dependent():
+    labels = {
+        "F1": {"fixes": "T1"},
+        "T2": {
+            "context": {"depends_on": ["F1"], "allowed_paths": ["x"],
+                        "worktree": {"mode": "per_task"}},
+            "assignments": [{"kind": "executor", "trigger": "ready"}],
+        },
+    }
+    state = {"tasks": {"F1": {"state": "accepted", "integrated": False}, "T2": {"state": "ready"}}}
+    assert held_for_integration(state, labels) == []
 
 
 def _roster(tmp_path):

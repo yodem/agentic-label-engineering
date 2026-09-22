@@ -32,6 +32,43 @@ write plan -> bake --write -> fill gaps -> ale run
                                             report -> status / timeline / meta
 ```
 
+## What the plan parser reads
+
+`ale plan bake` reads a plan with a deliberately literal parser. It never guesses, so a
+task can read as complete to a human and still arrive with no files, no commands, and no
+dependencies. These are the only forms it recognizes.
+
+| Field | Recognized | Not recognized |
+| --- | --- | --- |
+| Task boundary | A heading `## Task 3: Title`, `### Step 4. Title`, or `#### Phase 5 Title`, two to four hashes. Failing that, top-level `3. Title` numbered items, then `- [ ] Title` checkboxes. At least two of one kind are required. | A bold line, a bare heading without `Task`, `Step`, or `Phase`, or a single task. |
+| Task ID | The heading's own number, so `## Task 12` is `T12`. List forms number by position. | Any other identifier written in the text. |
+| Files | Backticked paths on a line that starts with `**Files:**`, `Create:`, `Modify:`, or `Test:`. A path needs a `/` or a `.` and no spaces. A trailing `:10-40` line range is stripped. | Paths in prose, in a table, in a fenced block, or on a continuation line. |
+| Commands | `Run: ` followed by a backticked command, anywhere in the task body. Also the first non-empty line of a `bash` or `sh` fence whose preceding line contains `Run` or `Verify`. | Bare backticked commands, and `git add`, `git commit`, or `git push`, which are dropped because executors never commit. |
+| Dependencies | `depends on Task 4`, `after Task 4`, and `Consumes: ... Task 4`. | `depends on: Task 4`, `depends on Tasks 4, 5`, and `depends on T4`, all of which yield nothing. |
+
+Write one dependency phrase per dependency: `Depends on Task 4. Depends on Task 5.` A
+dependency on a task the plan does not define, or on the task itself, is dropped. A
+forward reference is allowed: a task may depend on one defined later in the file.
+
+Whatever the parser misses can still be written by hand into the task's `ale-label` block,
+which is authoritative. Read the baked block before starting a run.
+
+## Acceptance checks
+
+`expect` is exit-code only. It is `exit0` or `exit:N`, and ALE compares the process exit
+code and nothing else. It never matches output text, so express the intent as an exit
+code:
+
+| Intent | Write |
+| --- | --- |
+| A command must succeed | `{"cmd": "pytest -q", "expect": "exit0"}` |
+| A pattern must be absent | `{"cmd": "grep -rn TODO src/", "expect": "exit:1"}`, because grep exits 1 when it finds nothing |
+| A value must match | `{"cmd": "test \"$(cat VERSION)\" = 0.2.0", "expect": "exit0"}` |
+
+Each command runs through the shell in the task's working directory with a 600 second
+timeout. The last 300 characters of combined stdout and stderr are kept as evidence. An
+entry shaped `{"id": "A3", "manual": "..."}` is recorded for the lead and is not run.
+
 ## Label fields
 
 Labels may include the `sub` and `phase` axes, which resolve to an agent
@@ -70,7 +107,9 @@ Token budgets and estimated input cost use billable tokens: `max(0, input_tokens
 
 `context.worktree.mode` defaults to `per_task` when the task has allowed paths. Dispatch creates `run/wt/TASK` and uses branch `ale/RUN/TASK`; the request's working directory points there. A fix task reuses its parent's worktree. Use `none` only for tasks that do not write project files. Use `shared` only with an explicit reason. Write tasks should use per-task worktrees so concurrent changes cannot overlap accidentally.
 
-`ale integrate --task TASK` is lead-side only and requires `accepted`. It merges the recorded task branch into the base checkout and removes the worktree after a successful merge. A conflict is aborted and leaves the worktree in place.
+`ale integrate --task TASK` is lead-side only and requires `accepted`. It merges the recorded task branch into the base checkout and removes the worktree after a successful merge. A conflict is aborted and leaves the worktree in place. When the checkout is dirty the error names it and the first five uncommitted paths.
+
+Accepted work is integrated before anything that depends on it is dispatched. `ale run` integrates every task that became accepted during a cycle before that cycle dispatches, and `ale dispatch` refuses to spawn a per-task-worktree task whose `depends_on` names a task that is accepted but not yet integrated, printing `holding T2: dependency T1 is accepted but not integrated` on stderr. A per-task worktree is therefore branched from the checkout's HEAD as it stands at dispatch time, which contains every dependency merged so far. Without this, a dependent branches from a base that lacks its dependency's files, recreates them, and its own integration fails on conflicts.
 
 ## Assignments and monitoring
 
@@ -104,6 +143,8 @@ The label-layer events are `task_added`, `label_changed`, `label_removed`, `spaw
 ## Compact baked block
 
 `ale plan bake` writes only planner-facing fields into each block. Provenance and votes go to `PLAN.md.ale-provenance.json`; `ale plan compile` rebuilds the full label.
+
+A value already in a block is authoritative and survives a re-bake, so `bake(bake(x))` equals `bake(x)` even for a block you edited by hand. The rules fill only what a block does not already carry, and a preserved value's provenance records `by: block`. To have a label derived from the plan text again, delete that value, or the whole block, before re-baking.
 
 ````markdown
 ```ale-label

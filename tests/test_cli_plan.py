@@ -27,9 +27,9 @@ def _roster(tmp_path, judge_command=None):
     return str(path)
 
 
-def _valid_plan(tmp_path, roster_path):
+def _valid_plan(tmp_path, roster_path, source_text=None):
     source = (tmp_path / "plan.md")
-    source.write_text(open(PLAN, encoding="utf-8").read())
+    source.write_text(source_text if source_text is not None else open(PLAN, encoding="utf-8").read())
     with open(roster_path, encoding="utf-8") as handle:
         roster = json.load(handle)
     labels = {}
@@ -74,6 +74,64 @@ def test_bake_write_is_idempotent(tmp_path):
     first = plan.read_text()
     assert main(["plan", "bake", str(plan), "--no-judge", "--write", "--roster", roster]) == 1
     assert plan.read_text() == first
+
+
+def _bake_plan(plan, roster):
+    return main(["plan", "bake", str(plan), "--no-judge", "--write", "--roster", str(roster)])
+
+
+def _plan_blocks(plan):
+    from ale.bake import extract_blocks
+    return {label["task_id"]: label for _, label in extract_blocks(plan.read_text())}
+
+
+def _two_task_source():
+    return open(PLAN, encoding="utf-8").read().split("\n## Task 3:", 1)[0] + "\n"
+
+
+def test_plan_bake_two_task_bytes_are_idempotent(tmp_path):
+    roster = _roster(tmp_path)
+    plan = _valid_plan(tmp_path, roster, _two_task_source())
+    assert _bake_plan(plan, roster) == 0
+    first = plan.read_bytes()
+    assert _bake_plan(plan, roster) == 0
+    assert plan.read_bytes() == first
+
+
+def test_plan_bake_preserves_hand_edited_role(tmp_path):
+    roster = _roster(tmp_path)
+    plan = _valid_plan(tmp_path, roster, _two_task_source())
+    assert _bake_plan(plan, roster) == 0
+    before = _plan_blocks(plan)
+    original = before["T1"]
+    original["labels"]["role"] = "frontend"
+    from ale.bake import extract_blocks, render_block
+    text = plan.read_text()
+    old_block = next(block for block in text.split("```ale-label") if '"task_id": "T1"' in block)
+    edited = dict(original)
+    replacement = render_block(edited)
+    plan.write_text(text.replace("```ale-label" + old_block.split("```", 1)[0] + "```", replacement, 1))
+    edited_block = _plan_blocks(plan)["T1"]
+    other_before = {key: value for key, value in edited_block.items() if key != "labels"}
+    assert _bake_plan(plan, roster) == 0
+    after = _plan_blocks(plan)
+    assert after["T1"]["labels"]["role"] == "frontend"
+    assert {key: value for key, value in after["T1"].items() if key != "labels"} == other_before
+    assert {key: value for key, value in after["T2"].items()} == {key: value for key, value in before["T2"].items()}
+
+
+def test_plan_bake_preserves_hand_edited_risk(tmp_path):
+    roster = _roster(tmp_path)
+    plan = _valid_plan(tmp_path, roster, _two_task_source())
+    assert _bake_plan(plan, roster) == 0
+    from ale.bake import extract_blocks, render_block
+    text = plan.read_text()
+    label = next(label for _, label in extract_blocks(text) if label["task_id"] == "T1")
+    label["labels"]["risk"] = "high"
+    old_block = next(block for block in text.split("```ale-label") if '"task_id": "T1"' in block)
+    plan.write_text(text.replace("```ale-label" + old_block.split("```", 1)[0] + "```", render_block(label), 1))
+    assert _bake_plan(plan, roster) == 0
+    assert _plan_blocks(plan)["T1"]["labels"]["risk"] == "high"
 
 
 def test_compile_refuses_gaps_without_partial_labels(tmp_path):

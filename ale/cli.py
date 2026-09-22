@@ -2216,6 +2216,12 @@ def _plan_labels(text: str, path: str, run_id: str, roster: dict, no_judge: bool
             label["provenance"]["lane_reason"] = old.get("lane_reason") or old.get("provenance", {}).get("lane_reason")
             label["acceptance"] = list(old.get("acceptance", []))
             label["context"]["allowed_paths"] = list(old.get("allowed_paths", []))
+            for field, value in old.get("labels", {}).items():
+                label["labels"][field] = value
+                label["provenance"][field] = {
+                    "by": "block", "confidence": None, "conflict": False,
+                    "votes": [{"by": "block", "value": value, "confidence": None}],
+                }
             old_worktree = old.get("worktree") or old.get("context", {}).get("worktree")
             if old_worktree is not None:
                 if isinstance(old_worktree, str):

@@ -3,6 +3,8 @@ import json
 import shutil
 from types import SimpleNamespace
 
+import pytest
+
 from ale.agentcat import load_catalog
 from ale.cli import main
 
@@ -62,6 +64,7 @@ def test_init_run_refuses_general_fallback_for_specialty(tmp_path, monkeypatch, 
     assert "general" in capsys.readouterr().err.lower()
 
 
+@pytest.mark.ale_real_cwd
 def test_status_shows_frozen_agent_and_staleness(tmp_path, monkeypatch, capsys):
     run_dir = tmp_path / "run"
     shutil.copytree("examples/run", str(run_dir))
@@ -84,6 +87,7 @@ def test_status_shows_frozen_agent_and_staleness(tmp_path, monkeypatch, capsys):
             assert "agent: unknown" in output
 
 
+@pytest.mark.ale_real_cwd
 def test_status_survives_unreadable_agent_catalog(tmp_path, monkeypatch, capsys):
     run_dir = tmp_path / "run"
     shutil.copytree("examples/run", str(run_dir))

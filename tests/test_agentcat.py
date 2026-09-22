@@ -152,6 +152,7 @@ def test_missing_catalog_root_is_skipped(tmp_path):
     assert "general" in catalog
 
 
+@pytest.mark.ale_real_cwd
 def test_real_agents_directory_validates():
     catalog = load_catalog(["agents"])
     assert len(catalog) >= 7

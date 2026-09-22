@@ -27,6 +27,22 @@ Phases are `plan`, `design`, `implement`, `test`, `review`, `deploy`,
 it as a gap for `frontend`, `backend`, and `devops`. `phase` defaults to
 `implement` only when `allowed_paths` is non-empty; otherwise it is a gap.
 
+### Sub rules and the task's role
+
+A roster rule valued `sub:<role>/<sub>` contributes a sub only when the role the
+task actually carries is `<role>`. When the merged role is a different one, the
+vote abstains: the label carries no `sub`, and a `RuntimeWarning` names the
+rule, the proposed sub, and the role it was rejected for. This is the check
+`ale check` already applies to a finished label, applied early enough that bake
+cannot produce a label `init-run` would reject as
+`labels.sub=... is not in the roster vocabulary for role=...`.
+
+The practical consequence is that a sub rule needs the role to agree. Pair a
+`sub:<role>/<sub>` rule with a rule that sets the role from the same condition,
+or leave the role to the planner and accept that the sub abstains. A
+cross-cutting sub carries no role component and is written `sub:debugging`; it
+is valid under every role.
+
 ## Agent file format
 
 Bundled agents live at `agents/<role>/<sub>.md`, with per-role
