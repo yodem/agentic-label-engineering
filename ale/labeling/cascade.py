@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import os
 import stat
+import warnings
 from typing import List, Optional, Tuple
 
 from .judge import options_for
@@ -104,9 +105,12 @@ def label_task(draft: dict, text: str, roster: dict, judge=None) -> Tuple[dict, 
     for field in OPTIONAL_FIELDS:
         planner_value = draft["labels"].get(field)
         if field == "sub" and planner_value is not None:
-            role_subs = roster["vocab"].get("sub", {}).get(draft["labels"]["role"], {})
+            role = merged_by_field["role"]["value"]
+            role_subs = roster["vocab"].get("sub", {}).get(role, {})
             if (planner_value not in role_subs and
                     planner_value not in roster["vocab"].get("cross_sub", [])):
+                warnings.warn("task %s planner sub %s rejected for role %s" %
+                              (draft.get("task_id", "unknown"), planner_value, role), RuntimeWarning)
                 planner_value = None
         planner_vote = {"field": field, "value": planner_value, "by": "planner",
                         "confidence": None, "detail": {}}
@@ -116,10 +120,17 @@ def label_task(draft: dict, text: str, roster: dict, judge=None) -> Tuple[dict, 
                 continue
             rule_vote = dict(vote)
             if field == "sub" and rule_vote["value"] is not None:
-                rule_role, sub = rule_vote["value"].split("/", 1)
-                role_subs = roster["vocab"].get("sub", {}).get(rule_role, {})
                 cross_subs = roster["vocab"].get("cross_sub", [])
+                proposed = rule_vote["value"]
+                role = merged_by_field["role"]["value"]
+                if "/" in proposed:
+                    _, sub = proposed.split("/", 1)
+                else:
+                    sub = proposed
+                role_subs = roster["vocab"].get("sub", {}).get(role, {})
                 if sub not in role_subs and sub not in cross_subs:
+                    warnings.warn("task %s rule %s proposed sub %s rejected for role %s" %
+                                  (draft.get("task_id", "unknown"), vote["by"], sub, role), RuntimeWarning)
                     rule_vote["value"] = None
                 else:
                     rule_vote["value"] = sub

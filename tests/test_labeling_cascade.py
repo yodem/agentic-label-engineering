@@ -118,7 +118,7 @@ def test_votes_returned_include_every_field(roster, label_t01):
 def test_css_rule_bakes_sub(roster, label_t01):
     draft = copy.deepcopy(label_t01)
     draft["labels"].pop("sub", None)
-    draft["labels"]["role"] = "backend"
+    draft["labels"]["role"] = "frontend"
     draft["context"]["allowed_paths"] = ["styles.css"]
 
     final, _ = label_task(draft, "Create styles.css", roster, judge=None)
@@ -157,11 +157,40 @@ def test_invalid_sub_rule_is_rejected(roster, label_t01):
 def test_sub_rule_provenance_is_recorded(roster, label_t01):
     draft = copy.deepcopy(label_t01)
     draft["labels"].pop("sub", None)
+    draft["labels"]["role"] = "frontend"
     draft["context"]["allowed_paths"] = ["styles.css"]
 
     final, _ = label_task(draft, "Create styles.css", roster, judge=None)
 
     assert final["provenance"]["sub"]["by"] == "rule:3"
+
+
+def test_css_sub_is_rejected_when_merged_role_is_backend(roster, label_t01):
+    draft = copy.deepcopy(label_t01)
+    draft["labels"].pop("sub", None)
+    draft["labels"]["role"] = "backend"
+    draft["context"]["allowed_paths"] = ["styles.css"]
+    with pytest.warns(RuntimeWarning, match="css.*backend"):
+        final, _ = label_task(draft, "Create styles.css", roster, judge=None)
+    assert "sub" not in final["labels"]
+
+
+def test_cross_sub_without_role_prefix_does_not_crash(roster, label_t01):
+    draft = copy.deepcopy(label_t01)
+    draft["labels"].pop("sub", None)
+    draft["title"] = "Fix the login bug"
+    draft["context"]["allowed_paths"] = []
+    final, _ = label_task(draft, "", roster, judge=None)
+    assert final["labels"]["sub"] == "debugging"
+
+
+def test_css_sub_is_kept_when_merged_role_is_frontend(roster, label_t01):
+    draft = copy.deepcopy(label_t01)
+    draft["labels"].pop("sub", None)
+    draft["labels"]["role"] = "frontend"
+    draft["context"]["allowed_paths"] = ["styles.css"]
+    final, _ = label_task(draft, "Create styles.css", roster, judge=None)
+    assert final["labels"]["sub"] == "css"
 
 
 class TestReadSpecText:

@@ -1435,7 +1435,12 @@ def cmd_integrate(a) -> int:
     if base_status.returncode != 0:
         raise CliError(FAIL, base_status.stderr.strip() or "git status failed")
     if base_status.stdout.strip():
-        raise CliError(FAIL, "checkout has uncommitted changes")
+        paths = [record[3:] for record in base_status.stdout.splitlines() if len(record) >= 4]
+        listed = paths[:5]
+        message = "checkout %s has uncommitted changes: %s" % (checkout, ", ".join(listed))
+        if len(paths) > 5:
+            message += " (and %d more)" % (len(paths) - 5)
+        raise CliError(FAIL, message)
     merge = subprocess.run(["git", "merge", "--no-ff", "--no-edit", event["branch"]],
                            cwd=checkout, capture_output=True, text=True)
     if merge.returncode != 0:

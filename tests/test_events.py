@@ -129,6 +129,27 @@ def test_submitted_ts_recorded_and_reset_on_reclaim(label_t01):
     assert st["owner"] == "a2" and st["submitted_ts"] is None
 
 
+def test_duplicate_submitted_keeps_first_nonempty_summary_and_timestamp(label_t01):
+    st = reduce_run([ev("claimed", 1), ev("heartbeat", 2, step="work"),
+                     ev("submitted", 3, summary="real work"),
+                     ev("submitted", 4, summary="wrapper ran")], labels_of(label_t01))["tasks"]["T01"]
+    assert st["summary"] == "real work" and st["submitted_ts"] == 3.0
+
+
+def test_duplicate_submitted_fills_empty_summary_without_resetting_timestamp(label_t01):
+    st = reduce_run([ev("claimed", 1), ev("submitted", 2, summary=""),
+                     ev("submitted", 3, summary="real work")], labels_of(label_t01))["tasks"]["T01"]
+    assert st["summary"] == "real work" and st["submitted_ts"] == 2.0
+
+
+def test_duplicate_submitted_from_non_owner_changes_nothing(label_t01):
+    st = reduce_run([ev("claimed", 1), ev("submitted", 2, summary="real work"),
+                     ev("submitted", 3, agent="mallory", summary="wrapper ran")],
+                    labels_of(label_t01))["tasks"]["T01"]
+    assert st["summary"] == "real work" and st["submitted_ts"] == 2.0
+    assert st["state"] == "submitted" and st["owner"] == "a1"
+
+
 def test_non_owner_cannot_fail_or_cancel(label_t01):
     for kind, extra in (("failed", {"reason": "because"}), ("canceled", {})):
         st = reduce_run([ev("claimed", 1), ev("heartbeat", 2, step="s1"), ev(kind, 3, agent="mallory", **extra)],

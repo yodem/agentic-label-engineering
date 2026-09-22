@@ -3,6 +3,8 @@ import os
 import subprocess
 import sys
 
+import pytest
+
 from ale.cli import main
 from ale.cli import _extract_monitor_verdict
 from ale.events import make_event, read_events
@@ -261,6 +263,34 @@ def test_integrate_refuses_unaccepted_task(tmp_path):
 
     assert main(["integrate", "--task", "T1", "--run-dir", str(run), "--roster", roster,
                  "--cwd", str(tmp_path)]) == 1
+
+
+@pytest.mark.parametrize("count,expected_more", [(2, None), (7, "(and 2 more)")])
+def test_integrate_reports_dirty_checkout_paths(tmp_path, monkeypatch, capsys, count, expected_more):
+    repo = _git_repo(tmp_path)
+    roster = _roster(tmp_path)
+    run = _run(tmp_path, {"T1": _label(mode="per_task")})
+    monkeypatch.setenv("ALE_SPAWN_DRY", "1")
+    assert main(_dispatch_args(run, roster, "--spawn", "--cwd", str(repo))) == 0
+    worktree = run / "wt" / "T1"
+    (worktree / "change.txt").write_text("change\n")
+    subprocess.run(["git", "add", "change.txt"], cwd=str(worktree), check=True)
+    subprocess.run(["git", "commit", "-m", "change"], cwd=str(worktree), check=True, capture_output=True)
+    with (run / "events.jsonl").open("a") as handle:
+        handle.write(json.dumps(make_event("claimed", "run-1", 2, "T1", "agent", 1)) + "\n")
+        handle.write(json.dumps(make_event("submitted", "run-1", 3, "T1", "agent", 1, summary="done")) + "\n")
+        handle.write(json.dumps(make_event("accepted", "run-1", 4, "T1", None, 1, evidence={"passed": True})) + "\n")
+    for index in range(count):
+        (repo / ("dirty-%d.txt" % index)).write_text("dirty\n")
+
+    assert main(["integrate", "--task", "T1", "--run-dir", str(run), "--roster", roster,
+                 "--cwd", str(repo)]) == 1
+    message = capsys.readouterr().err
+    assert "checkout %s has uncommitted changes" % repo in message
+    for index in range(min(count, 5)):
+        assert "dirty-%d.txt" % index in message
+    if expected_more:
+        assert expected_more in message
 
 
 def test_integrate_merges_and_removes_worktree(tmp_path, monkeypatch):

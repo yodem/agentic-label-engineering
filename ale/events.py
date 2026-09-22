@@ -152,6 +152,9 @@ def _apply(st: dict, ev: dict, tasks: Dict[str, dict], labels: Dict[str, dict]) 
     elif kind == "submitted":
         if is_owner and st["state"] in LIVE:
             st["state"], st["summary"], st["submitted_ts"] = "submitted", ev["summary"], ts
+        elif is_owner and st["state"] == "submitted" and ev.get("attempt") == st["attempt"]:
+            if not (st.get("summary") or "").strip() and (ev.get("summary") or "").strip():
+                st["summary"] = ev["summary"]
     elif kind == "verified":
         st["evidence"] = ev["evidence"]
     elif kind == "accepted":
