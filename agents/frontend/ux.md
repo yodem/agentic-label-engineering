@@ -2,7 +2,7 @@
 name: frontend-ux
 role: frontend
 sub: ux
-phases: [review, maintain]
+phases: [implement, review, maintain]
 model_tier_min: cheap
 reads:
   - "agents/_refs/architecture-patterns/SKILL.md"
@@ -47,7 +47,8 @@ reads:
   - "agents/_refs/testing-unit/references/msw-2x-api.md"
   - "agents/_refs/testing-unit/references/stateful-testing.md"
 rules: {}
-checklist: []
+checklist:
+  - "Verify the primary user flow and meaningful loading, empty, and error states"
 origin: orchestkit/component-curator@9.8.0
 version: 1
 ---

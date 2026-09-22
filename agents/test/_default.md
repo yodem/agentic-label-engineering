@@ -1,7 +1,7 @@
 ---
 name: test-default
 role: test
-sub: default
+sub: _default
 phases: [plan, design, implement, test, review, deploy, operate, maintain]
 model_tier_min: cheap
 reads:
@@ -11,7 +11,6 @@ reads:
   - "**/pyproject.toml"
   - "**/package.json"
   - ".claude/rules/antipatterns.md"
-  - ""
   - "agents/_refs/testing-unit/SKILL.md"
   - "agents/_refs/testing-unit/references/aaa-pattern.md"
   - "agents/_refs/testing-unit/references/factory-patterns.md"

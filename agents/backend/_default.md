@@ -1,7 +1,7 @@
 ---
 name: backend-architecture
 role: backend
-sub: architecture
+sub: _default
 phases: [plan, design, implement, review, maintain]
 model_tier_min: cheap
 reads:
@@ -61,7 +61,8 @@ reads:
   - "agents/_refs/memory/references/session-resume-patterns.md"
 rules:
   deny_paths: ["frontend/**"]
-checklist: []
+checklist:
+  - "Verify data flow, failure handling, and compatibility with existing callers"
 origin: orchestkit/backend-system-architect@9.8.0
 version: 1
 ---

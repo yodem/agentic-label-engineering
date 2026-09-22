@@ -1,7 +1,7 @@
 ---
 name: frontend-default
 role: frontend
-sub: components
+sub: _default
 phases: [implement, review, maintain]
 model_tier_min: cheap
 reads:
@@ -47,7 +47,8 @@ reads:
   - "agents/_refs/testing-unit/references/msw-2x-api.md"
   - "agents/_refs/testing-unit/references/stateful-testing.md"
 rules: {}
-checklist: []
+checklist:
+  - "Verify the change meets the user's interface and accessibility requirements"
 origin: orchestkit/frontend-ui-developer@9.8.0
 version: 1
 ---

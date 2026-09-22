@@ -44,7 +44,8 @@ rules:
   deny_paths: []
   deny_tools: []
   require_before_submit: []
-checklist: []
+checklist:
+  - "Verify infrastructure changes, access boundaries, and recovery options"
 origin: orchestkit/infrastructure-architect@9.8.0
 version: 1
 ---

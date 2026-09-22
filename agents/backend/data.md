@@ -32,7 +32,8 @@ reads:
   - "agents/_refs/memory/references/session-resume-patterns.md"
 rules:
   deny_paths: ["frontend/**"]
-checklist: []
+checklist:
+  - "Verify data integrity, migration safety, and behavior for boundary cases"
 origin: orchestkit/database-engineer@9.8.0
 version: 1
 ---

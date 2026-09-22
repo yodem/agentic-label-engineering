@@ -66,6 +66,7 @@ def load_catalog(roots: List[str]) -> Dict[str, dict]:
         real_root = os.path.realpath(root)
         root_entries: Dict[str, dict] = {}
         for directory, dirnames, filenames in os.walk(root):
+            dirnames[:] = [name for name in dirnames if name != "_refs"]
             dirnames.sort()
             for filename in sorted(filenames):
                 if not filename.endswith(".md"):
@@ -91,6 +92,8 @@ def load_catalog(roots: List[str]) -> Dict[str, dict]:
                     raise CatalogError("%s: invalid agent %s:\n  %s" % (
                         path, frontmatter.get("name", "<unnamed>"), "\n  ".join(errors)
                     ))
+                if any(read == "" for read in frontmatter["reads"]):
+                    raise CatalogError("%s: reads entries must not be empty" % path)
                 key = _agent_key(relative, frontmatter, path)
                 if key in root_entries:
                     raise CatalogError("%s: duplicate catalog key %s in %s" % (path, key, root))
