@@ -744,6 +744,20 @@ def _fit(evidence: dict) -> None:
         for r in evidence["results"]:
             half = len(r["tail"]) // 2
             r["tail"] = r["tail"][-half:] if half else ""
+    files = evidence.get("files")
+    if files:
+        evidence.setdefault("files_count", len(files))
+        limit = len(files)
+        while len(json.dumps(evidence)) > 3000 and limit > 0:
+            limit = max(0, limit - max(1, limit // 4))
+            evidence["files"] = files[:limit]
+            evidence["files_truncated"] = limit < evidence["files_count"]
+    violations = evidence.get("path_violations")
+    if violations:
+        limit = len(violations)
+        while len(json.dumps(evidence)) > 3000 and limit > 0:
+            limit = max(0, limit - max(1, limit // 4))
+            evidence["path_violations"] = violations[:limit]
 
 
 def cmd_verify(a) -> int:
