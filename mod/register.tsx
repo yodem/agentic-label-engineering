@@ -19,19 +19,16 @@ import {
   formatTaskRow,
   groupTaskIds,
   noRunMessage,
-  parseStatusOutput,
-  pickLatestRunDir,
+  reduceEvents,
   truncateTo,
 } from './lib.ts'
 
 const PLUGIN = 'ale'
 const COMMAND = 'ale-board'
 const PANE_ID = 'ale-board'
-const ARGUMENT_HINT = '[close | refresh | run <run_id>]'
-const DEFAULT_ALE_COMMAND = 'python3 -m ale'
+const ARGUMENT_HINT = '[close | refresh | <run_id>]'
 
 const STORE_OPEN_KEY = 'ale-board:isOpen'
-const STORE_RUN_KEY = 'ale-board:selectedRunDir'
 
 const REFRESH_DEBOUNCE_MS = 1500
 const POLL_INTERVAL_MS = 10_000
@@ -51,8 +48,6 @@ type Timer = { cancel: () => void }
  * a fake in a future test. */
 type Host = {
   cwd: string
-  aleCommand: string[]
-  run: (argv: readonly string[], init?: { cwd?: string; env?: Record<string, string>; timeoutMs?: number }) => Promise<{ exitCode: number; stdout: string; stderr: string }>
   envGetAleRunDir: () => Promise<string | undefined>
   envGetAleRoster: () => Promise<string | undefined>
   fsList: (path?: string) => Promise<readonly { name: string; kind: string }[]>
@@ -78,12 +73,8 @@ let refreshTimer: Timer | undefined
 let pollTimer: Timer | undefined
 
 function bind($: EngineInterface, options: Readonly<Record<string, string | number | boolean | readonly string[]>>): Host {
-  const configured = options.aleCommand
-  const aleCommand = (typeof configured === 'string' && configured.trim() ? configured.trim() : DEFAULT_ALE_COMMAND).split(/\s+/).filter(Boolean)
   return {
     cwd: '',
-    aleCommand,
-    run: (argv, init) => $.process.run(argv, init),
     // $.env.get names must be string literals (book rule 4), so one method per variable.
     envGetAleRunDir: () => $.env.get('ALE_RUN_DIR'),
     envGetAleRoster: () => $.env.get('ALE_ROSTER'),
@@ -123,24 +114,23 @@ function startPolling(engine: Host): void {
   })
 }
 
-/** `ALE_RUN_DIR`, else the most recently modified directory under
- * `<cwd>/.ale/runs/`. Never guesses a path outside the session's cwd. */
+/** `ALE_RUN_DIR`, else the nearest .ale/runs/current pointer. */
 async function discoverRunDir(engine: Host): Promise<string | undefined> {
   const envDir = await engine.envGetAleRunDir().catch(() => undefined)
   if (envDir) return envDir
-  const runsDir = `${engine.cwd}/.ale/runs`
-  const exists = await engine.fsExists(runsDir).catch(() => false)
-  if (!exists) return undefined
-  const entries = await engine.fsList(runsDir).catch(() => [])
-  const dirEntries = entries.filter(entry => entry.kind === 'directory')
-  const stats = await Promise.all(
-    dirEntries.map(async entry => {
-      const stat = await engine.fsStat(`${runsDir}/${entry.name}`).catch(() => undefined)
-      return stat === undefined ? undefined : { name: entry.name, mtimeMs: stat.mtimeMs }
-    }),
-  )
-  const picked = pickLatestRunDir(stats.filter((s): s is { name: string; mtimeMs: number } => s !== undefined))
-  return picked === undefined ? undefined : `${runsDir}/${picked}`
+  let dir = engine.cwd
+  while (dir) {
+    const aleDir = `${dir}/.ale`
+    const current = `${aleDir}/runs/current`
+    if (await engine.fsExists(current).catch(() => false)) {
+      const runId = (await engine.fsRead(current).catch(() => '')).trim()
+      if (runId) return `${aleDir}/runs/${runId}`
+    }
+    const parent = dir.slice(0, dir.lastIndexOf('/'))
+    if (!parent || parent === dir) break
+    dir = parent
+  }
+  return undefined
 }
 
 async function resolveRosterPath(engine: Host): Promise<string> {
@@ -169,7 +159,7 @@ async function loadLabels(engine: Host, runDir: string, taskIds: readonly string
         const labels = parsed.labels
         const role = labels && typeof labels === 'object' && labels !== null && typeof (labels as Record<string, unknown>).role === 'string' ? ((labels as Record<string, unknown>).role as string) : undefined
         const tier = labels && typeof labels === 'object' && labels !== null && typeof (labels as Record<string, unknown>).model_tier === 'string' ? ((labels as Record<string, unknown>).model_tier as string) : undefined
-        out[id] = { title, role, tier }
+        out[id] = { title, role, tier, fixes: typeof parsed.fixes === 'string' ? parsed.fixes : undefined }
       } catch {
         // a malformed label file just yields no title/role/tier for this task
       }
@@ -178,9 +168,27 @@ async function loadLabels(engine: Host, runDir: string, taskIds: readonly string
   return out
 }
 
-/** Runs `<aleCommand> status --json --run-dir <dir> --roster <path>`,
- * single-flight, and returns the model it settled on (also stored in the
- * module-level `model` for the render hooks to read). */
+async function loadRawLabels(engine: Host, runDir: string, events: Array<Record<string, any>>): Promise<Record<string, Record<string, any>>> {
+  const files = new Set<string>()
+  const entries = await engine.fsList(`${runDir}/labels`).catch(() => [])
+  for (const entry of entries) if (entry.name.endsWith('.json')) files.add(entry.name)
+  for (const event of events) {
+    if (event.type === 'task_added' && typeof event.label_file === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]*\.json$/.test(event.label_file)) files.add(event.label_file)
+  }
+  const labels: Record<string, Record<string, any>> = {}
+  await Promise.all([...files].map(async file => {
+    const text = await engine.fsRead(`${runDir}/labels/${file}`).catch(() => undefined)
+    if (!text) return
+    try {
+      const label = JSON.parse(text)
+      const id = typeof label.task_id === 'string' ? label.task_id : file.replace(/\.json$/, '')
+      labels[id] = label
+    } catch { /* invalid labels are omitted */ }
+  }))
+  return labels
+}
+
+/** Reads the event log and frozen labels, then derives the board state. */
 async function refresh(engine: Host): Promise<BoardModel> {
   if (refreshing) return refreshing
   refreshing = (async (): Promise<BoardModel> => {
@@ -192,21 +200,31 @@ async function refresh(engine: Host): Promise<BoardModel> {
       return next
     }
     const runLabel = runLabelOf(runDir)
-    const rosterPath = await resolveRosterPath(engine)
-    const argv = [...engine.aleCommand, 'status', '--json', '--run-dir', runDir, '--roster', rosterPath]
-    const result = await engine
-      .run(argv, { cwd: engine.cwd, timeoutMs: STATUS_TIMEOUT_MS })
-      .catch(err => ({ exitCode: -1, stdout: '', stderr: err instanceof Error ? err.message : String(err) }))
-    const parsed = parseStatusOutput(result.exitCode, result.stdout, result.stderr)
-    if (!parsed.ok) {
-      const next: BoardModel = { kind: 'error', runLabel, message: parsed.error }
+    const eventText = await engine.fsRead(`${runDir}/events.jsonl`).catch(() => undefined)
+    if (eventText === undefined) {
+      const next: BoardModel = { kind: 'error', runLabel, message: 'cannot read events.jsonl' }
       model = next
-      engine.uiLog(`${PLUGIN}: ${parsed.error}`)
+      engine.uiLog(`${PLUGIN}: ${next.message}`)
       engine.invalidate()
       return next
     }
-    const labels = await loadLabels(engine, runDir, Object.keys(parsed.status.tasks))
-    const next: BoardModel = { kind: 'ok', runLabel, status: parsed.status, labels, refreshedAtS: Date.now() / 1000 }
+    let events: Array<Record<string, any>>
+    try { events = eventText.split('\n').filter(Boolean).map(line => JSON.parse(line)) }
+    catch (err) {
+      const next: BoardModel = { kind: 'error', runLabel, message: `malformed events.jsonl (${err instanceof Error ? err.message : String(err)})` }
+      model = next
+      engine.uiLog(`${PLUGIN}: ${next.message}`)
+      engine.invalidate()
+      return next
+    }
+    const rawLabels = await loadRawLabels(engine, runDir, events)
+    const reduced = reduceEvents(events, rawLabels)
+    const labels: Record<string, LabelInfo> = {}
+    for (const [id, label] of Object.entries(reduced.labels)) {
+      const tag = label.labels ?? {}
+      labels[id] = { title: label.title, role: tag.role, tier: tag.model_tier, fixes: label.fixes }
+    }
+    const next: BoardModel = { kind: 'ok', runLabel, status: { run: reduced.run, tasks: reduced.tasks }, labels, refreshedAtS: Date.now() / 1000 }
     model = next
     engine.invalidate()
     return next
@@ -242,7 +260,8 @@ function buildSections(status: RawStatus, labels: Record<string, LabelInfo>, col
     rows: ids.map(id => {
       const task = status.tasks[id]
       if (task === undefined) return `${id}`
-      return formatTaskRow(id, task, labels[id], nowS, columns).text
+      const parent = labels[id]?.fixes
+      return `${parent ? `  ↳ ${parent} ` : ''}${formatTaskRow(id, task, labels[id], nowS, columns).text}`
     }),
   }))
 }
@@ -267,8 +286,7 @@ export const register: Register = (on: On) => {
     host.cwd = e.cwd
     const engine = host
     isOpen = (await engine.storeGet(STORE_OPEN_KEY).catch(() => false)) === true
-    const storedRun = await engine.storeGet(STORE_RUN_KEY).catch(() => undefined)
-    selectedRunDir = typeof storedRun === 'string' ? storedRun : undefined
+    selectedRunDir = undefined
     await $.command
       .register({
         name: COMMAND,
@@ -302,19 +320,16 @@ export const register: Register = (on: On) => {
       const after = await refresh(engine)
       return { text: after.kind === 'error' ? `refresh failed · ${after.message}` : 'refreshed' }
     }
-    if (lower.startsWith('run ')) {
-      const runArg = arg.slice('run '.length).trim()
+    if (lower.startsWith('run ') || arg) {
+      const runArg = lower.startsWith('run ') ? arg.slice('run '.length).trim() : arg
       if (!runArg) return { text: `unknown argument "${arg}" · /${COMMAND} ${ARGUMENT_HINT}` }
-      selectedRunDir = runArg
-      void engine.storeSet(STORE_RUN_KEY, selectedRunDir).catch(() => undefined)
+      selectedRunDir = runArg.startsWith('/') || runArg.includes('/') ? runArg : `${engine.cwd}/.ale/runs/${runArg}`
       model = { kind: 'no-run' }
       setOpen(engine, true)
       await $.ui.open({ id: PANE_ID, title: 'ALE task board', closeOnEscape: true, holdToasts: true, rows: 18 }).catch(() => undefined)
       const after = await refresh(engine)
       return { text: after.kind === 'error' ? `run ${runArg}: ${after.message}` : `board on ${runArg}` }
     }
-    if (arg) return { text: `unknown argument "${arg}" · /${COMMAND} ${ARGUMENT_HINT}` }
-
     setOpen(engine, true)
     await $.ui.open({ id: PANE_ID, title: 'ALE task board', closeOnEscape: true, holdToasts: true, rows: 18 }).catch(() => undefined)
     let current = model

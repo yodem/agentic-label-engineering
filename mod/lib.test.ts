@@ -5,12 +5,22 @@ import {
   budgetRows,
   formatTaskRow,
   groupTaskIds,
+  reduceEvents,
   noRunMessage,
   parseStatusOutput,
   pickLatestRunDir,
   truncateTo,
   type RawTask,
 } from './lib.ts'
+
+const fixtureDir = `${import.meta.dir}/fixtures/protocol/basic`
+const basicEvents = (await Bun.file(`${fixtureDir}/events.jsonl`).text()).trim().split('\n').map(line => JSON.parse(line))
+const basicStatus = await Bun.file(`${fixtureDir}/status.json`).json() as { run: Record<string, unknown>; tasks: Record<string, Record<string, unknown>> }
+const basicLabels: Record<string, Record<string, any>> = {}
+for (const file of new Bun.Glob('*.json').scanSync(`${fixtureDir}/labels`)) {
+  const label = await Bun.file(`${fixtureDir}/labels/${file}`).json() as Record<string, any>
+  basicLabels[label.task_id] = label
+}
 
 describe('parseStatusOutput', () => {
   test('a non-zero exit yields an error, not a throw', () => {
@@ -89,6 +99,91 @@ describe('groupTaskIds', () => {
     const groups = groupTaskIds({ T9: { state: 'working' }, T2: { state: 'working' } })
     const working = groups.find(g => g.name === 'working')
     expect(working?.ids).toEqual(['T2', 'T9'])
+  })
+})
+
+describe('reduceEvents', () => {
+  test('matches Python status for every task in the real CLI fixture', () => {
+    const reduced = reduceEvents(basicEvents, basicLabels)
+    for (const [id, expected] of Object.entries(basicStatus.tasks)) {
+      const actual = reduced.tasks[id]
+      expect(actual).toBeDefined()
+      expect(actual?.state).toBe(expected.state)
+      expect(actual?.attempt).toBe(expected.attempt)
+      expect(actual?.owner).toBe(expected.owner)
+      expect(actual?.integrated).toBe(expected.integrated)
+      expect((actual?.last_verdict as Record<string, unknown> | null)?.verdict ?? null).toBe((expected.last_verdict as Record<string, unknown> | null)?.verdict ?? null)
+      const latestSpawn = basicEvents.filter(event => event.type === 'spawned' && event.task_id === id).at(-1)
+      const expectedWorktree = typeof latestSpawn?.worktree === 'string' ? latestSpawn.worktree.split('/').filter(Boolean).at(-1) : null
+      const actualWorktree = typeof actual?.worktree === 'string' ? actual.worktree.split('/').filter(Boolean).at(-1) : null
+      expect(actualWorktree).toBe(expectedWorktree)
+    }
+  })
+
+  test('starts labeled tasks as planned and derives ready when claimable', () => {
+    const result = reduceEvents([], { T1: { context: { depends_on: [] } } })
+    expect(result.tasks.T1?.state).toBe('ready')
+    expect(result.tasks.T1?.claimable).toBe(true)
+  })
+
+  test('claims only with matching attempt and records owner', () => {
+    const result = reduceEvents([{ type: 'claimed', task_id: 'T1', agent_id: 'a', attempt: 1, ts: 1 }], { T1: { context: { depends_on: [] } } })
+    expect(result.tasks.T1?.state).toBe('claimed')
+    expect(result.tasks.T1?.owner).toBe('a')
+  })
+
+  test('ignores executor heartbeats from a non-owner', () => {
+    const events = [
+      { type: 'claimed', task_id: 'T1', agent_id: 'a', attempt: 1, ts: 1 },
+      { type: 'heartbeat', task_id: 'T1', agent_id: 'b', step: 'wrong', ts: 2 },
+    ]
+    const result = reduceEvents(events, { T1: { context: { depends_on: [] } } })
+    expect(result.tasks.T1?.last_step).toBe(null)
+    expect(result.tasks.T1?.owner).toBe('a')
+  })
+
+  test('ignores authority events carrying an agent id', () => {
+    const events = [{ type: 'integrated', task_id: 'T1', agent_id: 'a', ts: 1 }]
+    expect(reduceEvents(events, { T1: { context: { depends_on: [] } } }).tasks.T1?.integrated).toBe(false)
+  })
+
+  test('adds spawned assignees and monitor verdicts only from authority', () => {
+    const events = [
+      { type: 'spawned', task_id: 'T1', agent_id: null, agent_id_minted: 'worker', ts: 1 },
+      { type: 'monitor_verdict', task_id: 'T1', agent_id: null, agent_id_minted: 'monitor', verdict: 'nudge', text: 'continue', ts: 2 },
+    ]
+    const task = reduceEvents(events, { T1: { context: { depends_on: [] } } }).tasks.T1
+    expect(task?.assignees).toEqual(['worker'])
+    expect((task?.last_verdict as Record<string, unknown>).verdict).toBe('nudge')
+  })
+
+  test('sums usage for task and run totals', () => {
+    const events = [{ type: 'usage', task_id: 'T1', agent_id: 'worker', 'gen_ai.usage.input_tokens': 15, 'gen_ai.usage.output_tokens': 6, ts: 1 }]
+    const result = reduceEvents(events, { T1: { context: { depends_on: [] } } })
+    expect(result.tasks.T1?.tokens).toBe(21)
+    expect(result.run.tokens).toBe(21)
+  })
+
+  test('removes an open task and retains added task labels', () => {
+    const events = [
+      { type: 'task_added', task_id: 'T2', agent_id: null, label_file: 'T2.json', ts: 1 },
+      { type: 'label_removed', task_id: 'T1', agent_id: null, ts: 2 },
+    ]
+    const result = reduceEvents(events, { T1: { context: { depends_on: [] } }, T2: { context: { depends_on: [] } } })
+    expect(result.tasks.T1).toBeUndefined()
+    expect(result.tasks.T2?.state).toBe('ready')
+  })
+
+  test('records integration, breach and latest worktree', () => {
+    const events = [
+      { type: 'spawned', task_id: 'T1', agent_id: null, worktree: '/runs/r/wt/T1', ts: 1 },
+      { type: 'integrated', task_id: 'T1', agent_id: null, ts: 2 },
+      { type: 'breach', task_id: 'T1', agent_id: null, breach: 'stuck', ts: 3 },
+    ]
+    const task = reduceEvents(events, { T1: { context: { depends_on: [] } } }).tasks.T1
+    expect(task?.integrated).toBe(true)
+    expect(task?.worktree).toBe('/runs/r/wt/T1')
+    expect(task?.breaches_seen).toEqual([['stuck', 1]])
   })
 })
 
@@ -178,7 +273,7 @@ describe('bandLine', () => {
       T6: { state: 'accepted', breaches_seen: [] },
     }
     const line = bandLine('example-run', tasks, { breaches_seen: [] })
-    expect(line).toBe('ale example-run · 2 working · 1 input-required · 3 accepted · 0 breaches')
+    expect(line).toBe('ale example-run · 1 working · 1 claimed · 1 input-required · 3 accepted · 0 tokens · 0 breaches')
   })
 
   test('counts breaches from both the run and its tasks', () => {
