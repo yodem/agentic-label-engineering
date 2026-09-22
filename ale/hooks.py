@@ -42,10 +42,14 @@ def decide_pre_tool(binding: dict, label: dict, task_state: dict, tool_name: str
                     tool_input: dict, project_root: str) -> dict:
     if task_state.get("owner") != binding.get("agent_id"):
         return {"action": "deny", "reason": "lease lost (ale exit 4 semantics); stop working and release the session"}
+    rules = label.get("effective_rules") or {}
+    if tool_name in rules.get("deny_tools", []):
+        return {"action": "deny", "reason": "tool denied by agent rules: %s" % tool_name}
     paths = target_paths(tool_name, tool_input)
     if paths:
         relative = [_relative_path(path, project_root) for path in paths]
-        violations = paths_within(relative, label.get("context", {}).get("allowed_paths", []))
+        violations = paths_within(relative, label.get("context", {}).get("allowed_paths", []),
+                                  rules.get("deny_paths", []))
         if violations:
             return {"action": "deny", "reason": "edit path outside allowed_paths: %s" % ", ".join(violations)}
     return {"action": "allow", "reason": "lease held"}
@@ -65,6 +69,10 @@ def decide_stop(label: dict, task_state: dict, acceptance_result: dict,
                 blocks_so_far: int, max_blocks: int) -> dict:
     if task_state.get("state") not in LIVE:
         return {"action": "none"}
+    required_failures = acceptance_result.get("required_failures") or []
+    if required_failures:
+        command = required_failures[0].get("command", "unknown") if isinstance(required_failures[0], dict) else str(required_failures[0])
+        return {"action": "input_required", "question": "Required command failed: %s" % command}
     if acceptance_result.get("passed"):
         manual = acceptance_result.get("manual") or []
         summary = "Acceptance passed"

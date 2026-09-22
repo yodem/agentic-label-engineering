@@ -121,3 +121,23 @@ def test_executor_prompt_keeps_commands_and_ale_bin_name():
     prompt = render_prompt(label(), {"kind": "executor"})
     assert "$ALE_BIN status" in prompt and "$ALE_BIN heartbeat" in prompt
     assert "$ALE_BIN submit" in prompt and "$ALE_BIN usage" in prompt
+
+
+def test_dispatch_uses_agent_floor_raised_executor_tier():
+    assignments = [{"kind": "executor", "role": "backend", "model_tier": "standard", "trigger": "ready"}]
+    routes = {"routing": [
+        {"role": "backend", "model_tier": "cheap", "executor": "claude", "model": "cheap-model"},
+        {"role": "backend", "model_tier": "standard", "executor": "claude", "model": "standard-model"},
+    ], "cost_gate": {"max_parallel": 3}}
+    due = due_assignments(state(("T1", "ready")), {"T1": label(assignments=assignments)}, routes)
+    assert due[0]["model_tier"] == "standard"
+    assert due[0]["model"] == "standard-model"
+
+
+def test_dry_dispatch_json_uses_prompt_for_embedded_content():
+    import json
+    from ale.cli import _dispatch_request_json
+
+    row = json.loads(_dispatch_request_json({"prompt_file": "rendered prompt contents\n"}))
+    assert row["prompt"] == "rendered prompt contents\n"
+    assert "prompt_file" not in row

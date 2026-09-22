@@ -180,6 +180,16 @@ $usage_rows
 EOF
 fi
 
+required_output=$(ale_run check --required --task "$task" --cwd "$(pwd)" 2>&1)
+required_rc=$?
+if [ "$required_rc" -ne 0 ]; then
+    failing=$(printf '%s\n' "$required_output" | awk '/FAIL /{sub(/^FAIL /, ""); print; exit}')
+    [ -n "$failing" ] || failing="$required_output"
+    ale_run input-required --task "$task" --agent "$agent" \
+        --question "Required command failed: $failing"
+    exit "$child_rc"
+fi
+
 check_output=$(ale_run check --task "$task" --cwd "$(pwd)" 2>&1)
 check_rc=$?
 if [ "$check_rc" -eq 0 ]; then

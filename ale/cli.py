@@ -19,6 +19,7 @@ from . import labelset as L
 from . import lifecycle as LC
 from . import roster as R
 from . import verify as V
+from . import agentcat as AC
 from . import watchdog as W
 from . import binding as B
 from . import hooks as HK
@@ -131,6 +132,55 @@ def _write_current_run(run_dir: str, run_id: str) -> None:
 def _resolve_roster(a) -> str:
     return (getattr(a, "roster", None) or os.environ.get("ALE_ROSTER")
             or os.path.join(_ale_dir(), "roster.json"))
+
+
+def _agent_roots(project_root: Optional[str] = None) -> List[str]:
+    root = _git_root(project_root or os.getcwd())
+    return [os.path.join(root, ".ale", "agents"), os.path.dirname(os.path.dirname(__file__)) + "/agents"]
+
+
+def effective_rules(label: dict, agent: Optional[dict]) -> dict:
+    rules = (agent or {}).get("rules") or {}
+    return {key: sorted(set(rules.get(key, []) or []))
+            for key in ("deny_paths", "deny_tools", "require_before_submit")}
+
+
+def _resolve_run_agents(c: "Ctx") -> bool:
+    catalog = AC.load_catalog(_agent_roots())
+    unresolved = []
+    for task_id, label in c.labels.items():
+        labels = label.get("labels", {})
+        role, sub = labels.get("role", "general"), labels.get("sub")
+        phase = labels.get("phase") or "implement"
+        ref = AC.resolve_agent(catalog, role, sub, phase)
+        if ref.get("matched") == "general" and role in ("frontend", "backend", "devops") and sub:
+            unresolved.append("%s: %s/%s has no specialized agent" % (task_id, role, sub))
+            continue
+        label["routing"] = dict(label.get("routing") or {})
+        label["routing"]["agent"] = {key: ref[key] for key in ("key", "path", "name", "sha256", "version", "matched")}
+        agent = catalog.get(ref.get("key"))
+        rules = effective_rules(label, agent)
+        label["effective_rules"] = rules
+        tier = labels.get("model_tier")
+        floor = (agent or {}).get("model_tier_min")
+        raised = False
+        if floor in AC.MODEL_TIERS and tier in AC.MODEL_TIERS and AC.MODEL_TIERS.index(tier) < AC.MODEL_TIERS.index(floor):
+            labels["model_tier"] = floor
+            raised = True
+        if floor in AC.MODEL_TIERS:
+            for assignment in label.get("assignments", []):
+                if assignment.get("kind") != "executor":
+                    continue
+                assignment_tier = assignment.get("model_tier", labels.get("model_tier"))
+                if assignment_tier in AC.MODEL_TIERS and AC.MODEL_TIERS.index(assignment_tier) < AC.MODEL_TIERS.index(floor):
+                    assignment["model_tier"] = floor
+                    raised = True
+        if raised:
+            label.setdefault("provenance", {}).setdefault("model_tier", {})["by"] = "agent-floor"
+        H.write_atomic(_label_path(c.run_dir, task_id), json.dumps(label, indent=2, sort_keys=True))
+    for message in unresolved:
+        print(message, file=sys.stderr)
+    return not unresolved
 
 
 class Ctx:
@@ -257,6 +307,8 @@ def cmd_init_run(a) -> int:
     if errs:
         for e in errs:
             print(e, file=sys.stderr)
+        return FAIL
+    if not _resolve_run_agents(c):
         return FAIL
     if any(e["type"] == "run_started" for e in E.read_events(c.events_path)):
         raise CliError(FAIL, "run already initialised: %s" % c.events_path)
@@ -459,6 +511,10 @@ def _finish_run(context, code: int) -> int:
 def cmd_status(a) -> int:
     c = Ctx(a)
     state = c.state()
+    try:
+        catalog = AC.load_catalog(_agent_roots())
+    except Exception:
+        catalog = None
     for tid, label in c.labels.items():
         if label.get("fixes") and state["tasks"].get(label["fixes"], {}).get("integrated"):
             state["tasks"][tid]["integrated"] = True
@@ -466,6 +522,15 @@ def cmd_status(a) -> int:
         events = E.read_events(c.events_path)
         for tid, st in state["tasks"].items():
             label = c.labels[tid]
+            frozen = (label.get("routing") or {}).get("agent") or {}
+            current = (catalog or {}).get(frozen.get("key")) if frozen else None
+            agent_status = "agent: unknown"
+            if current and frozen:
+                agent_status = "agent=%s@%s" % (
+                    frozen.get("name", "unknown"), (frozen.get("sha256") or "")[:8])
+                if current.get("sha256") != frozen.get("sha256"):
+                    agent_status += " agent: stale"
+            st["agent"] = agent_status
             st["blocked_by"] = list(st.get("blocked_by", []))
             st["assignees"] = list(st.get("assignees", []))
             st["attempt"] = st.get("attempt", 1)
@@ -490,10 +555,18 @@ def cmd_status(a) -> int:
             if worktree != "-":
                 worktree = os.path.relpath(worktree, c.run_dir)
             step = (st["last_step"] or "-")[:24]
-            print("%-8s %-15s attempt=%d owner=%s tokens=%d step=%s wt=%s branch=%s integrated=%s" % (
+            frozen = (c.labels[tid].get("routing") or {}).get("agent") or {}
+            current = (catalog or {}).get(frozen.get("key")) if frozen else None
+            if not current or not frozen:
+                agent_status = "agent: unknown"
+            else:
+                agent_status = "agent=%s@%s" % (frozen.get("name", "unknown"), (frozen.get("sha256") or "")[:8])
+                if current.get("sha256") != frozen.get("sha256"):
+                    agent_status += " agent: stale"
+            print("%-8s %-15s attempt=%d owner=%s tokens=%d step=%s wt=%s branch=%s integrated=%s %s" % (
                 tid, st["state"], st["attempt"], st["owner"] or "-", st["tokens"],
                 step, worktree,
-                (spawn or {}).get("branch", "-"), "yes" if st.get("integrated") else "no"))
+                (spawn or {}).get("branch", "-"), "yes" if st.get("integrated") else "no", agent_status))
     return OK
 
 
@@ -589,16 +662,24 @@ def cmd_verify(a) -> int:
         raise CliError(FAIL, "task %s is %s, not submitted" % (a.task, st["state"]))
     label, owner, attempt = c.labels[a.task], st["owner"], st["attempt"]
     cwd = _task_project_root(c, a.task, a.cwd)
+    required = V.run_required((label.get("effective_rules") or {}).get("require_before_submit", []), cwd)
     evidence = V.run_acceptance(label, cwd)
+    evidence["required"] = required
+    evidence["required_failures"] = [item for item in required if not item["ok"]]
+    if evidence["required_failures"]:
+        evidence["passed"] = False
     evidence.setdefault("files", [])
     reason = None
     if a.base:
         changed = _changed_files(cwd, a.base)
         evidence["files"] = changed
-        bad = V.paths_within(changed, label["context"]["allowed_paths"])
+        bad = V.paths_within(changed, label["context"]["allowed_paths"],
+                             (label.get("effective_rules") or {}).get("deny_paths", []))
         evidence["path_violations"] = bad[:20]
         if bad:
             reason = "path_violation: %s" % ", ".join(bad[:5])
+    if reason is None and evidence["required_failures"]:
+        reason = "required command failed: %s" % evidence["required_failures"][0]["command"]
     if reason is None and not evidence["passed"]:
         reason = "acceptance failed: %s" % ", ".join(r["id"] for r in evidence["results"] if not r["ok"])
     _fit(evidence)
@@ -621,6 +702,13 @@ def cmd_verify(a) -> int:
 def cmd_check(a) -> int:
     c = Ctx(a)
     c.task(a.task)
+    if getattr(a, "required", False):
+        results = V.run_required((c.labels[a.task].get("effective_rules") or {}).get("require_before_submit", []),
+                                 a.cwd or os.getcwd())
+        failed = [item for item in results if not item["ok"]]
+        print(json.dumps(results, sort_keys=True) if a.json else "\n".join(
+            "%s %s" % ("ok" if item["ok"] else "FAIL", item["command"]) for item in results))
+        return FAIL if failed else OK
     evidence = V.run_acceptance(c.labels[a.task], a.cwd or os.getcwd())
     if a.json:
         print(json.dumps(evidence, sort_keys=True))
@@ -832,7 +920,12 @@ def cmd_hook(a) -> int:
         if event == "stop":
             if data.get("stop_hook_active"):
                 return OK
-            evidence = V.run_acceptance(label, data.get("cwd") or os.getcwd())
+            cwd = data.get("cwd") or os.getcwd()
+            required = V.run_required((label.get("effective_rules") or {}).get("require_before_submit", []), cwd)
+            evidence = V.run_acceptance(label, cwd)
+            evidence["required_failures"] = [item for item in required if not item["ok"]]
+            if evidence["required_failures"]:
+                evidence["passed"] = False
             blocks = sum(1 for note in state.get("notes", []) if note.startswith("auto-stop-block") and state.get("attempt") is not None)
             decision = HK.decide_stop(label, state, evidence, blocks, 2)
             if decision["action"] == "block":
@@ -915,7 +1008,7 @@ def _dispatch_assignment(label: dict, due: dict) -> dict:
     for assignment in label.get("assignments", []):
         if assignment.get("kind") == due["kind"] and assignment.get("trigger", "ready") == due["trigger"]:
             result = dict(assignment)
-            result.update({"executor": due["executor"], "model": due["model"],
+            result.update({"model_tier": due["model_tier"], "executor": due["executor"], "model": due["model"],
                            "roster": due.get("roster", "roster.json")})
             return result
     return {"kind": due["kind"], "role": due["role"], "model_tier": due["model_tier"],
@@ -926,6 +1019,9 @@ def _make_dispatch_request(c: Ctx, due: dict, project_cwd: str, n: int) -> dict:
     from .dispatch import spawn_request, worktree_plan
 
     label = c.labels[due["task_id"]]
+    ref = (label.get("routing") or {}).get("agent") or {}
+    agent_catalog = AC.load_catalog(_agent_roots())
+    routed_agent = agent_catalog.get(ref.get("key"))
     assignment = _dispatch_assignment(label, due)
     assignment["roster"] = c.roster_path if hasattr(c, "roster_path") else _resolve_roster(argparse.Namespace())
     plan = worktree_plan(label, c.run_dir, c.run_id)
@@ -934,7 +1030,7 @@ def _make_dispatch_request(c: Ctx, due: dict, project_cwd: str, n: int) -> dict:
         plan["base"] = (label.get("context", {}).get("worktree") or {}).get("base") or "HEAD"
         request_cwd = plan["path"]
     request = spawn_request(label, assignment, c.run_dir, c.run_id, n=n,
-                            cwd=request_cwd, worktree=plan)
+                            cwd=request_cwd, worktree=plan, agent=routed_agent)
     request["executor"] = due["executor"]
     request["model"] = due["model"]
     request["trigger_instance"] = due["trigger_instance"]
@@ -949,7 +1045,7 @@ def _make_dispatch_request(c: Ctx, due: dict, project_cwd: str, n: int) -> dict:
             breach["last_heartbeat_step"] = c.task(due["task_id"]).get("last_step")
         request["breach"] = breach
         request["prompt_file"] = render_prompt(
-            label, dict(assignment, breach=breach, handoff_path=request["handoff_path"], cwd=request["cwd"]))
+            label, dict(assignment, breach=breach, handoff_path=request["handoff_path"], cwd=request["cwd"]), routed_agent)
     return request
 
 
@@ -967,9 +1063,17 @@ def _write_spawn_request(c: Ctx, request: dict) -> str:
     prompt_path = os.path.join(c.run_dir, "prompts", "%s.md" % request["agent_id"])
     H.write_atomic(prompt_path, prompt)
     request["prompt_file"] = prompt_path
+    request["prompt_file_is_path"] = True
     path = os.path.join(c.run_dir, "requests", "%s.json" % request["agent_id"])
     H.write_atomic(path, json.dumps(request, sort_keys=True))
     return path
+
+
+def _dispatch_request_json(request: dict) -> str:
+    printable = dict(request)
+    if "prompt_file" in printable and not printable.get("prompt_file_is_path"):
+        printable["prompt"] = printable.pop("prompt_file")
+    return json.dumps(printable, sort_keys=True)
 
 
 def _append_spawned(c: Ctx, due: dict, request: dict, plan: Optional[dict]) -> None:
@@ -1023,7 +1127,7 @@ def cmd_dispatch(a) -> int:
         raise
     if a.json or a.dry_run or not a.spawn:
         for request in requests:
-            print(json.dumps(request, sort_keys=True))
+            print(_dispatch_request_json(request))
         return OK
     for item, request, request_path in spawned_requests:
         spawn_bin = os.environ.get("ALE_SPAWN_BIN") or os.path.abspath(
@@ -1504,7 +1608,7 @@ def _label_path(run_dir: str, task_id: str) -> str:
 
 
 def cmd_relabel(a) -> int:
-    if a.field == "lane" or (a.field not in CAS.FIELDS and a.field != "assignments"):
+    if a.field == "lane" or (a.field not in CAS.FIELDS and a.field not in ("assignments", "sub", "phase")):
         raise CliError(USAGE, "field %s cannot be relabeled or adjudicated" % a.field)
     c = Ctx(a)
     st = c.task(a.task)
@@ -1530,6 +1634,15 @@ def cmd_relabel(a) -> int:
         old = labels[a.field]
         labels[a.field] = a.value
         label["labels"] = labels
+        if a.field in ("sub", "phase"):
+            catalog = AC.load_catalog(_agent_roots())
+            ref = AC.resolve_agent(catalog, labels.get("role", "general"), labels.get("sub"), labels.get("phase") or "implement")
+            if ref.get("matched") == "general" and labels.get("role") in ("frontend", "backend", "devops") and labels.get("sub"):
+                raise CliError(FAIL, "no specialized agent resolves for %s/%s" % (labels.get("role"), labels.get("sub")))
+            label["routing"] = dict(label.get("routing") or {})
+            label["routing"]["agent"] = {key: ref[key] for key in ("key", "path", "name", "sha256", "version", "matched")}
+            agent = catalog.get(ref["key"])
+            label["effective_rules"] = effective_rules(label, agent)
     provenance = dict(label.get("provenance") or {})
     field_provenance = provenance.get(a.field)
     if not isinstance(field_provenance, dict):
@@ -1540,13 +1653,47 @@ def cmd_relabel(a) -> int:
     provenance[a.field] = field_provenance
     label["provenance"] = provenance
 
+    routing_old = (c.labels[a.task].get("routing") or {}).get("agent")
+    routing_new = (label.get("routing") or {}).get("agent")
     H.write_atomic(_label_path(c.run_dir, a.task), json.dumps(label, indent=2, sort_keys=True))
     c.emit("label_changed", a.task, None, st["attempt"],
            field=a.field if a.field == "assignments" else "labels.%s" % a.field,
            old=old, new=label.get("assignments") if a.field == "assignments" else a.value,
-           reason=a.reason[:TEXT_MAX])
+           routing_agent_old=routing_old, routing_agent_new=routing_new, reason=a.reason[:TEXT_MAX])
     c.emit("relabeled", a.task, None, st["attempt"], field=a.field, old=old, new=a.value,
            reason=a.reason[:TEXT_MAX])
+    return OK
+
+
+def cmd_agents_list(a) -> int:
+    roots = _agent_roots()
+    catalog = AC.load_catalog(roots)
+    rows = []
+    for key, agent in sorted(catalog.items()):
+        source_root = next((root for root in roots if os.path.commonpath(
+            [os.path.realpath(root), os.path.realpath(agent["path"])]) == os.path.realpath(root)), "")
+        rows.append({"key": key, "name": agent["name"], "version": agent["version"],
+                     "source_root": source_root, "sha8": agent["sha256"][:8]})
+    if a.json:
+        print(json.dumps(rows, sort_keys=True))
+    else:
+        for row in rows:
+            print("{key} {name} v{version} {sha8} [{source_root}]".format(**row))
+    return OK
+
+
+def cmd_agents_show(a) -> int:
+    agent = AC.load_catalog(_agent_roots()).get(a.key)
+    if agent is None:
+        raise CliError(FAIL, "unknown agent %s" % a.key)
+    frontmatter = {key: value for key, value in agent.items()
+                   if key not in ("path", "sha256", "core", "harness", "key")}
+    print("file: %s" % agent["path"])
+    print("sha256: %s" % agent["sha256"])
+    print("frontmatter:")
+    print(json.dumps(frontmatter, sort_keys=True, indent=2))
+    print("core:")
+    print(agent["core"], end="" if agent["core"].endswith("\n") else "\n")
     return OK
 
 
@@ -2106,6 +2253,8 @@ def cmd_init_run_plan(a) -> int:
         for error in errors:
             print(error, file=sys.stderr)
         return FAIL
+    if not _resolve_run_agents(c):
+        return FAIL
     if any(event["type"] == "run_started" for event in E.read_events(c.events_path)):
         raise CliError(FAIL, "run already initialised: %s" % c.events_path)
     with open(a.plan, "rb") as handle:
@@ -2212,6 +2361,7 @@ def _parser() -> argparse.ArgumentParser:
     ch = add("check", cmd_check, task=True)
     ch.add_argument("--cwd")
     ch.add_argument("--json", action="store_true")
+    ch.add_argument("--required", action="store_true")
     add("watchdog", cmd_watchdog)
     us = add("usage", cmd_usage, task=True)
     us.add_argument("--agent")
@@ -2229,6 +2379,14 @@ def _parser() -> argparse.ArgumentParser:
     rl.add_argument("--value", required=True)
     rl.add_argument("--reason", required=True)
     rl.add_argument("--json", action="store_true")
+    agents = sub.add_parser("agents")
+    agent_commands = agents.add_subparsers(dest="agents_cmd")
+    agent_list = agent_commands.add_parser("list")
+    agent_list.set_defaults(fn=cmd_agents_list)
+    agent_list.add_argument("--json", action="store_true")
+    agent_show = agent_commands.add_parser("show")
+    agent_show.set_defaults(fn=cmd_agents_show)
+    agent_show.add_argument("key")
     fx = add("fix", cmd_fix, task=True)
     fx.add_argument("--reason")
     rm = add("remove", cmd_remove, task=True)
