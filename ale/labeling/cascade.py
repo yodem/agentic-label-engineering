@@ -10,6 +10,7 @@ from .merge import merge
 from .rules import rule_votes
 
 FIELDS = ("role", "model_tier", "risk", "effort")
+OPTIONAL_FIELDS = ("sub", "phase")
 
 
 def _contained(candidate: str, root: str) -> bool:
@@ -100,9 +101,63 @@ def label_task(draft: dict, text: str, roster: dict, judge=None) -> Tuple[dict, 
         }
         all_votes.extend(field_votes)
 
+    for field in OPTIONAL_FIELDS:
+        planner_value = draft["labels"].get(field)
+        if field == "sub" and planner_value is not None:
+            role_subs = roster["vocab"].get("sub", {}).get(draft["labels"]["role"], {})
+            if (planner_value not in role_subs and
+                    planner_value not in roster["vocab"].get("cross_sub", [])):
+                planner_value = None
+        planner_vote = {"field": field, "value": planner_value, "by": "planner",
+                        "confidence": None, "detail": {}}
+        field_votes = [planner_vote]
+        for vote in rvotes:
+            if vote["field"] != field:
+                continue
+            rule_vote = dict(vote)
+            if field == "sub" and rule_vote["value"] is not None:
+                rule_role, sub = rule_vote["value"].split("/", 1)
+                role_subs = roster["vocab"].get("sub", {}).get(rule_role, {})
+                cross_subs = roster["vocab"].get("cross_sub", [])
+                if sub not in role_subs and sub not in cross_subs:
+                    rule_vote["value"] = None
+                else:
+                    rule_vote["value"] = sub
+            field_votes.append(rule_vote)
+
+        fired = [vote for vote in field_votes if vote["by"].startswith("rule:") and vote["value"] is not None]
+        if planner_value is not None or fired:
+            if planner_value is None and fired:
+                fired_values = {vote["value"] for vote in fired}
+                if len(fired_values) == 1:
+                    winner = fired[0]
+                    merged = {"value": winner["value"], "by": winner["by"],
+                              "confidence": 1.0, "conflict": False}
+                else:
+                    merged = {"value": None, "by": "planner", "confidence": None,
+                              "conflict": True}
+            else:
+                merged = merge(field, field_votes, modes.get(field, "off"), threshold)
+            merged_by_field[field] = merged
+            if merged["value"] is not None or field in draft["labels"]:
+                provenance[field] = {
+                    "by": merged["by"],
+                    "confidence": merged["confidence"],
+                    "conflict": merged["conflict"],
+                    "votes": [{"by": vote["by"], "value": vote["value"],
+                               "confidence": vote["confidence"]} for vote in field_votes],
+                }
+
     final = copy.deepcopy(draft)
     for field in FIELDS:
         final["labels"][field] = merged_by_field[field]["value"]
+    for field in OPTIONAL_FIELDS:
+        if field in merged_by_field:
+            value = merged_by_field[field]["value"]
+            if value is not None or field in draft["labels"]:
+                final["labels"][field] = value
+            else:
+                final["labels"].pop(field, None)
     final["labels"]["lane"] = draft["labels"]["lane"]
     final["provenance"] = provenance
 
