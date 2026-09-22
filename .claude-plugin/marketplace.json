@@ -1,0 +1,11 @@
+{
+  "name": "agentic-label-engineering",
+  "owner": { "name": "yodem" },
+  "plugins": [
+    {
+      "name": "ale",
+      "source": "./",
+      "description": "/ale-board: a live task board for an Agentic Label Engineering (ALE) run above the prompt and in a docked pane."
+    }
+  ]
+}
