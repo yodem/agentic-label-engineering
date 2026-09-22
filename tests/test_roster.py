@@ -1,4 +1,6 @@
+import copy
 import json
+import os
 
 import pytest
 
@@ -37,3 +39,22 @@ def test_load_roster_rejects_bad_file(tmp_path):
     p.write_text(json.dumps({"schema_version": "1.0"}))
     with pytest.raises(RosterError):
         load_roster(str(p))
+
+
+def test_load_roster_accepts_sub_and_phase_judge_modes():
+    from ale.validate import load_schema, validate
+
+    repo_root = os.path.dirname(os.path.dirname(__file__))
+    roster_path = os.path.join(repo_root, "examples", "roster.json")
+    loaded = load_roster(roster_path)
+    assert loaded["judge"]["modes"]["sub"] == "shadow"
+    assert loaded["judge"]["modes"]["phase"] == "shadow"
+
+    invalid_mode_roster = copy.deepcopy(loaded)
+    invalid_mode_roster["judge"]["modes"]["sub"] = "authoritative"
+    invalid_mode_roster["judge"]["modes"]["role"] = "authoritative"
+    assert validate(invalid_mode_roster, load_schema("roster.schema.json")) == []
+
+    invalid_mode_roster["judge"]["modes"]["sub"] = "invalid"
+    errors = validate(invalid_mode_roster, load_schema("roster.schema.json"))
+    assert any("judge.modes.sub" in error for error in errors)

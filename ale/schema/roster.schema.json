@@ -80,7 +80,9 @@
             "role": {"enum": ["off", "shadow", "authoritative"]},
             "model_tier": {"enum": ["off", "shadow", "authoritative"]},
             "risk": {"enum": ["off", "shadow", "authoritative"]},
-            "effort": {"enum": ["off", "shadow", "authoritative"]}
+            "effort": {"enum": ["off", "shadow", "authoritative"]},
+            "sub": {"enum": ["off", "shadow", "authoritative"]},
+            "phase": {"enum": ["off", "shadow", "authoritative"]}
           }
         }
       }

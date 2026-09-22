@@ -141,6 +141,9 @@ def render(stats: dict) -> str:
     judge_threshold = (roster.get("judge") or {}).get("threshold")
     max_instability = float(stats.get("max_instability", promotion.get("max_instability", 0.10)))
     fields = list(stats.get("fields") or DEFAULT_FIELDS)
+    for field in (roster.get("vocab") or {}):
+        if field != "lane" and field not in fields:
+            fields.append(field)
     kinds = list(stats.get("kinds") or DEFAULT_KINDS)
     corpus = list(stats.get("corpus") or [])
     corpus_by_id = _rows_by_id(corpus)
