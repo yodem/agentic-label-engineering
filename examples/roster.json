@@ -52,7 +52,7 @@
     "command": ["jev-ask"],
     "timeout_s": 30,
     "threshold": 0.75,
-    "modes": {"role": "shadow", "model_tier": "shadow", "risk": "shadow", "effort": "shadow"},
+    "modes": {"role": "shadow", "model_tier": "shadow", "risk": "shadow", "effort": "shadow", "sub": "shadow", "phase": "shadow"},
     "questions": {
       "role": "Which kind of engineering work is this task?",
       "model_tier": "How much model capability does this task need?",
