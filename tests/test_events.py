@@ -111,6 +111,15 @@ def test_usage_and_breaches_recorded(label_t01):
     assert out["tasks"]["T01"]["breaches_seen"] == [["stuck", 1]] and out["run"]["breaches_seen"] == ["run_budget"]
 
 
+def test_monitor_verdict_is_authoritative_and_reduced(label_t01):
+    event = ev("monitor_verdict", 5, agent=None, agent_id_minted="T01-monitor-backend-1",
+               verdict="fix", text="Fix: failed check")
+    assert check_event(event) == []
+    state = reduce_run([event], labels_of(label_t01))["tasks"]["T01"]
+    assert state["last_verdict"] == {"agent_id_minted": "T01-monitor-backend-1", "verdict": "fix",
+                                    "text": "Fix: failed check"}
+
+
 def test_submitted_ts_recorded_and_reset_on_reclaim(label_t01):
     base = [ev("claimed", 1), ev("submitted", 7, summary="s")]
     assert reduce_run(base, labels_of(label_t01))["tasks"]["T01"]["submitted_ts"] == 7.0

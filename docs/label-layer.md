@@ -66,6 +66,8 @@ Each label is a JSON object in an `ale-label` fenced block or in `run/labels/TAS
 
 An assignment has `kind`, `role`, `model_tier`, `executor`, and `trigger`. The executor runs when the task is ready. A monitor is read-only and is useful for high-risk or unattended tasks; `on_breach` starts it when the watchdog reports a breach. `on_submit` waits for submission, and `milestone` waits until all tasks with the milestone have submitted or reached a later state. Fixers are created by `ale fix` and are not dispatched as ordinary monitor work.
 
+Monitor prompts contain the triggering breach and heartbeat step, acceptance commands to run read-only, the handoff path, and the worktree. Monitors return `continue`, `nudge`, `fix`, or `escalate` with one line of reasoning; ALE records that verdict for the lead but never runs `ale fix` automatically. Executor prompts use `$ALE_BIN` for ALE commands. Spawned children receive `ALE_BIN` (default `python3 -m ale`) and the plugin root on `PYTHONPATH`.
+
 ## Derived status
 
 `ale status --json` derives these labels from events and current labels:
@@ -79,6 +81,7 @@ An assignment has `kind`, `role`, `model_tier`, `executor`, and `trigger`. The e
 | `breaches` | Breach names recorded for the task. |
 | `lease_expires_ts` | Computed heartbeat lease deadline. |
 | `last_step` | Latest executor progress step. |
+| `last_verdict` | Latest monitor verdict, minted monitor ID, and captured response text. |
 | `fixes` | Fix task IDs belonging to this task. |
 | `fixed_by` | Accepted fix task IDs. |
 
@@ -86,7 +89,7 @@ An assignment has `kind`, `role`, `model_tier`, `executor`, and `trigger`. The e
 
 The board is append-only. Core events are `run_started`, `run_finished`, `labeled`, `label_vote`, `relabeled`, `adjudicated`, `dispatched`, `claimed`, `heartbeat`, `note`, `input_required`, `input_answered`, `relayed`, `submitted`, `verified`, `accepted`, `rejected`, `failed`, `canceled`, `lease_expired`, `released`, `breach`, `monitor_verdict`, `usage`, and `decision`.
 
-The label-layer events are `task_added`, `label_changed`, `label_removed`, `spawned`, and `integrated`. Lead-authority events have no `agent_id`; executor-authored label changes are ignored. `task_added` records the label filename rather than embedding the label body, keeping event lines below the 4096-byte cap.
+The label-layer events are `task_added`, `label_changed`, `label_removed`, `spawned`, and `integrated`. `monitor_verdict` is also lead-authority: it records the minted monitor ID, one of the four verdicts, and up to 1500 characters of the monitor response. Lead-authority events have no `agent_id`; executor-authored label changes are ignored. `task_added` records the label filename rather than embedding the label body, keeping event lines below the 4096-byte cap.
 
 ## Compact baked block
 

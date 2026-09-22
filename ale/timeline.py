@@ -40,6 +40,8 @@ def _changed(event: dict) -> str:
     if kind == "integrated":
         commit = event.get("commit", "")
         return "integrated: %s" % (commit[:7] if commit else event.get("branch", event.get("result", "")))
+    if kind == "monitor_verdict":
+        return "%s: %s" % (event.get("verdict", ""), event.get("text", "")[:100])
     if kind == "labeled":
         labels = event.get("labels") or {}
         return "labels: %s" % ", ".join(str(labels.get(key, "")) for key in
@@ -67,7 +69,7 @@ def timeline(events: List[dict], labels: Dict[str, dict]) -> List[dict]:
             "relative_time": elapsed,
             "type": event.get("type"),
             "task": event.get("task_id"),
-            "agent": event.get("agent_id"),
+            "agent": event.get("agent_id") or event.get("agent_id_minted"),
             "changed": _changed(event),
         })
     return rows

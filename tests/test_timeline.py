@@ -27,6 +27,13 @@ def test_label_change_lines_are_specific():
     assert rows[3]["changed"] == "assigned m/primary via x"
 
 
+def test_monitor_verdict_shows_agent_and_decision():
+    rows = timeline([{"ts": 4, "type": "monitor_verdict", "task_id": "T1", "agent_id": None,
+                      "agent_id_minted": "T1-monitor-1", "verdict": "escalate", "text": "Needs review"}], labels())
+    assert rows[0]["agent"] == "T1-monitor-1"
+    assert rows[0]["changed"] == "escalate: Needs review"
+
+
 def test_format_timeline():
     assert format_timeline([{"relative_time": 0, "type": "run_started", "task": None, "agent": None, "changed": ""}]) == ["+0s run_started - -"]
 

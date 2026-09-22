@@ -7,16 +7,19 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPT = os.path.join(ROOT, "bin", "ale-spawn")
 
 
-def _request(tmp_path, executor, agent="T1-executor-backend-1"):
+def _request(tmp_path, executor, agent="T1-executor-backend-1", kind="executor"):
     prompt = tmp_path / "prompt.md"
     prompt.write_text("prompt")
     path = tmp_path / "request.json"
+    env = {"ALE_TASK": "T1", "ALE_AGENT": agent, "ALE_RUN_DIR": str(tmp_path),
+           "ALE_ROSTER": "roster.json"}
+    if kind == "monitor":
+        env.pop("ALE_TASK")
     path.write_text(json.dumps({
-        "agent_id": agent, "task_id": "T1", "kind": "executor", "role": "backend",
+        "agent_id": agent, "task_id": "T1", "kind": kind, "role": "backend",
         "executor": executor, "model": "model-x", "cwd": str(tmp_path),
         "spec_path": "spec.md", "handoff_path": str(tmp_path / "handoff.md"),
-        "env": {"ALE_TASK": "T1", "ALE_AGENT": agent, "ALE_RUN_DIR": str(tmp_path),
-                "ALE_ROSTER": "roster.json"}, "prompt_file": str(prompt),
+        "env": env, "prompt_file": str(prompt),
     }))
     return path
 
@@ -35,21 +38,39 @@ def test_shell_syntax():
 
 
 def test_claude_headless_dry_run_prints_argv(tmp_path):
-    proc = _run(_request(tmp_path, "claude-headless"))
+    proc = _run(_request(tmp_path, "claude-headless"), {"ALE_PLUGIN_ROOT": ROOT})
     assert proc.returncode == 0
     assert "ale-exec" in proc.stdout and "claude" in proc.stdout and "-p" in proc.stdout
+    assert "--model model-x" in proc.stdout and "--plugin-dir" in proc.stdout
 
 
 def test_codex_exec_dry_run_prints_argv(tmp_path):
     proc = _run(_request(tmp_path, "codex-exec"))
     assert proc.returncode == 0
     assert "ale-exec" in proc.stdout and "codex" in proc.stdout and "exec" in proc.stdout
+    assert "--model model-x" in proc.stdout
 
 
 def test_pi_print_dry_run_prints_argv(tmp_path):
     proc = _run(_request(tmp_path, "pi-print"))
     assert proc.returncode == 0
     assert "ale-exec" in proc.stdout and "pi" in proc.stdout and "-p" in proc.stdout
+    assert "--model model-x" in proc.stdout
+
+
+def test_child_environment_has_ale_bin_and_plugin_pythonpath(tmp_path):
+    proc = _run(_request(tmp_path, "claude-headless"))
+    assert proc.returncode == 0
+    assert "ALE_BIN=python3 -m ale" in proc.stdout
+    assert "PYTHONPATH=" + ROOT in proc.stdout
+
+
+def test_monitor_claude_does_not_receive_plugin_dir(tmp_path):
+    proc = _run(_request(tmp_path, "claude-headless", "T1-monitor-backend-1", kind="monitor"),
+                {"ALE_PLUGIN_ROOT": ROOT})
+    assert proc.returncode == 0
+    assert "claude" in proc.stdout and "--model model-x" in proc.stdout
+    assert "--plugin-dir" not in proc.stdout and "ale-exec" not in proc.stdout
 
 
 def test_herdr_pane_starts_and_sends_with_safe_agent_name(tmp_path):

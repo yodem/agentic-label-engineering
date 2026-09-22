@@ -21,6 +21,7 @@ from . import verify as V
 from . import watchdog as W
 from . import binding as B
 from . import hooks as HK
+from .dispatch import render_prompt
 from . import usage_transcript as UT
 from . import timeline as TL
 from . import dynamic as D
@@ -655,6 +656,14 @@ def _make_dispatch_request(c: Ctx, due: dict, project_cwd: str, n: int) -> dict:
     request["env"]["ALE_ROSTER"] = c.roster_path if hasattr(c, "roster_path") else "roster.json"
     if due["kind"] == "monitor":
         request["env"].pop("ALE_TASK", None)
+        breach = next((event for event in reversed(E.read_events(c.events_path))
+                       if event.get("type") == "breach" and event.get("task_id") == due["task_id"]), None)
+        if breach:
+            breach = dict(breach)
+            breach["last_heartbeat_step"] = c.task(due["task_id"]).get("last_step")
+        request["breach"] = breach
+        request["prompt_file"] = render_prompt(
+            label, dict(assignment, breach=breach, handoff_path=request["handoff_path"], cwd=request["cwd"]))
     return request
 
 
@@ -744,10 +753,24 @@ def cmd_dispatch(a) -> int:
                    c.state()["tasks"][item["task_id"]]["attempt"],
                    reason="spawn failed: %s" % (proc.stderr.strip() or proc.returncode),
                    spawn_key=[item["task_id"], item["kind"], item["trigger_instance"]])
+        elif item["kind"] == "monitor":
+            verdict = _extract_monitor_verdict(proc.stdout or "")
+            if verdict:
+                c.emit("monitor_verdict", item["task_id"], None,
+                       c.state()["tasks"][item["task_id"]]["attempt"],
+                       agent_id_minted=request["agent_id"], verdict=verdict,
+                       text=(proc.stdout or "")[:1500])
     for request in requests:
         if request.get("executor") == "claude-subagent":
             print(json.dumps(request, sort_keys=True))
     return OK
+
+
+def _extract_monitor_verdict(text: str) -> Optional[str]:
+    import re
+
+    match = re.search(r"(?im)^[ \t]*(?:verdict:[ \t]*)?(continue|nudge|fix|escalate)\b[^\n]*$", text)
+    return match.group(1).lower() if match else None
 
 
 def cmd_integrate(a) -> int:

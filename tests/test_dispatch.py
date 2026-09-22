@@ -106,5 +106,18 @@ def test_prompt_fences_hostile_label_text():
 
 
 def test_monitor_prompt_is_read_only_and_has_contract():
-    prompt = render_prompt(label(), {"kind": "monitor", "breach": {"breach": "stuck"}})
+    request = {"kind": "monitor", "breach": {"breach": "lease_expired", "detail": "expired",
+               "attempt": 2, "last_heartbeat_step": "halfway"},
+               "handoff_path": "/run/handoff.md", "cwd": "/worktree"}
+    prompt = render_prompt(label(), request)
     assert '"read_only": true' in prompt and "continue | nudge | fix | escalate" in prompt
+    assert '"type": "lease_expired"' in prompt and '"last_heartbeat_step": "halfway"' in prompt
+    assert '"acceptance_commands": [\n    "pytest -q"' in prompt
+    assert '"handoff_path": "/run/handoff.md"' in prompt and '"worktree": "/worktree"' in prompt
+    assert "ale heartbeat" not in prompt and "ale submit" not in prompt
+
+
+def test_executor_prompt_keeps_commands_and_ale_bin_name():
+    prompt = render_prompt(label(), {"kind": "executor"})
+    assert "$ALE_BIN status" in prompt and "$ALE_BIN heartbeat" in prompt
+    assert "$ALE_BIN submit" in prompt and "$ALE_BIN usage" in prompt

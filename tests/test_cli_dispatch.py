@@ -1,4 +1,3 @@
-import copy
 import json
 import os
 import subprocess
@@ -98,6 +97,31 @@ def test_dispatch_is_idempotent_after_spawn(tmp_path, monkeypatch, capsys):
     assert main(_dispatch_args(run, roster, "--spawn")) == 0
     assert capsys.readouterr().out == ""
     assert len(read_events(str(run / "events.jsonl"))) == 1
+
+
+def test_monitor_spawn_captures_child_verdict_event(tmp_path, monkeypatch, capsys):
+    roster = _roster(tmp_path)
+    assignment = [{"kind": "monitor", "role": "backend", "model_tier": "standard",
+                   "executor": "claude-headless", "trigger": "on_breach"}]
+    run = _run(tmp_path, {"T1": _label(mode="none", assignments=assignment)})
+    breach = make_event("breach", "run-1", 3, "T1", None, 2, breach="lease_expired", detail="lease elapsed")
+    (run / "events.jsonl").write_text(json.dumps(breach) + "\n")
+    monkeypatch.setattr("ale.cli.subprocess.run", lambda *args, **kwargs:
+                        subprocess.CompletedProcess(args[0], 0, stdout="Verdict: escalate\nLease elapsed", stderr=""))
+
+    assert main(_dispatch_args(run, roster, "--spawn")) == 0
+    events = read_events(str(run / "events.jsonl"))
+    verdict = next(event for event in events if event["type"] == "monitor_verdict")
+    assert verdict["verdict"] == "escalate" and verdict["text"].startswith("Verdict: escalate")
+    assert verdict["agent_id_minted"] == "T1-monitor-backend-1"
+    request = json.loads((run / "requests" / "T1-monitor-backend-1.json").read_text())
+    assert "ALE_TASK" not in request["env"] and request["env"]["ALE_PLUGIN_ROOT"]
+    prompt = (run / "prompts" / "T1-monitor-backend-1.md").read_text()
+    assert '"type": "lease_expired"' in prompt and '"attempt": 2' in prompt
+    assert '"last_heartbeat_step": null' in prompt
+    assert '"acceptance_commands"' in prompt and '"handoff_path"' in prompt and '"worktree"' in prompt
+    payload = json.loads(prompt.split("```json\n", 1)[1].split("\n```", 1)[0])
+    assert "commands" not in payload
 
 
 def test_failed_spawn_releases_assignment(tmp_path, capsys):

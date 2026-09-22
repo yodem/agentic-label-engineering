@@ -162,12 +162,23 @@ def render_prompt(label: dict, request: Optional[dict] = None) -> str:
         "spec_text": label.get("context", {}).get("spec_text", ""),
         "allowed_paths": label.get("context", {}).get("allowed_paths", []),
         "acceptance": label.get("acceptance", []),
-        "commands": ["ale status", "ale heartbeat", "ale submit", "ale usage"],
+        "commands": ["$ALE_BIN status", "$ALE_BIN heartbeat", "$ALE_BIN submit", "$ALE_BIN usage"],
     }
     if request.get("kind") == "monitor":
-        payload["read_only"] = True
-        payload["breach"] = request.get("breach")
-        payload["verdict_contract"] = "continue | nudge | fix | escalate"
+        breach = request.get("breach") or {}
+        payload = {
+            "task_id": label.get("task_id"),
+            "goal": label.get("title"),
+            "read_only": True,
+            "breach": {"type": breach.get("breach", breach.get("type")),
+                       "detail": breach.get("detail"), "attempt": breach.get("attempt"),
+                       "last_heartbeat_step": breach.get("last_heartbeat_step", breach.get("last_step"))},
+            "acceptance_commands": [item.get("cmd") for item in label.get("acceptance", [])
+                                    if isinstance(item, dict) and item.get("cmd")],
+            "handoff_path": request.get("handoff_path"),
+            "worktree": request.get("cwd"),
+            "verdict_contract": "continue | nudge | fix | escalate; include one line of reasoning per verdict",
+        }
     return "ALE_PROMPT_JSON\n```json\n%s\n```\n" % json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2)
 
 
@@ -183,6 +194,7 @@ def spawn_request(label: dict, assignment: dict, run_dir: str, run_id: str, n: i
                "spec_path": label.get("context", {}).get("spec_path"),
                "handoff_path": os.path.join(run_dir, "handoff", "%s-%s-handoff.md" % (agent_id, role)),
                "env": {"ALE_TASK": task_id, "ALE_AGENT": agent_id, "ALE_RUN_DIR": run_dir,
-                       "ALE_ROSTER": assignment.get("roster", "roster.json")},
+                       "ALE_ROSTER": assignment.get("roster", "roster.json"),
+                       "ALE_PLUGIN_ROOT": os.path.dirname(os.path.dirname(os.path.abspath(__file__)))},
                "prompt_file": render_prompt(label, assignment)}
     return request

@@ -15,13 +15,14 @@ TERMINAL = ("accepted", "failed", "canceled")
 _OPEN = ("planned", "released", "rejected")
 _NEEDS_EVIDENCE = ("verified", "accepted", "rejected")
 _AUTHORITY = ("verified", "accepted", "rejected", "failed", "canceled", "lease_expired", "released", "input_answered",
-              "task_added", "label_changed", "label_removed", "spawned", "integrated")
+              "task_added", "label_changed", "label_removed", "spawned", "integrated", "monitor_verdict")
 _DYNAMIC_EVENT_FIELDS = {
     "task_added": ("label_file", "reason"),
     "label_changed": ("field", "old", "new", "reason"),
     "label_removed": ("reason",),
     "spawned": ("agent_id_minted", "assignment_kind", "executor", "model"),
     "integrated": ("commit",),
+    "monitor_verdict": ("agent_id_minted", "verdict", "text"),
 }
 
 
@@ -88,7 +89,8 @@ def _new_task() -> dict:
             "last_heartbeat_ts": None, "submitted_ts": None, "last_step": None, "step_changed_ts": None, "steps": [],
             "files_modified": [], "pending": [], "next_steps": [], "waiting_on": None, "summary": None,
             "notes": [], "tokens": 0, "cost_usd": 0.0, "rejections": 0, "last_reject_reason": None,
-            "evidence": None, "breaches_seen": [], "assignees": [], "integrated": False, "blocked_by": []}
+            "evidence": None, "breaches_seen": [], "assignees": [], "integrated": False,
+            "last_verdict": None, "blocked_by": []}
 
 
 def _deps_ok(task_id: str, tasks: Dict[str, dict], labels: Dict[str, dict]) -> bool:
@@ -163,6 +165,9 @@ def _apply(st: dict, ev: dict, tasks: Dict[str, dict], labels: Dict[str, dict]) 
             st["assignees"].append(minted)
     elif kind == "integrated":
         st["integrated"] = True
+    elif kind == "monitor_verdict":
+        st["last_verdict"] = {"agent_id_minted": ev["agent_id_minted"], "verdict": ev["verdict"],
+                              "text": ev["text"]}
 
 
 def reduce_run(events: List[dict], labels: Dict[str, dict]) -> dict:

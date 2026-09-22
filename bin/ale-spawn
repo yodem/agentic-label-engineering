@@ -25,11 +25,14 @@ values = {
     "ale_prompt": request.get("prompt_file", ""),
     "ale_run_dir": env.get("ALE_RUN_DIR", ""),
     "ale_roster": env.get("ALE_ROSTER", ""),
+    "ale_plugin_root": env.get("ALE_PLUGIN_ROOT", ""),
     "ale_herdr": "",
 }
 for key, value in env.items():
     if key == "ALE_HERDR_EXEC":
         values["ale_herdr"] = value
+    elif key == "ALE_PLUGIN_ROOT":
+        values["ale_plugin_root"] = value
 for key, value in values.items():
     print("%s=%s" % (key, shlex.quote(str(value))))
 ' "$request")"
@@ -42,6 +45,17 @@ if [ -n "$ale_agent" ]; then ALE_AGENT=$ale_agent; export ALE_AGENT; fi
 if [ -n "$ale_run_dir" ]; then ALE_RUN_DIR=$ale_run_dir; export ALE_RUN_DIR; fi
 if [ -n "$ale_roster" ]; then ALE_ROSTER=$ale_roster; export ALE_ROSTER; fi
 if [ -n "$ale_model" ]; then ALE_MODEL=$ale_model; export ALE_MODEL; fi
+plugin_root=${ALE_PLUGIN_ROOT:-$ale_plugin_root}
+if [ -z "$plugin_root" ]; then plugin_root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd); fi
+ALE_PLUGIN_ROOT=$plugin_root
+export ALE_PLUGIN_ROOT
+ALE_BIN=${ALE_BIN:-python3 -m ale}
+export ALE_BIN
+case ":${PYTHONPATH:-}:" in
+    *":$plugin_root:"*) ;;
+    *) PYTHONPATH="$plugin_root${PYTHONPATH:+:$PYTHONPATH}" ;;
+esac
+export PYTHONPATH
 
 print_argv() {
     printf '%s' "$1"
@@ -56,6 +70,7 @@ print_argv() {
 run_argv() {
     if [ "${ALE_SPAWN_DRY:-0}" = "1" ]; then
         print_argv "$@"
+        printf 'ALE_BIN=%s\nPYTHONPATH=%s\n' "$ALE_BIN" "$PYTHONPATH"
         return 0
     fi
     "$@"
@@ -84,10 +99,16 @@ case "$ale_executor" in
         fi
         case "$ale_executor" in
             claude-headless)
+                set -- claude
+                if [ -n "$ale_model" ]; then set -- "$@" --model "$ale_model"; fi
+                if [ -n "$ALE_PLUGIN_ROOT" ] && [ "$ale_kind" = "executor" ]; then
+                    set -- "$@" --plugin-dir "$ALE_PLUGIN_ROOT"
+                fi
+                set -- "$@" -p "$prompt_text"
                 if [ -n "$prefix" ]; then
-                    run_argv "$prefix" --task "$ale_task" --agent "$ale_agent" -- claude -p "$prompt_text"
+                    run_argv "$prefix" --task "$ale_task" --agent "$ale_agent" -- "$@"
                 else
-                    run_argv claude -p "$prompt_text"
+                    run_argv "$@"
                 fi
                 ;;
             codex-exec)
@@ -106,10 +127,13 @@ case "$ale_executor" in
                 fi
                 ;;
             pi-print)
+                set -- pi --mode json
+                if [ -n "$ale_model" ]; then set -- "$@" --model "$ale_model"; fi
+                set -- "$@" -p "$prompt_text"
                 if [ -n "$prefix" ]; then
-                    run_argv "$prefix" --task "$ale_task" --agent "$ale_agent" --usage-from pi-json -- pi --mode json -p "$prompt_text"
+                    run_argv "$prefix" --task "$ale_task" --agent "$ale_agent" --usage-from pi-json -- "$@"
                 else
-                    run_argv pi --mode json -p "$prompt_text"
+                    run_argv "$@"
                 fi
                 ;;
         esac

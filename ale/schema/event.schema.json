@@ -8,6 +8,9 @@
     "task_id": {"type": ["string", "null"]},
     "agent_id": {"type": ["string", "null"]},
     "attempt": {"type": ["integer", "null"]},
-    "type": {"enum": ["run_started", "label_vote", "labeled", "relabeled", "adjudicated", "dispatched", "claimed", "heartbeat", "note", "input_required", "input_answered", "relayed", "submitted", "verified", "accepted", "rejected", "failed", "canceled", "lease_expired", "released", "breach", "monitor_verdict", "usage", "decision", "run_finished", "task_added", "label_changed", "label_removed", "spawned", "integrated"]}
+    "type": {"enum": ["run_started", "label_vote", "labeled", "relabeled", "adjudicated", "dispatched", "claimed", "heartbeat", "note", "input_required", "input_answered", "relayed", "submitted", "verified", "accepted", "rejected", "failed", "canceled", "lease_expired", "released", "breach", "monitor_verdict", "usage", "decision", "run_finished", "task_added", "label_changed", "label_removed", "spawned", "integrated"]},
+    "verdict": {"enum": ["continue", "nudge", "fix", "escalate"]},
+    "agent_id_minted": {"type": "string", "minLength": 1},
+    "text": {"type": "string", "maxLength": 1500}
   }
 }
