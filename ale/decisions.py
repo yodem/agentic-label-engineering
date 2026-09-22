@@ -60,7 +60,7 @@ CHOICE_QUESTION_KEYS = {
 
 # Evidence decisions ask one Noul per key, each from judge.questions[<key>].
 EVIDENCE_QUESTIONS = {
-    "lane": ["large_change", "needs_person"],
+    "lane": ["large_change"],
     "needs_monitor": ["large_change", "needs_person", "external_side_effects"],
     "locality": ["locality"],
     "rejection_action": ["rejection_environment", "rejection_spec_conflict", "rejection_needs_human"],
@@ -69,7 +69,7 @@ EVIDENCE_QUESTIONS = {
 
 # Facts are computed from labels, the plan graph, or events. They are never asked.
 EVIDENCE_FACTS = {
-    "lane": ["role", "independent_tasks"],
+    "lane": ["role", "independent_tasks", "unattended"],
     "needs_monitor": ["risk"],
     "locality": [],
     "rejection_action": ["fix_count", "is_fix_task"],
@@ -83,10 +83,10 @@ LIVENESS_BREACHES = ("stuck", "lease_expired", "overrun", "input_required")
 RULE_TABLES = {
     "lane": [
         ("large_change", "yes(large_change) -> pane"),
-        ("needs_person", "no(needs_person) -> pane"),
+        ("unattended", "unattended -> pane"),
         ("verification_role", "role in {test, review} -> workflow"),
         ("independent_tasks", "independent_tasks >= 2 -> workflow"),
-        ("single_attended_task", "otherwise -> inline"),
+        ("default", "otherwise -> inline"),
     ],
     "needs_monitor": [
         ("high_risk", "risk == high -> yes"),
@@ -236,13 +236,13 @@ def _apply_table(decision: str, yes, facts: Dict[str, object]):
     if decision == "lane":
         if yes("large_change"):
             return "pane", "large_change"
-        if not yes("needs_person"):
-            return "pane", "needs_person"
+        if facts.get("unattended") is True:
+            return "pane", "unattended"
         if facts.get("role") in ("test", "review"):
             return "workflow", "verification_role"
         if int(facts.get("independent_tasks") or 0) >= 2:
             return "workflow", "independent_tasks"
-        return "inline", "single_attended_task"
+        return "inline", "default"
     if decision == "needs_monitor":
         if facts.get("risk") == "high":
             return "yes", "high_risk"

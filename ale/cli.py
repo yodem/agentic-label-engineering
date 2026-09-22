@@ -140,7 +140,8 @@ def _bake_extra_votes(judge, roster: dict, label: dict, task_text: str, all_labe
     cache = {}
     votes.append(EV.evidence_vote(judge, "lane", roster, state, {
         "role": labels.get("role"),
-        "independent_tasks": DECISIONS.independent_task_count(label["task_id"], all_labels)}, cache))
+        "independent_tasks": DECISIONS.independent_task_count(label["task_id"], all_labels),
+        "unattended": False}, cache))
     votes.append(EV.evidence_vote(judge, "needs_monitor", roster, state,
                                   {"risk": labels.get("risk")}, cache))
     return votes

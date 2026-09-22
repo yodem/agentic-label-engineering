@@ -144,18 +144,18 @@ class _Judge:
 
 def test_evidence_vote_records_uncertain_and_missing_answers():
     roster = {"judge": {"questions": {"large_change": "Q1?", "needs_person": "Q2?"}}}
-    uncertain = EV.evidence_vote(_Judge({"large_change": 0.55, "needs_person": 0.1}), "lane", roster, "{}",
+    uncertain = EV.evidence_vote(_Judge({"large_change": 0.55}), "lane", roster, "{}",
                                  {"role": "backend", "independent_tasks": 0})
     assert uncertain["choice"] == "pane" and uncertain["uncertain"] is True
-    assert uncertain["latency_ms"] == 10 and uncertain["answers"] == {"large_change": 0.55, "needs_person": 0.1}
-    missing = EV.evidence_vote(_Judge({"needs_person": 0.1}), "lane", roster, "{}",
+    assert uncertain["latency_ms"] == 5 and uncertain["answers"] == {"large_change": 0.55}
+    missing = EV.evidence_vote(_Judge({}), "lane", roster, "{}",
                                {"role": "backend", "independent_tasks": 0})
     assert missing["choice"] is None and missing["rule"] == "missing_evidence"
     assert "timeout" in missing["error"]
 
 
 def test_evidence_vote_without_a_roster_question_abstains_and_asks_nothing():
-    judge = _Judge({"large_change": 0.9, "needs_person": 0.9})
+    judge = _Judge({"large_change": 0.9})
     vote = EV.evidence_vote(judge, "lane", {"judge": {"questions": {}}}, "{}",
                             {"role": "backend", "independent_tasks": 0})
     assert judge.asked == [] and vote["choice"] is None and "missing_question" in vote["error"]
@@ -177,8 +177,8 @@ def test_shared_evidence_latency_is_counted_once_per_call():
     cache = {}
     lane = EV.evidence_vote(judge, "lane", roster, "{}", {"role": "backend", "independent_tasks": 0}, cache)
     monitor = EV.evidence_vote(judge, "needs_monitor", roster, "{}", {"risk": "low"}, cache)
-    assert lane["calls_latency_ms"] == [5, 5] and lane["latency_ms"] == 10
-    assert monitor["calls_latency_ms"] == [5] and monitor["latency_ms"] == 5
+    assert lane["calls_latency_ms"] == [5] and lane["latency_ms"] == 5
+    assert monitor["calls_latency_ms"] == [5, 5] and monitor["latency_ms"] == 10
     stats = summarize_shadow([dict(lane, task_id="T1"), dict(monitor, task_id="T1")], [], [], {})
     assert stats["decisions"]["lane"]["latency_ms_median"] == 5
     assert stats["decisions"]["needs_monitor"]["latency_ms_median"] == 5
