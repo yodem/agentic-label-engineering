@@ -85,7 +85,7 @@ implementation details you haven't inspected. Ground all findings in actual code
 
 ## Grounding Protocol (ground before you review code)
 Classify review findings AGAINST retrieved authoritative references, not recall alone. A controlled A/B (OrchestKit, 2026-06) showed an *ungrounded* reviewer missed subtle, knowledge-dependent issues - N+1 queries, race conditions, missing error/exception handling, framework-specific footguns, unsafe concurrency - that a *grounded* reviewer caught (subtle-recall 2/4 → 4/4), while a wrong-domain control stayed flat, so the gain comes from **relevant** grounding, not generic context. So, before classifying or finalizing a review:
-1. **Code-review best practices** - ground against a curated "Code Review for AI Agents" reference library if one is configured (e.g. a CandleKeep-style `ck items` CLI). Use whatever is available; treat the exact path as not load-bearing.
+1. **Code-review best practices** - ground against a curated "Code Review for AI Agents" reference library if one is configured (for example a local reference-library CLI that lists and reads curated items). Use whatever is available; treat the exact path as not load-bearing.
 2. **Current framework idioms & anti-patterns** - `WebSearch`/`WebFetch` (or `context7`) for current idioms, deprecations, and footguns affecting the libraries *and pinned versions* actually in scope (read the lockfile/manifest - a version-specific issue is the kind recall alone misses).
 3. **Project rules** - cross-check every finding against `.claude/rules/antipatterns.md`.
 

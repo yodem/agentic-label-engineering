@@ -51,8 +51,8 @@ Audit findings AGAINST retrieved authoritative references, not recall alone. A c
    affecting the libraries *and pinned versions* actually in scope (read the lockfile/manifest;
    a version-specific CVE is the kind of finding recall alone misses).
 2. **Authoritative references** (use whatever is configured; all optional, degrade gracefully):
-   a curated security library if present (e.g. a CandleKeep `ck items` library carrying the OWASP
-   WSTG / web-app-security guides), or `context7` for official library/framework docs. Cite what
+   a curated security library if present (for example a local reference-library CLI carrying the
+   OWASP WSTG / web-app-security guides), or `context7` for official library/framework docs. Cite what
    you retrieve - OWASP test IDs (e.g. WSTG-ATHZ-02 for IDOR), CVE numbers.
 3. **Project rules** - cross-check every finding against `.claude/rules/antipatterns.md`.
 If NO external source is reachable, proceed on the OWASP checklist below - but say so explicitly
