@@ -94,12 +94,56 @@ def _paths_overlap(a: dict, b: dict) -> bool:
     return any(globs_overlap(x, y) for x in paths_a for y in paths_b)
 
 
+def worktree_mode(label: dict) -> str:
+    context = label.get("context", {})
+    worktree = context.get("worktree") or {}
+    mode = worktree.get("mode")
+    return mode if mode is not None else ("per_task" if context.get("allowed_paths") else "none")
+
+
+def held_for_integration(run_state: dict, labels: Dict[str, dict]) -> List[Tuple[str, str]]:
+    tasks = run_state.get("tasks", {})
+    spawned = _spawned(run_state)
+    breaches = _breaches(run_state)
+    held = []
+    for task_id in sorted(labels):
+        state = tasks.get(task_id, {})
+        if worktree_mode(labels[task_id]) != "per_task":
+            continue
+        if state.get("state") != "ready" and not state.get("resumable"):
+            continue
+        due = False
+        for assignment in _assignments(labels[task_id]):
+            kind = assignment.get("kind", "executor")
+            if kind == "fixer":
+                continue
+            trigger = assignment.get("trigger", "ready")
+            if kind == "executor" and trigger == "ready" and state.get("state") != "ready" and not state.get("resumable"):
+                continue
+            if kind == "monitor" and trigger == "milestone" and not _milestone_ready(task_id, assignment, labels, tasks):
+                continue
+            instance = _trigger_instance(assignment, task_id, state, breaches)
+            if instance is not None and (task_id, kind, instance) not in spawned:
+                due = True
+                break
+        if not due:
+            continue
+        for dependency_id in labels[task_id].get("context", {}).get("depends_on", []):
+            dependency = tasks.get(dependency_id, {})
+            if dependency.get("state") == "accepted" and not dependency.get("integrated"):
+                held.append((task_id, dependency_id))
+    return held
+
+
 def due_assignments(run_state: dict, labels: Dict[str, dict], roster: dict) -> List[dict]:
     tasks = run_state.get("tasks", {})
+    held = {task_id for task_id, _ in held_for_integration(run_state, labels)}
     spawned = _spawned(run_state)
     breaches = _breaches(run_state)
     candidates = []
     for task_id in sorted(labels):
+        if task_id in held:
+            continue
         label, state = labels[task_id], tasks.get(task_id, {})
         if state.get("state") in ("claimed", "working", "input-required") and not state.get("resumable"):
             continue
@@ -146,15 +190,12 @@ def mint_agent_id(task_id: str, kind: str, role: str, n: int) -> str:
 def worktree_plan(label: dict, run_dir: str, run_id: str) -> Optional[dict]:
     context = label.get("context", {})
     worktree = context.get("worktree") or {}
-    mode = worktree.get("mode")
-    if mode is None:
-        mode = "per_task" if context.get("allowed_paths") else "none"
-    if mode != "per_task":
+    if worktree_mode(label) != "per_task":
         return None
     task_id = label.get("fixes") or label.get("task_id")
     return {"path": os.path.join(run_dir, "wt", task_id),
             "branch": "ale/%s/%s" % (run_id, task_id),
-            "base": worktree.get("base") or run_dir}
+            "base": worktree.get("base") or "HEAD"}
 
 
 def render_prompt(label: dict, request: Optional[dict] = None, agent: Optional[dict] = None) -> str:

@@ -517,6 +517,17 @@ def cmd_run(a) -> int:
                     return _finish_run(context, FAIL)
             context = Ctx(c_args)
             context.roster_path = roster
+        fresh_actions = RUNNER.next_actions(
+            context.state(), context.labels, E.read_events(context.events_path))
+        for kind, task_id in fresh_actions:
+            if kind != "integrate":
+                continue
+            result = main([kind, "--task", task_id, "--run-dir", run_dir,
+                           "--roster", roster, "--cwd", os.getcwd()])
+            if result:
+                return _finish_run(context, FAIL)
+            context = Ctx(c_args)
+            context.roster_path = roster
         result = main(["dispatch", "--spawn", "--cwd", os.getcwd(), "--run-dir", run_dir, "--roster", roster])
         if result:
             return _finish_run(context, result)
@@ -1191,7 +1202,7 @@ def _append_spawned(c: Ctx, due: dict, request: dict, plan: Optional[dict]) -> N
 
 def cmd_dispatch(a) -> int:
     import fcntl
-    from .dispatch import due_assignments, worktree_plan
+    from .dispatch import due_assignments, held_for_integration, worktree_plan
 
     c = Ctx(a)
     c.roster_path = _resolve_roster(a)
@@ -1203,7 +1214,12 @@ def cmd_dispatch(a) -> int:
         lock = open(lock_path, "a+")
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         try:
-            due = due_assignments(_dispatch_state(c), c.labels, c.roster)
+            dispatch_state = _dispatch_state(c)
+            held = held_for_integration(dispatch_state, c.labels)
+            for task_id, dependency_id in held:
+                print("holding %s: dependency %s is accepted but not integrated" %
+                      (task_id, dependency_id), file=sys.stderr)
+            due = due_assignments(dispatch_state, c.labels, c.roster)
             for index, item in enumerate(due, 1):
                 request = _make_dispatch_request(c, item, project_cwd, index)
                 requests.append(request)
