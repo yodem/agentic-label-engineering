@@ -1,0 +1,6 @@
+{"agent_id":null,"attempt":null,"run_id":"example-run","schema_version":"1.0","task_id":null,"ts":0.0,"type":"run_started"}
+{"agent_id":null,"attempt":1,"labels":{"effort":"M","lane":"pane","model_tier":"standard","risk":"low","role":"backend"},"roster_hash":"96258075","run_id":"example-run","schema_version":"1.0","task_id":"T01","ts":0.0,"type":"labeled"}
+{"agent_id":null,"attempt":1,"labels":{"effort":"S","lane":"inline","model_tier":"cheap","risk":"low","role":"docs"},"roster_hash":"96258075","run_id":"example-run","schema_version":"1.0","task_id":"T02","ts":0.0,"type":"labeled"}
+{"agent_id":"fixture-agent","attempt":1,"pane":"w2:p2M","run_id":"example-run","schema_version":"1.0","task_id":"T01","ts":1.0,"type":"claimed"}
+{"agent_id":"fixture-agent","attempt":1,"run_id":"example-run","schema_version":"1.0","step":"Implement refresh","task_id":"T01","ts":2.0,"type":"heartbeat"}
+{"agent_id":"fixture-agent","attempt":1,"gen_ai.request.model":"fixture","gen_ai.usage.input_tokens":123,"gen_ai.usage.output_tokens":45,"run_id":"example-run","schema_version":"1.0","task_id":"T01","ts":3.0,"type":"usage","usage_source":"unknown"}

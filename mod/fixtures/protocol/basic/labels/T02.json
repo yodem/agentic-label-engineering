@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "run_id": "example-run",
+  "task_id": "T02",
+  "title": "Document the refresh endpoint",
+  "labels": {"role": "docs", "model_tier": "cheap", "lane": "inline", "risk": "low", "effort": "S"},
+  "routing": {"executor": null, "model": null, "resolved_from": null},
+  "context": {"spec_path": "specs/T02.md", "pointers": [], "allowed_paths": ["docs/**"], "depends_on": ["T01"]},
+  "acceptance": [
+    {"id": "A1", "cmd": "true", "expect": "exit0"},
+    {"id": "A2", "cmd": "test -d .", "expect": "exit0"}
+  ],
+  "provenance": {"lane_reason": "Short edit with the human present, so inline."}
+}
