@@ -1,7 +1,7 @@
 ---
 name: devops-default
 role: devops
-sub: infra
+sub: _default
 phases: [plan, design, implement, test, review, deploy, operate, maintain]
 model_tier_min: cheap
 reads:
@@ -44,7 +44,8 @@ rules:
   deny_paths: []
   deny_tools: []
   require_before_submit: []
-checklist: []
+checklist:
+  - "Verify operational impact, rollback path, and required deployment checks"
 origin: orchestkit/infrastructure-architect@9.8.0
 version: 1
 ---

@@ -1,6 +1,6 @@
 ---
 name: cross-review
-role: general
+role: _cross
 sub: review
 phases: [plan, design, review]
 model_tier_min: cheap
@@ -11,7 +11,6 @@ reads:
   - "tests/**"
   - "**/pyproject.toml"
   - "**/package.json"
-  - ""
   - "agents/_refs/code-review-playbook/SKILL.md"
   - "agents/_refs/code-review-playbook/references/conventional-comments.md"
   - "agents/_refs/code-review-playbook/references/ork-delta.md"

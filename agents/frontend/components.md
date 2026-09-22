@@ -47,7 +47,8 @@ reads:
   - "agents/_refs/testing-unit/references/msw-2x-api.md"
   - "agents/_refs/testing-unit/references/stateful-testing.md"
 rules: {}
-checklist: []
+checklist:
+  - "Verify component states, keyboard behavior, and reuse boundaries"
 origin: orchestkit/frontend-ui-developer@9.8.0
 version: 1
 ---

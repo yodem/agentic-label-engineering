@@ -58,7 +58,8 @@ rules:
   deny_paths: []
   deny_tools: []
   require_before_submit: []
-checklist: []
+checklist:
+  - "Verify pipeline ordering, failure visibility, and required protections"
 origin: orchestkit/ci-cd-engineer@9.8.0
 version: 1
 ---

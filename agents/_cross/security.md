@@ -1,6 +1,6 @@
 ---
 name: cross-security
-role: general
+role: _cross
 sub: security
 phases: [plan, review]
 model_tier_min: cheap
@@ -11,7 +11,6 @@ reads:
   - "tests/**"
   - "**/pyproject.toml"
   - "**/package.json"
-  - ""
   - "agents/_refs/security-patterns/SKILL.md"
   - "agents/_refs/security-patterns/references/audit-logging.md"
   - "agents/_refs/security-patterns/references/cc-permission-model.md"

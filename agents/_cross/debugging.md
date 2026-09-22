@@ -1,6 +1,6 @@
 ---
 name: cross-debugging
-role: general
+role: _cross
 sub: debugging
 phases: [implement, test, maintain]
 model_tier_min: cheap
@@ -10,7 +10,6 @@ reads:
   - "**/*.ts"
   - "**/*.js"
   - "tests/**"
-  - ""
   - "agents/_refs/errors/SKILL.md"
 rules:
   deny_paths: []
