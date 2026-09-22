@@ -66,6 +66,7 @@ def load_catalog(roots: List[str]) -> Dict[str, dict]:
         real_root = os.path.realpath(root)
         root_entries: Dict[str, dict] = {}
         for directory, dirnames, filenames in os.walk(root):
+            dirnames[:] = [name for name in dirnames if name != "_refs"]
             dirnames.sort()
             for filename in sorted(filenames):
                 if not filename.endswith(".md"):
