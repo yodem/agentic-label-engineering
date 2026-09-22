@@ -90,7 +90,7 @@ def _new_task() -> dict:
             "files_modified": [], "pending": [], "next_steps": [], "waiting_on": None, "summary": None,
             "notes": [], "tokens": 0, "cost_usd": 0.0, "rejections": 0, "last_reject_reason": None,
             "evidence": None, "breaches_seen": [], "assignees": [], "integrated": False,
-            "last_verdict": None, "blocked_by": []}
+            "last_verdict": None, "blocked_by": [], "resumable": False}
 
 
 def _deps_ok(task_id: str, tasks: Dict[str, dict], labels: Dict[str, dict]) -> bool:
@@ -103,10 +103,11 @@ def _apply(st: dict, ev: dict, tasks: Dict[str, dict], labels: Dict[str, dict]) 
         return
     is_owner = st["owner"] is not None and agent == st["owner"]
     if kind == "claimed":
-        if (st["owner"] is None and st["state"] in _OPEN and ev.get("attempt") == st["attempt"]
+        if (st["owner"] is None and (st["state"] in _OPEN or st.get("resumable"))
+                and ev.get("attempt") == st["attempt"]
                 and _deps_ok(ev["task_id"], tasks, labels)):
             st.update(state="claimed", owner=agent, started_ts=ts, last_heartbeat_ts=ts, step_changed_ts=ts,
-                      submitted_ts=None)
+                      submitted_ts=None, resumable=False)
             if agent and agent not in st["assignees"]:
                 st["assignees"].append(agent)
     elif kind == "heartbeat":
@@ -131,7 +132,12 @@ def _apply(st: dict, ev: dict, tasks: Dict[str, dict], labels: Dict[str, dict]) 
             st["state"], st["waiting_on"] = "input-required", ev["question"]
     elif kind == "input_answered":
         if st["state"] == "input-required":
-            st.update(state="working", waiting_on=None, last_heartbeat_ts=ts, step_changed_ts=ts)
+            st.update(state="working", owner=None, waiting_on=None, last_heartbeat_ts=ts, step_changed_ts=ts,
+                      resumable=True)
+            for index in range(len(st["breaches_seen"]) - 1, -1, -1):
+                if st["breaches_seen"][index][0] == "input_required":
+                    del st["breaches_seen"][index]
+                    break
     elif kind == "submitted":
         if is_owner and st["state"] in LIVE:
             st["state"], st["summary"], st["submitted_ts"] = "submitted", ev["summary"], ts
@@ -203,7 +209,8 @@ def reduce_run(events: List[dict], labels: Dict[str, dict]) -> dict:
             st["claimable"] = False
             st["breaches_seen"].append(["orphaned_dependency", st["attempt"]])
         else:
-            st["claimable"] = st["owner"] is None and st["state"] in _OPEN and _deps_ok(tid, tasks, labels)
+            st["claimable"] = (st["owner"] is None and (st["state"] in _OPEN or st.get("resumable"))
+                               and _deps_ok(tid, tasks, labels))
         if st["state"] == "planned" and st["claimable"]:
             st["state"] = "ready"
     for tid, label in labels.items():

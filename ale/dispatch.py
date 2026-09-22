@@ -53,6 +53,8 @@ def _breaches(run_state: dict) -> List[dict]:
 def _trigger_instance(assignment: dict, task_id: str, st: dict, breaches: List[dict]) -> Optional[str]:
     trigger = assignment.get("trigger", "ready")
     if trigger == "ready":
+        if st.get("resumable"):
+            return "resume:%s:%s" % (st.get("attempt", 1), st.get("last_heartbeat_ts"))
         return "ready"
     if trigger == "on_submit":
         return "submit:%s" % st.get("attempt", 1) if st.get("state") == "submitted" else None
@@ -99,14 +101,14 @@ def due_assignments(run_state: dict, labels: Dict[str, dict], roster: dict) -> L
     candidates = []
     for task_id in sorted(labels):
         label, state = labels[task_id], tasks.get(task_id, {})
-        if state.get("state") in ("claimed", "working", "input-required"):
+        if state.get("state") in ("claimed", "working", "input-required") and not state.get("resumable"):
             continue
         for assignment in _assignments(label):
             kind = assignment.get("kind", "executor")
             if kind == "fixer":
                 continue
             trigger = assignment.get("trigger", "ready")
-            if kind == "executor" and trigger == "ready" and state.get("state") != "ready":
+            if kind == "executor" and trigger == "ready" and state.get("state") != "ready" and not state.get("resumable"):
                 continue
             if kind == "monitor" and trigger == "milestone" and not _milestone_ready(task_id, assignment, labels, tasks):
                 continue

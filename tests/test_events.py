@@ -1,6 +1,7 @@
 import pytest
 
 from ale.events import EventError, append_event, check_event, make_event, read_events, reduce_run
+from ale.dispatch import due_assignments
 
 RUN = "example-run"
 
@@ -155,3 +156,36 @@ def test_forged_release_and_answer_ignored(label_t01):
     st = reduce_run([ev("claimed", 1), ev("input_required", 2, question="q?"), ev("input_answered", 3, agent="mallory", text="x")],
                     labels_of(label_t01))["tasks"]["T01"]
     assert st["state"] == "input-required"
+
+
+def test_unanswered_input_required_remains_blocked_and_breach_open(label_t01, roster):
+    events = [ev("claimed", 1), ev("input_required", 2, question="q?"),
+              ev("breach", 2.5, agent=None, breach="input_required", detail="waiting")]
+    st = reduce_run(events, labels_of(label_t01))["tasks"]["T01"]
+    assert st["state"] == "input-required"
+    assert st["breaches_seen"] == [["input_required", 1]]
+    assert st["claimable"] is False
+    assert due_assignments(reduce_run(events, labels_of(label_t01)), labels_of(label_t01), roster) == []
+
+
+def test_answered_input_releases_task_for_resume_and_clears_breach(label_t01, roster):
+    events = [ev("claimed", 1), ev("input_required", 2, question="q?"),
+              ev("breach", 2.5, agent=None, breach="input_required", detail="waiting"),
+              ev("input_answered", 3, agent=None, text="answer")]
+    st = reduce_run(events, labels_of(label_t01))["tasks"]["T01"]
+    assert st["state"] == "working" and st["owner"] is None
+    assert st["claimable"] is True
+    assert st["breaches_seen"] == []
+    assert due_assignments(reduce_run(events, labels_of(label_t01)), labels_of(label_t01), roster)
+
+
+def test_new_input_required_after_answer_blocks_again(label_t01):
+    events = [ev("claimed", 1), ev("input_required", 2, question="first?"),
+              ev("breach", 2.5, agent=None, breach="input_required", detail="waiting"),
+              ev("input_answered", 3, agent=None, text="answer"), ev("claimed", 4, agent="a2"),
+              ev("input_required", 5, agent="a2", question="again?"),
+              ev("breach", 5.5, agent=None, breach="input_required", detail="waiting again")]
+    st = reduce_run(events, labels_of(label_t01))["tasks"]["T01"]
+    assert st["state"] == "input-required"
+    assert st["breaches_seen"] == [["input_required", 1]]
+    assert st["claimable"] is False

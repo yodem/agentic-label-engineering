@@ -82,6 +82,59 @@ def test_relabel_on_accepted_task_exits_fail(run_dir):
     assert _read_label(run_dir)["labels"]["role"] == "backend"
 
 
+def test_acceptance_relabel_requires_json(run_dir):
+    assert ale(run_dir, "relabel", "--task", "T01", "--field", "acceptance",
+               "--value", "[]", "--reason", "correct command") == 2
+
+
+def test_acceptance_relabel_updates_label_and_provenance(run_dir):
+    new_acceptance = [{"id": "A1", "cmd": "pytest -q", "expect": "exit0"},
+                      {"id": "A2", "cmd": "python -m compileall .", "expect": "exit0"}]
+    assert ale(run_dir, "relabel", "--task", "T01", "--field", "acceptance", "--json",
+               "--value", json.dumps(new_acceptance), "--reason", "correct command") == 0
+    label = _read_label(run_dir)
+    assert label["acceptance"] == new_acceptance
+    assert label["provenance"]["acceptance"]["relabeled_from"]
+
+
+def test_acceptance_relabel_event_has_old_new_and_lead_provenance(run_dir):
+    original = _read_label(run_dir)["acceptance"]
+    updated = [{"id": "A1", "cmd": "pytest -q", "expect": "exit0"},
+               {"id": "A2", "cmd": "python -m compileall .", "expect": "exit0"}]
+    assert ale(run_dir, "relabel", "--task", "T01", "--field", "acceptance", "--json",
+               "--value", json.dumps(updated), "--reason", "repair check") == 0
+    event = E.read_events(_events_path(run_dir))[-1]
+    assert event["type"] == "relabeled" and event["agent_id"] is None
+    assert event["field"] == "acceptance" and event["old"] == original
+    assert event["new"] == updated and event["reason"] == "repair check"
+
+
+def test_acceptance_relabel_refused_after_acceptance(run_dir):
+    _append(run_dir, "claimed", agent_id="a1", ts=1)
+    _append(run_dir, "submitted", agent_id="a1", ts=2, summary="done")
+    _append(run_dir, "accepted", agent_id=None, ts=3, evidence={"passed": True})
+    updated = [{"id": "A1", "cmd": "true", "expect": "exit0"},
+               {"id": "A2", "cmd": "true", "expect": "exit0"}]
+    assert ale(run_dir, "relabel", "--task", "T01", "--field", "acceptance", "--json",
+               "--value", json.dumps(updated), "--reason", "late") == 1
+
+
+def test_acceptance_relabel_invalidates_prior_verification(run_dir):
+    _append(run_dir, "claimed", agent_id="a1", ts=1)
+    _append(run_dir, "submitted", agent_id="a1", ts=2, summary="done")
+    _append(run_dir, "verified", agent_id=None, ts=3, evidence={"passed": True})
+    updated = [{"id": "A1", "cmd": "pytest -q", "expect": "exit0"},
+               {"id": "A2", "cmd": "python -m compileall .", "expect": "exit0"}]
+    assert ale(run_dir, "relabel", "--task", "T01", "--field", "acceptance", "--json",
+               "--value", json.dumps(updated), "--reason", "fix assertion") == 0
+    state = E.reduce_run(E.read_events(_events_path(run_dir)),
+                         {task_id: _read_label(run_dir, task_id) for task_id in ("T01", "T02")})
+    from ale.runner import next_actions
+    assert ("verify", "T01") in next_actions(state, {task_id: _read_label(run_dir, task_id)
+                                                       for task_id in ("T01", "T02")},
+                                               E.read_events(_events_path(run_dir)))
+
+
 def test_adjudicate_list_prints_json_queue(run_dir, capsys):
     _vote_pair(run_dir, task_id="T01", field="role", planner="backend", judge="frontend")
     _vote_pair(run_dir, task_id="T02", field="risk", planner="low", judge="high")

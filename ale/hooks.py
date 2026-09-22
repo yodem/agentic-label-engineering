@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from typing import List, Optional
 
 from .events import LIVE
@@ -15,10 +16,32 @@ _TARGET_KEYS = {"NotebookEdit": "notebook_path"}
 
 
 def target_paths(tool_name: str, tool_input: dict) -> List[str]:
-    if tool_name not in EDIT_TOOLS or not isinstance(tool_input, dict):
+    if not isinstance(tool_input, dict):
+        return []
+    if tool_name in ("write_file", "apply_patch"):
+        value = tool_input.get("path")
+        if tool_name == "write_file":
+            return [value] if isinstance(value, str) else []
+        text = tool_input.get("command") or tool_input.get("cmd") or ""
+        if isinstance(text, (list, tuple)):
+            text = "\n".join(str(part) for part in text)
+        if not isinstance(text, str):
+            return []
+        return re.findall(r"^\*{3} (?:Update|Add|Delete) File: (.+?)\s*$", text, re.MULTILINE)
+    if tool_name in ("exec_command", "Bash"):
+        text = tool_input.get("cmd") or tool_input.get("command") or ""
+        if not isinstance(text, str):
+            return []
+        heredoc = re.findall(r"\bcat\s+>\s*(['\"]?)([^\s'\"]+)\1\s+<<", text)
+        return [path for _, path in heredoc]
+    if tool_name not in EDIT_TOOLS:
         return []
     paths: List[str] = []
     key = _TARGET_KEYS.get(tool_name, "file_path")
+    if key not in tool_input and isinstance(tool_input.get("path"), str):
+        key = "path"
+    if key not in tool_input and isinstance(tool_input.get("filePath"), str):
+        key = "filePath"
     value = tool_input.get(key)
     if isinstance(value, str):
         paths.append(value)
@@ -92,7 +115,7 @@ def session_context(label: dict, handoff_text: str, decisions_text: str) -> str:
     acceptance = []
     for item in label.get("acceptance", []):
         if "manual" in item:
-            acceptance.append("- %s: manual — %s" % (item.get("id", "?"), item["manual"]))
+            acceptance.append("- %s: manual: %s" % (item.get("id", "?"), item["manual"]))
         else:
             acceptance.append("- %s: %s (%s)" % (item.get("id", "?"), item.get("cmd", ""), item.get("expect", "")))
     rules = [

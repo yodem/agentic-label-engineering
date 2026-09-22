@@ -1678,7 +1678,7 @@ def _label_path(run_dir: str, task_id: str) -> str:
 
 
 def cmd_relabel(a) -> int:
-    if a.field == "lane" or (a.field not in CAS.FIELDS and a.field not in ("assignments", "sub", "phase")):
+    if a.field == "lane" or (a.field not in CAS.FIELDS and a.field not in ("assignments", "sub", "phase", "acceptance")):
         raise CliError(USAGE, "field %s cannot be relabeled or adjudicated" % a.field)
     c = Ctx(a)
     st = c.task(a.task)
@@ -1698,6 +1698,27 @@ def cmd_relabel(a) -> int:
             raise CliError(FAIL, "assignments must contain exactly one executor")
         old = label.get("assignments", [])
         label["assignments"] = new_value
+    elif a.field == "acceptance":
+        if not a.json:
+            raise CliError(USAGE, "--field acceptance requires --json")
+        try:
+            new_value = json.loads(a.value)
+        except ValueError as exc:
+            raise CliError(USAGE, "acceptance must be JSON: %s" % exc)
+        if not isinstance(new_value, list) or not 2 <= len(new_value) <= 5:
+            raise CliError(FAIL, "acceptance must contain 2 to 5 checks")
+        for item in new_value:
+            if not isinstance(item, dict):
+                raise CliError(FAIL, "acceptance checks must be objects")
+            is_command = (set(item) == {"id", "cmd", "expect"} and isinstance(item.get("cmd"), str)
+                          and bool(item["cmd"]) and isinstance(item.get("expect"), str)
+                          and re.match(r"^exit(0|:[0-9]{1,3})$", item["expect"]))
+            is_manual = (set(item) == {"id", "manual"} and isinstance(item.get("manual"), str)
+                         and len(item["manual"]) >= 5)
+            if not (is_command or is_manual) or not isinstance(item.get("id"), str) or not re.match(r"^A[0-9]+$", item["id"]):
+                raise CliError(FAIL, "invalid acceptance check")
+        old = label.get("acceptance", [])
+        label["acceptance"] = new_value
     else:
         _vocab_value(c.roster, a.field, a.value)
         labels = dict(label["labels"])
@@ -1727,10 +1748,11 @@ def cmd_relabel(a) -> int:
     routing_new = (label.get("routing") or {}).get("agent")
     H.write_atomic(_label_path(c.run_dir, a.task), json.dumps(label, indent=2, sort_keys=True))
     c.emit("label_changed", a.task, None, st["attempt"],
-           field=a.field if a.field == "assignments" else "labels.%s" % a.field,
-           old=old, new=label.get("assignments") if a.field == "assignments" else a.value,
+           field=a.field if a.field in ("assignments", "acceptance") else "labels.%s" % a.field,
+           old=old, new=label.get(a.field) if a.field in ("assignments", "acceptance") else a.value,
            routing_agent_old=routing_old, routing_agent_new=routing_new, reason=a.reason[:TEXT_MAX])
-    c.emit("relabeled", a.task, None, st["attempt"], field=a.field, old=old, new=a.value,
+    c.emit("relabeled", a.task, None, st["attempt"], field=a.field, old=old,
+           new=label.get(a.field) if a.field in ("assignments", "acceptance") else a.value,
            reason=a.reason[:TEXT_MAX])
     return OK
 
@@ -2117,6 +2139,14 @@ def _plan_labels(text: str, path: str, run_id: str, roster: dict, no_judge: bool
         label = skeleton_label(task, run_id, vote_values)
         old = existing.get(task["task_id"])
         if old:
+            known_task_ids = {item["task_id"] for item in tasks}
+            block_dependencies = old.get("depends_on", [])
+            if not isinstance(block_dependencies, list):
+                block_dependencies = []
+            label["context"]["depends_on"] = list(dict.fromkeys(
+                dependency for dependency in label["context"]["depends_on"] + block_dependencies
+                if isinstance(dependency, str) and dependency in known_task_ids
+                and dependency != task["task_id"]))
             label["labels"]["lane"] = old.get("labels", {}).get("lane")
             label["provenance"]["lane_reason"] = old.get("lane_reason") or old.get("provenance", {}).get("lane_reason")
             label["acceptance"] = list(old.get("acceptance", []))
