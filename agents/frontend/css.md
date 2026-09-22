@@ -1,7 +1,7 @@
 ---
-name: frontend-default
+name: frontend-css
 role: frontend
-sub: components
+sub: css
 phases: [implement, review, maintain]
 model_tier_min: cheap
 reads:

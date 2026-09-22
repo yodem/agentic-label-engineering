@@ -1,5 +1,5 @@
 ---
-name: frontend-default
+name: frontend-components
 role: frontend
 sub: components
 phases: [implement, review, maintain]

@@ -1,7 +1,7 @@
 ---
-name: backend-architecture
+name: backend-api
 role: backend
-sub: architecture
+sub: api
 phases: [plan, design, implement, review, maintain]
 model_tier_min: cheap
 reads:
