@@ -22,18 +22,12 @@ silently ignored).
 | --- | --- |
 | `/ale-board` | Opens the board. Shows the cached report at once if any, then refreshes. |
 | `/ale-board refresh` | Refreshes the event log now. |
-| `/ale-board <run-id>` | Opens the named run under `.ale/runs/`, overriding automatic selection. |
+| `/ale-board <run-id-or-absolute-dir>` | Opens that run id under the nearest `.ale/runs/`, or the absolute run directory, overriding automatic selection. |
 | `/ale-board close` | Closes the pane and the band. |
 
 ## Run discovery
 
-1. `ALE_RUN_DIR`, if set.
-2. Otherwise find the nearest `.ale/` from the current working directory,
-   read `.ale/runs/current`, and open that run id.
-3. `/ale-board <run-id>` explicitly selects `.ale/runs/<run-id>`.
-4. If no run resolves, the pane displays a single no-run line.
-
-The mod never guesses a path outside the session's cwd.
+Resolution precedence is `/ale-board <absolute-run-dir>` or `<run-id>` first (run ids resolve under the nearest `.ale/runs`), then `ALE_RUN_DIR`, then the nearest `.ale/runs/current` found from the live working directory, and finally the same lookup from the session launch directory; the band and pane identify the selected source as `arg`, `env`, `cwd`, or `launch`. Function hooks expose `cwd` on `session.start` but not per render/event, so live-cwd discovery reads `process.cwd()` at resolution time. If no run resolves, the pane displays a single no-run line, and an invalid argument returns one line naming the argument tried.
 
 ## Board columns
 

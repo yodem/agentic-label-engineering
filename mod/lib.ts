@@ -37,6 +37,34 @@ export type RawRun = {
 export type LabelData = Record<string, any>
 export type AleEvent = Record<string, any> & { type: string; ts?: number; task_id?: string | null; agent_id?: string | null }
 
+export type RunResolution = { runDir: string; source: 'env' | 'cwd' | 'launch' | 'arg' }
+
+export function resolveRunDirectory(input: {
+  envDir?: string
+  cwdRunDir?: string
+  launchRunDir?: string
+  arg?: string
+  cwdRunsDir?: string
+  launchRunsDir?: string
+}): RunResolution | undefined {
+  const arg = input.arg?.trim()
+  if (arg) {
+    if (arg.startsWith('/')) return { runDir: arg, source: 'arg' }
+    if (arg.includes('/')) return undefined
+    const runsDir = input.cwdRunsDir ?? input.launchRunsDir
+    if (runsDir) return { runDir: `${runsDir}/${arg}`, source: 'arg' }
+    return undefined
+  }
+  if (input.envDir) return { runDir: input.envDir, source: 'env' }
+  if (input.cwdRunDir) return { runDir: input.cwdRunDir, source: 'cwd' }
+  if (input.launchRunDir) return { runDir: input.launchRunDir, source: 'launch' }
+  return undefined
+}
+
+export function unknownRunArgumentMessage(arg: string): string {
+  return `unknown argument "${arg}" · /ale-board [close | refresh | <run_id> | <absolute_run_dir>]`
+}
+
 const AUTHORITY_EVENTS = new Set(['verified', 'accepted', 'rejected', 'failed', 'canceled', 'lease_expired', 'released', 'input_answered', 'task_added', 'label_changed', 'label_removed', 'spawned', 'integrated', 'monitor_verdict'])
 const OPEN_STATES = new Set(['planned', 'released', 'rejected'])
 const LIVE_STATES = new Set(['claimed', 'working', 'input-required'])

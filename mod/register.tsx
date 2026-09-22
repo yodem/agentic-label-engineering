@@ -38,8 +38,8 @@ const FIXED_HEADER_ROWS = 2 // title row + counts/refresh-time row
 /** What we display: a resolved run's tasks, or an explanation of why not. */
 type BoardModel =
   | { kind: 'no-run' }
-  | { kind: 'error'; runLabel: string; message: string }
-  | { kind: 'ok'; runLabel: string; status: RawStatus; labels: Record<string, LabelInfo>; refreshedAtS: number }
+  | { kind: 'error'; runLabel: string; source: string; message: string }
+  | { kind: 'ok'; runLabel: string; source: string; status: RawStatus; labels: Record<string, LabelInfo>; refreshedAtS: number }
 
 type Timer = { cancel: () => void }
 
@@ -48,6 +48,7 @@ type Timer = { cancel: () => void }
  * a fake in a future test. */
 type Host = {
   cwd: string
+  liveCwd: () => string
   envGetAleRunDir: () => Promise<string | undefined>
   envGetAleRoster: () => Promise<string | undefined>
   fsList: (path?: string) => Promise<readonly { name: string; kind: string }[]>
@@ -66,7 +67,7 @@ type Host = {
 
 let host: Host | undefined
 let isOpen = false
-let selectedRunDir: string | undefined
+let selectedRun: { runDir: string; source: 'arg' } | undefined
 let model: BoardModel = { kind: 'no-run' }
 let refreshing: Promise<BoardModel> | undefined
 let refreshTimer: Timer | undefined
@@ -75,6 +76,9 @@ let pollTimer: Timer | undefined
 function bind($: EngineInterface, options: Readonly<Record<string, string | number | boolean | readonly string[]>>): Host {
   return {
     cwd: '',
+    // The function-hook API exposes cwd on session.start only, not per event.
+    // Read process.cwd() at resolution time to follow a worktree switch.
+    liveCwd: () => process.cwd(),
     // $.env.get names must be string literals (book rule 4), so one method per variable.
     envGetAleRunDir: () => $.env.get('ALE_RUN_DIR'),
     envGetAleRoster: () => $.env.get('ALE_ROSTER'),
@@ -114,23 +118,30 @@ function startPolling(engine: Host): void {
   })
 }
 
-/** `ALE_RUN_DIR`, else the nearest .ale/runs/current pointer. */
-async function discoverRunDir(engine: Host): Promise<string | undefined> {
-  const envDir = await engine.envGetAleRunDir().catch(() => undefined)
-  if (envDir) return envDir
-  let dir = engine.cwd
+async function nearestRun(engine: Host, start: string): Promise<{ runDir?: string; runsDir?: string }> {
+  let dir = start
+  let nearestRunsDir: string | undefined
   while (dir) {
-    const aleDir = `${dir}/.ale`
-    const current = `${aleDir}/runs/current`
+    const runsDir = `${dir}/.ale/runs`
+    const current = `${runsDir}/current`
+    const hasRunsDir = await engine.fsExists(runsDir).catch(() => false)
+    if (hasRunsDir && nearestRunsDir === undefined) nearestRunsDir = runsDir
     if (await engine.fsExists(current).catch(() => false)) {
       const runId = (await engine.fsRead(current).catch(() => '')).trim()
-      if (runId) return `${aleDir}/runs/${runId}`
+      return { runDir: runId ? `${runsDir}/${runId}` : undefined, runsDir: nearestRunsDir }
     }
     const parent = dir.slice(0, dir.lastIndexOf('/'))
     if (!parent || parent === dir) break
     dir = parent
   }
-  return undefined
+  return { runsDir: nearestRunsDir }
+}
+
+async function discoverRun(engine: Host): Promise<{ runDir: string; source: 'env' | 'cwd' | 'launch' } | undefined> {
+  const envDir = await engine.envGetAleRunDir().catch(() => undefined)
+  const cwd = await nearestRun(engine, engine.liveCwd())
+  const launch = await nearestRun(engine, engine.cwd)
+  return resolveRunDirectory({ envDir, cwdRunDir: cwd.runDir, launchRunDir: launch.runDir })
 }
 
 async function resolveRosterPath(engine: Host): Promise<string> {
@@ -192,17 +203,18 @@ async function loadRawLabels(engine: Host, runDir: string, events: Array<Record<
 async function refresh(engine: Host): Promise<BoardModel> {
   if (refreshing) return refreshing
   refreshing = (async (): Promise<BoardModel> => {
-    const runDir = selectedRunDir ?? (await discoverRunDir(engine))
-    if (runDir === undefined) {
+    const resolved = selectedRun ?? (await discoverRun(engine))
+    if (resolved === undefined) {
       const next: BoardModel = { kind: 'no-run' }
       model = next
       engine.invalidate()
       return next
     }
+    const runDir = resolved.runDir
     const runLabel = runLabelOf(runDir)
     const eventText = await engine.fsRead(`${runDir}/events.jsonl`).catch(() => undefined)
     if (eventText === undefined) {
-      const next: BoardModel = { kind: 'error', runLabel, message: 'cannot read events.jsonl' }
+      const next: BoardModel = { kind: 'error', runLabel, source: resolved.source, message: 'cannot read events.jsonl' }
       model = next
       engine.uiLog(`${PLUGIN}: ${next.message}`)
       engine.invalidate()
@@ -211,7 +223,7 @@ async function refresh(engine: Host): Promise<BoardModel> {
     let events: Array<Record<string, any>>
     try { events = eventText.split('\n').filter(Boolean).map(line => JSON.parse(line)) }
     catch (err) {
-      const next: BoardModel = { kind: 'error', runLabel, message: `malformed events.jsonl (${err instanceof Error ? err.message : String(err)})` }
+      const next: BoardModel = { kind: 'error', runLabel, source: resolved.source, message: `malformed events.jsonl (${err instanceof Error ? err.message : String(err)})` }
       model = next
       engine.uiLog(`${PLUGIN}: ${next.message}`)
       engine.invalidate()
@@ -224,7 +236,7 @@ async function refresh(engine: Host): Promise<BoardModel> {
       const tag = label.labels ?? {}
       labels[id] = { title: label.title, role: tag.role, tier: tag.model_tier, fixes: label.fixes }
     }
-    const next: BoardModel = { kind: 'ok', runLabel, status: { run: reduced.run, tasks: reduced.tasks }, labels, refreshedAtS: Date.now() / 1000 }
+    const next: BoardModel = { kind: 'ok', runLabel, source: resolved.source, status: { run: reduced.run, tasks: reduced.tasks }, labels, refreshedAtS: Date.now() / 1000 }
     model = next
     engine.invalidate()
     return next
@@ -249,7 +261,7 @@ function scheduleRefresh(engine: Host): void {
 function bandText(): string | undefined {
   if (model.kind !== 'ok') return undefined
   if (model.status.run.finished === true) return undefined
-  return bandLine(model.runLabel, model.status.tasks, model.status.run)
+  return `${bandLine(model.runLabel, model.status.tasks, model.status.run)} · source:${model.source}`
 }
 
 function buildSections(status: RawStatus, labels: Record<string, LabelInfo>, columns: number): Section[] {
@@ -286,7 +298,7 @@ export const register: Register = (on: On) => {
     host.cwd = e.cwd
     const engine = host
     isOpen = (await engine.storeGet(STORE_OPEN_KEY).catch(() => false)) === true
-    selectedRunDir = undefined
+    selectedRun = undefined
     await $.command
       .register({
         name: COMMAND,
@@ -322,8 +334,11 @@ export const register: Register = (on: On) => {
     }
     if (lower.startsWith('run ') || arg) {
       const runArg = lower.startsWith('run ') ? arg.slice('run '.length).trim() : arg
-      if (!runArg) return { text: `unknown argument "${arg}" · /${COMMAND} ${ARGUMENT_HINT}` }
-      selectedRunDir = runArg.startsWith('/') || runArg.includes('/') ? runArg : `${engine.cwd}/.ale/runs/${runArg}`
+      const cwd = await nearestRun(engine, engine.liveCwd())
+      const launch = await nearestRun(engine, engine.cwd)
+      const resolved = resolveRunDirectory({ arg: runArg, cwdRunsDir: cwd.runsDir, launchRunsDir: launch.runsDir })
+      if (!resolved || !await engine.fsExists(resolved.runDir).catch(() => false)) return { text: unknownRunArgumentMessage(runArg || arg) }
+      selectedRun = { runDir: resolved.runDir, source: 'arg' }
       model = { kind: 'no-run' }
       setOpen(engine, true)
       await $.ui.open({ id: PANE_ID, title: 'ALE task board', closeOnEscape: true, holdToasts: true, rows: 18 }).catch(() => undefined)
@@ -382,7 +397,7 @@ export const register: Register = (on: On) => {
     if (model.kind === 'error') {
       return (
         <Box flexDirection="column">
-          <Text bold>{truncateTo(`ale-board · ${model.runLabel}`, columns)}</Text>
+          <Text bold>{truncateTo(`ale-board · ${model.runLabel} · source:${model.source}`, columns)}</Text>
           <Text>{truncateTo(`error: ${model.message}`, columns)}</Text>
         </Box>
       )
@@ -397,7 +412,7 @@ export const register: Register = (on: On) => {
 
     return (
       <Box flexDirection="column">
-        <Text bold>{truncateTo(`ale-board · ${model.runLabel} · ${counts}`, columns)}</Text>
+        <Text bold>{truncateTo(`ale-board · ${model.runLabel} · source:${model.source} · ${counts}`, columns)}</Text>
         <Text dimColor>{truncateTo(`${tokens} tok · $${cost.toFixed(2)} · refreshed ${refreshedAgo}s ago`, columns)}</Text>
         {budgeted
           .filter(section => section.rows.length > 0)

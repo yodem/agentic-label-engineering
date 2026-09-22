@@ -6,6 +6,8 @@ import {
   formatTaskRow,
   groupTaskIds,
   reduceEvents,
+  resolveRunDirectory,
+  unknownRunArgumentMessage,
   noRunMessage,
   parseStatusOutput,
   pickLatestRunDir,
@@ -14,6 +16,33 @@ import {
 } from './lib.ts'
 
 const fixtureDir = `${import.meta.dir}/fixtures/protocol/basic`
+
+describe('resolveRunDirectory', () => {
+  test('resolves ALE_RUN_DIR first', () => {
+    expect(resolveRunDirectory({ envDir: '/env/run', cwdRunDir: '/cwd/run', launchRunDir: '/launch/run' }))
+      .toEqual({ runDir: '/env/run', source: 'env' })
+  })
+  test('resolves the live cwd before the launch directory', () => {
+    expect(resolveRunDirectory({ cwdRunDir: '/cwd/run', launchRunDir: '/launch/run' }))
+      .toEqual({ runDir: '/cwd/run', source: 'cwd' })
+  })
+  test('falls back to the launch directory', () => {
+    expect(resolveRunDirectory({ launchRunDir: '/launch/run' }))
+      .toEqual({ runDir: '/launch/run', source: 'launch' })
+  })
+  test('accepts an absolute run directory argument', () => {
+    expect(resolveRunDirectory({ arg: '/chosen/run', envDir: '/env/run' }))
+      .toEqual({ runDir: '/chosen/run', source: 'arg' })
+  })
+  test('resolves a run id under the nearest runs directory', () => {
+    expect(resolveRunDirectory({ arg: 'run-7', cwdRunsDir: '/repo/.ale/runs', launchRunsDir: '/old/.ale/runs' }))
+      .toEqual({ runDir: '/repo/.ale/runs/run-7', source: 'arg' })
+  })
+  test('formats an unknown argument with what was tried', () => {
+    expect(unknownRunArgumentMessage('missing')).toContain('"missing"')
+    expect(unknownRunArgumentMessage('missing')).toContain('unknown argument')
+  })
+})
 const basicEvents = (await Bun.file(`${fixtureDir}/events.jsonl`).text()).trim().split('\n').map(line => JSON.parse(line))
 const basicStatus = await Bun.file(`${fixtureDir}/status.json`).json() as { run: Record<string, unknown>; tasks: Record<string, Record<string, unknown>> }
 const basicLabels: Record<string, Record<string, any>> = {}
