@@ -40,6 +40,11 @@ def _apply_vocab_defaults(roster: dict) -> None:
     vocab.setdefault("cross_sub", list(_DEFAULT_CROSS_SUBS))
     vocab.setdefault("phase", list(_DEFAULT_PHASES))
     judge = roster.setdefault("judge", {})
+    judge.setdefault("plugin", None)
+    judge.setdefault("threshold", 0.75)
+    judge.setdefault("modes", {})
+    judge.setdefault("command", ["jev-ask"])
+    judge.setdefault("questions", {})
     modes = judge.setdefault("modes", {})
     for field in ("sub", "phase", "locality"):
         modes.setdefault(field, "shadow")

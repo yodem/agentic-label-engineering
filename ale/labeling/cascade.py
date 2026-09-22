@@ -6,6 +6,7 @@ import stat
 import warnings
 from typing import List, Optional, Tuple
 
+from ..decisions import compute_decision
 from .judge import options_for
 from .merge import merge
 from .rules import rule_votes
@@ -61,8 +62,24 @@ def read_spec_text(spec_path: str, roots: List[str], limit: int = 4000) -> Tuple
         return "", None
 
 
+def _ask_locality_evidence(judge, roster: dict, state: str) -> dict:
+    """Locality is a yes/no fact, so it is asked as one Noul and mapped in code."""
+    plugin = (roster.get("judge") or {}).get("plugin") or "command"
+    question = roster["judge"]["questions"]["locality"]
+    answer = judge.noul("locality", question, state)
+    computed = compute_decision("locality", {"locality": answer.get("p")}, {})
+    detail = {"evidence": {"locality": answer.get("p")}, "rule": computed["rule"],
+              "uncertain": computed["uncertain"]}
+    detail.update({key: value for key, value in (answer.get("detail") or {}).items()
+                   if key in ("latency_ms", "error")})
+    return {"field": "locality", "value": computed["choice"], "by": "judge:%s" % plugin,
+            "confidence": computed["confidence"], "model": answer.get("model"), "detail": detail}
+
+
 def _ask_judge(judge, field: str, roster: dict, state: str) -> dict:
     try:
+        if field == "locality" and callable(getattr(judge, "noul", None)):
+            return _ask_locality_evidence(judge, roster, state)
         question = roster["judge"]["questions"][field]
         options = options_for(field, roster)
         vote = dict(judge.ask(field, question, options, state))

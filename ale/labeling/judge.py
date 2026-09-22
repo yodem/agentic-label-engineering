@@ -45,10 +45,62 @@ def is_mostly_english(text: str) -> bool:
 
 
 class CommandJudge:
-    def __init__(self, command: List[str], timeout_s: int = 30, run: Callable = subprocess.run):
+    def __init__(self, command: List[str], timeout_s: int = 30, run: Callable = subprocess.run,
+                 model: Optional[str] = None):
         self.command = command
         self.timeout_s = timeout_s
         self.run = run
+        # Optional roster judge.model: passed to jev-ask as JEV_MODEL so the API
+        # always receives a named model. jev-ask itself defaults to a pinned model.
+        self.model = model
+
+    def _env(self, tag: str) -> dict:
+        env = os.environ.copy()
+        env.update({"JEV_CALLER": "ale", "JEV_TAG": tag})
+        if self.model:
+            env["JEV_MODEL"] = self.model
+        return env
+
+    def noul(self, key: str, question: str, state: str) -> dict:
+        """Ask one yes/no evidence question; return its probability or an abstain.
+
+        Returns ``{"key", "p", "model", "detail"}`` where ``p`` is the Noul
+        probability in [0, 1], or None with ``detail.error`` on any failure.
+        """
+        if not state.strip():
+            return self._noul_abstain(key, "empty_state")
+        if not is_mostly_english(state):
+            return self._noul_abstain(key, "non_english")
+        started = time.perf_counter()
+        try:
+            proc = self.run(self.command + ["noul", question], input=state[:4000], capture_output=True,
+                            text=True, timeout=self.timeout_s, env=self._env("evidence:%s" % key))
+        except FileNotFoundError:
+            return self._noul_abstain(key, "command_not_found")
+        except subprocess.TimeoutExpired:
+            return self._noul_abstain(key, "timeout")
+        except Exception:
+            return self._noul_abstain(key, "error")
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        if proc.returncode != 0:
+            return self._noul_abstain(key, "exit_%s" % proc.returncode, latency_ms)
+        try:
+            parsed = json.loads(proc.stdout)
+            probability = parsed["noul"]
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            return self._noul_abstain(key, "bad_json", latency_ms)
+        if (isinstance(probability, bool) or not isinstance(probability, (int, float))
+                or not math.isfinite(probability) or not (0 <= probability <= 1)):
+            return self._noul_abstain(key, "bad_probability", latency_ms)
+        model = parsed.get("model") if isinstance(parsed.get("model"), str) else self.model
+        return {"key": key, "p": float(probability), "model": model,
+                "detail": {"latency_ms": latency_ms}}
+
+    def _noul_abstain(self, key: str, reason: str, latency_ms: Optional[int] = None) -> dict:
+        detail = {"error": reason}
+        if latency_ms is not None:
+            detail["latency_ms"] = latency_ms
+        return {"key": key, "p": None, "model": self.model, "detail": detail}
 
     def ask(self, field: str, question: str, options: List[str], state: str) -> dict:
         if field == "lane":
@@ -60,8 +112,7 @@ class CommandJudge:
             return self._abstain(field, "non_english")
 
         offered = set(key_of(option) for option in options)
-        env = os.environ.copy()
-        env.update({"JEV_CALLER": "ale", "JEV_TAG": "label:%s" % field})
+        env = self._env("label:%s" % field)
         cmd = self.command + ["choice", question] + options
         started = time.perf_counter()
 
@@ -107,11 +158,13 @@ class CommandJudge:
         if value not in offered:
             return self._abstain(field, "unknown_option")
 
+        model = parsed.get("model") if isinstance(parsed, dict) and isinstance(parsed.get("model"), str) else self.model
         return {
             "field": field,
             "value": value,
             "by": "judge:command",
             "confidence": confidence,
+            "model": model,
             "detail": {
                 "probabilities": self._keyed_probabilities(probabilities),
                 "latency_ms": int((time.perf_counter() - started) * 1000),

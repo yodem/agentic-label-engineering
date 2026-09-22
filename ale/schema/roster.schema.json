@@ -61,6 +61,7 @@
       "type": "object",
       "required": ["plugin", "threshold", "modes"],
       "properties": {
+        "default": {"enum": ["off", "shadow"]},
         "plugin": {"type": ["string", "null"]},
         "command": {"type": "array", "minItems": 1, "items": {"type": "string"}},
         "questions": {
@@ -71,11 +72,33 @@
             "model_tier": {"type": "string", "minLength": 1},
             "risk": {"type": "string", "minLength": 1},
             "effort": {"type": "string", "minLength": 1},
-            "locality": {"type": "string", "minLength": 1}
+            "locality": {"type": "string", "minLength": 1},
+            "sub": {"type": "string", "minLength": 1},
+            "phase": {"type": "string", "minLength": 1},
+            "over_an_hour": {"type": "string", "minLength": 1},
+            "unattended": {"type": "string", "minLength": 1},
+            "external_side_effects": {"type": "string", "minLength": 1},
+            "rejection_environment": {"type": "string", "minLength": 1},
+            "rejection_spec_conflict": {"type": "string", "minLength": 1},
+            "rejection_needs_human": {"type": "string", "minLength": 1},
+            "monitor_reports_defect": {"type": "string", "minLength": 1},
+            "monitor_agent_blocked": {"type": "string", "minLength": 1},
+            "monitor_unsafe": {"type": "string", "minLength": 1}
           }
         },
+        "model": {"type": "string", "minLength": 1},
         "timeout_s": {"type": "integer", "minimum": 1},
         "threshold": {"type": "number", "minimum": 0},
+        "bar": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["min_cases", "min_agreement", "max_instability"],
+          "properties": {
+            "min_cases": {"const": 100},
+            "min_agreement": {"type": "number", "minimum": 0},
+            "max_instability": {"const": 0.1}
+          }
+        },
         "modes": {
           "type": "object",
           "additionalProperties": false,

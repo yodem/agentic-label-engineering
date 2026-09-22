@@ -1,5 +1,7 @@
 {
   "label_vote": ["field", "by", "value"],
+  "shadow_vote": ["decision", "options", "choice", "confidence", "model", "latency_ms"],
+  "decision_outcome": ["decision", "choice", "source"],
   "labeled": ["labels", "roster_hash"],
   "relabeled": ["field", "old", "new", "reason"],
   "adjudicated": ["field", "value", "by"],

@@ -32,6 +32,9 @@ from . import dynamic as D
 from . import runner as RUNNER
 from .labeling import cascade as CAS
 from .labeling import truth as TRUTH
+from .labeling.shadow import summarize_shadow
+from .labeling import evidence as EV
+from . import decisions as DECISIONS
 from .labeling.judge import CommandJudge, is_mostly_english
 from .evalharness import corpus as CORPUS
 from .evalharness import goldset as GOLDSET
@@ -43,6 +46,151 @@ _HERDR_RUNNER = subprocess.run
 
 OK, FAIL, USAGE, CLAIM_LOST, LEASE_LOST, SIGNOFF, BREACH = 0, 1, 2, 3, 4, 5, 6
 TEXT_MAX = 1000
+
+
+def _judge_mode(roster: dict) -> str:
+    """Return ``off``, ``legacy`` or ``shadow`` for this roster.
+
+    * ``shadow``: ``judge.default`` is ``shadow`` and a preregistered ``judge.bar``
+      exists. Every judged decision collects additive shadow votes.
+    * ``off``: explicit ``judge.default: off`` (the shipped roster), a
+      ``shadow`` default without a bar, or no plugin. No judge call is made.
+    * ``legacy``: no ``judge.default`` key (a roster written before Part B).
+      Only the pre-existing label-cascade judge keeps its old opt-in behavior;
+      no Part B decision votes are collected.
+    """
+    judge = roster.get("judge") or {}
+    if judge.get("plugin") is None:
+        return "off"
+    default = judge.get("default")
+    if default is None:
+        return "legacy"
+    if default == "shadow" and judge.get("bar"):
+        return "shadow"
+    return "off"
+
+
+def _make_judge(roster: dict):
+    judge = roster["judge"]
+    return CommandJudge(judge.get("command") or ["jev-ask"], timeout_s=judge.get("timeout_s", 30),
+                        model=judge.get("model"))
+
+
+def _shadow_judge(roster: dict):
+    """A judge for Part B decision votes, or None unless the roster is in shadow mode."""
+    return _make_judge(roster) if _judge_mode(roster) == "shadow" else None
+
+
+def _vote_fields(vote: dict) -> dict:
+    fields = {key: vote.get(key) for key in ("decision", "options", "choice", "confidence",
+                                             "model", "latency_ms", "uncertain")}
+    for key in ("answers", "rule", "error", "bake_id", "calls_latency_ms"):
+        if vote.get(key) is not None:
+            fields[key] = vote[key]
+    return fields
+
+
+def _emit_vote(c: "Ctx", task_id: str, vote: dict, source: str, attempt: Optional[int] = None) -> None:
+    if attempt is None:
+        attempt = c.state().get("tasks", {}).get(task_id, {}).get("attempt", 1)
+    c.emit("shadow_vote", task_id, None, attempt, authority="lead", additive=True, source=source,
+           **_vote_fields(vote))
+
+
+def _emit_outcome(c: "Ctx", task_id: str, decision: str, choice, source: str) -> bool:
+    """Record what actually happened, once, and only after a pending shadow vote."""
+    if choice is None or _judge_mode(c.roster or {}) != "shadow":
+        return False
+    pending = False
+    for event in E.read_events(c.events_path):
+        if event.get("task_id") != task_id or event.get("decision") != decision:
+            continue
+        if event.get("type") == "shadow_vote":
+            pending = True
+        elif event.get("type") == "decision_outcome":
+            pending = False
+    if not pending:
+        return False
+    attempt = c.state().get("tasks", {}).get(task_id, {}).get("attempt", 1)
+    c.emit("decision_outcome", task_id, None, attempt, decision=decision, choice=choice,
+           authority="lead", additive=True, source=source)
+    return True
+
+
+def _needs_monitor_outcome(label: dict) -> str:
+    return "yes" if any((item or {}).get("kind") == "monitor"
+                        for item in label.get("assignments") or []) else "no"
+
+
+def _bake_outcomes(label: dict) -> dict:
+    """Authoritative values for the bake-time decisions, read from the final label."""
+    labels = label.get("labels") or {}
+    values = {field: labels.get(field) for field in ("role", "model_tier", "risk", "effort", "sub", "phase", "lane")}
+    values["locality"] = labels.get("locality") or "any"
+    values["needs_monitor"] = _needs_monitor_outcome(label)
+    return {decision: value for decision, value in values.items() if value is not None}
+
+
+def _bake_extra_votes(judge, roster: dict, label: dict, task_text: str, all_labels: dict) -> List[dict]:
+    """Shadow votes for the bake decisions the label cascade does not ask."""
+    labels = label.get("labels") or {}
+    state = EV.state_json(task_title=label.get("title", ""), task_text=task_text)
+    votes = [EV.choice_vote(judge, "sub", roster, state, role=labels.get("role")),
+             EV.choice_vote(judge, "phase", roster, state)]
+    cache = {}
+    votes.append(EV.evidence_vote(judge, "lane", roster, state, {
+        "role": labels.get("role"),
+        "independent_tasks": DECISIONS.independent_task_count(label["task_id"], all_labels)}, cache))
+    votes.append(EV.evidence_vote(judge, "needs_monitor", roster, state,
+                                  {"risk": labels.get("risk")}, cache))
+    return votes
+
+
+def _cascade_votes(roster: dict, votes: List[dict]) -> List[dict]:
+    """Shadow-vote records for the judge votes the label cascade collected."""
+    out = []
+    for vote in votes:
+        if not str(vote.get("by", "")).startswith("judge:") or vote.get("field") not in CAS.FIELDS:
+            continue
+        field = vote["field"]
+        keys = DECISIONS.options_for_decision(field, roster)
+        out.append(EV.from_choice_answer(field, keys, vote))
+    return out
+
+
+def _rejection_vote(c: "Ctx", judge, task_id: str, evidence: dict, reason: str) -> dict:
+    """Evidence Nouls about a rejection; the action is computed by the rule table."""
+    label = c.labels[task_id]
+    failing = [{"id": item.get("id"), "output": str(item.get("tail") or "")[-300:]}
+               for item in evidence.get("results", []) if not item.get("ok")]
+    failing.extend({"id": "required", "command": str(item.get("command"))[:120],
+                    "output": str(item.get("output") or "")[-300:]}
+                   for item in evidence.get("required_failures", []))
+    state = EV.state_json(task_title=label.get("title", ""), rejection_reason=reason[:300],
+                          failing_checks=failing[:5])
+    facts = {"fix_count": sum(1 for other in c.labels.values() if other.get("fixes") == task_id),
+             "is_fix_task": bool(label.get("fixes"))}
+    return EV.evidence_vote(judge, "rejection_action", c.roster, state, facts)
+
+
+_VERDICT_LINE = re.compile(r"(?i)^[#*\s]*(verdict\b.*|(continue|nudge|fix|escalate)\W*)$")
+
+
+def _monitor_vote(c: "Ctx", judge, task_id: str, report: str, wrote_files: List[str]) -> dict:
+    """Evidence Nouls about a monitor report. Liveness facts come from events, never from Jev."""
+    events = E.read_events(c.events_path)
+    breaches = [event for event in events if event.get("type") == "breach" and event.get("task_id") == task_id]
+    latest = breaches[-1].get("breach") if breaches else None
+    task_state = c.state().get("tasks", {}).get(task_id, {})
+    notes = task_state.get("notes") or []
+    last_note = notes[-1] if notes else (task_state.get("last_step") or "")
+    stripped = "\n".join(line for line in report.splitlines() if not _VERDICT_LINE.match(line.strip()))
+    state = EV.state_json(task_title=c.labels[task_id].get("title", ""), breach=latest,
+                          last_agent_note=str(last_note)[:500], monitor_report=stripped[:1500])
+    facts = {"monitor_wrote_files": bool(wrote_files),
+             "attempts_exhausted": any(event.get("breach") == "attempts_exhausted" for event in breaches),
+             "breach": latest}
+    return EV.evidence_vote(judge, "monitor_verdict", c.roster, state, facts)
 
 
 class CliError(Exception):
@@ -374,12 +522,27 @@ def cmd_init_run(a) -> int:
 def cmd_setup(a) -> int:
     ale_root = _ale_dir()
     roster_path = os.path.join(ale_root, "roster.json")
+    if os.path.exists(roster_path) and getattr(a, "judge", None) is not None:
+        try:
+            with open(roster_path, encoding="utf-8") as handle:
+                roster = json.load(handle)
+            roster.setdefault("judge", {})["default"] = a.judge
+            H.write_atomic(roster_path, json.dumps(roster, indent=2, sort_keys=True) + "\n")
+        except (OSError, ValueError) as exc:
+            raise CliError(FAIL, "cannot update %s: %s" % (roster_path, exc))
+        print("Updated %s" % roster_path)
+        return OK
     if os.path.exists(roster_path) and not a.force:
         raise CliError(FAIL, "refusing to overwrite %s without --force" % roster_path)
     os.makedirs(ale_root, exist_ok=True)
     example = os.path.join(os.path.dirname(__file__), "example_roster.json")
     with open(example, encoding="utf-8") as source:
-        H.write_atomic(roster_path, source.read())
+        roster_text = source.read()
+    if getattr(a, "judge", None) is not None:
+        roster = json.loads(roster_text)
+        roster.setdefault("judge", {})["default"] = a.judge
+        roster_text = json.dumps(roster, indent=2, sort_keys=True) + "\n"
+    H.write_atomic(roster_path, roster_text)
     root = _git_root(os.getcwd())
     git_dir = os.path.join(root, ".git")
     if os.path.isdir(git_dir):
@@ -492,6 +655,7 @@ def cmd_run(a) -> int:
                 if action_kind == "exhausted":
                     context.emit("breach", task_id, None, context.state()["tasks"][task_id]["attempt"],
                                  breach="attempts_exhausted", detail="two fixes already exist")
+                    _emit_outcome(context, task_id, "rejection_action", "escalate", "run_loop")
             main(["status", "--run-dir", run_dir, "--roster", roster]
                  + (["--json"] if a.json else []))
             return _finish_run(context, BREACH)
@@ -777,6 +941,9 @@ def cmd_verify(a) -> int:
     c.emit("verified", a.task, None, attempt, evidence=evidence)
     if reason is not None:
         c.emit("rejected", a.task, None, attempt, evidence=evidence, reason=reason)
+        shadow_judge = _shadow_judge(c.roster)
+        if shadow_judge is not None:
+            _emit_vote(c, a.task, _rejection_vote(c, shadow_judge, a.task, evidence, reason), "run_loop")
         c.render(a.task, owner)
         print(reason, file=sys.stderr)
         return FAIL
@@ -1066,6 +1233,7 @@ def cmd_reopen(a) -> int:
     if state not in ("rejected", "failed", "fixing"):
         raise CliError(FAIL, "task %s is %s and cannot be reopened" % (a.task, state))
     reason = a.reason[:TEXT_MAX]
+    _emit_outcome(c, a.task, "rejection_action", "reopen", "lead")
     c.emit("reopened", a.task, None, st["attempt"], reason=reason)
     _record_decision(c, "Reopened %s: %s" % (a.task, reason))
     return OK
@@ -1267,6 +1435,10 @@ def cmd_dispatch(a) -> int:
 
     c = Ctx(a)
     c.roster_path = _resolve_roster(a)
+    # Executor routing is deterministic from tier and is never judged.
+    shadow_judge = (_shadow_judge(c.roster)
+                    if any(event.get("type") == "run_started" for event in E.read_events(c.events_path))
+                    else None)
     project_cwd = os.path.abspath(a.cwd or os.getcwd())
     lock_path = os.path.join(c.run_dir, "dispatch.lock")
     requests = []
@@ -1343,6 +1515,10 @@ def cmd_dispatch(a) -> int:
                        c.state()["tasks"][item["task_id"]]["attempt"],
                        agent_id_minted=request["agent_id"], verdict=verdict,
                        text=verdict_text, **({"wrote_files": wrote_files} if wrote_files else {}))
+                if shadow_judge is not None:
+                    _emit_vote(c, item["task_id"], _monitor_vote(c, shadow_judge, item["task_id"],
+                                                                 proc.stdout or "", wrote_files), "monitor")
+                    _emit_outcome(c, item["task_id"], "monitor_verdict", verdict, "monitor")
     for request in requests:
         if request.get("executor") == "claude-subagent":
             print(json.dumps(request, sort_keys=True))
@@ -1544,9 +1720,11 @@ def cmd_fix(a) -> int:
     if c.labels[a.task].get("fixes"):
         c.emit("breach", a.task, None, parent.get("attempt"), breach="attempts_exhausted",
                detail="fix tasks cannot create another fix task")
+        _emit_outcome(c, a.task, "rejection_action", "escalate", "run_loop")
         raise CliError(BREACH, "attempts_exhausted")
     if len(existing) >= 2:
         c.emit("breach", a.task, None, parent.get("attempt"), breach="attempts_exhausted", detail="two fix tasks already exist")
+        _emit_outcome(c, a.task, "rejection_action", "escalate", "run_loop")
         raise CliError(BREACH, "attempts_exhausted")
     failed = _failed_acceptance(c.labels[a.task], parent.get("evidence") or {})
     if not failed:
@@ -1556,6 +1734,7 @@ def cmd_fix(a) -> int:
     H.write_atomic(path, json.dumps(fix, indent=2, sort_keys=True))
     c.emit("task_added", fix["task_id"], None, 1, label_file=os.path.basename(path),
            reason=(a.reason or "acceptance failure")[:TEXT_MAX])
+    _emit_outcome(c, a.task, "rejection_action", "fix", "run_loop")
     return OK
 
 
@@ -1755,10 +1934,10 @@ def cmd_label(a) -> int:
             print(e, file=sys.stderr)
         return FAIL
 
-    jconf = roster.get("judge") or {}
-    judge = None
-    if not a.no_judge and jconf.get("plugin") is not None:
-        judge = CommandJudge(jconf["command"], timeout_s=jconf.get("timeout_s", 30))
+    mode = "off" if a.no_judge else _judge_mode(roster)
+    # legacy keeps the pre-Part-B cascade judge; only shadow mode records decision votes.
+    judge = _make_judge(roster) if mode in ("legacy", "shadow") else None
+    collect = mode == "shadow"
 
     total_votes = 0
     judge_abstains = 0
@@ -1774,7 +1953,6 @@ def cmd_label(a) -> int:
         final, votes = CAS.label_task(draft, text, roster, judge=judge)
         H.write_atomic(os.path.join(run_dir, "labels", "%s.json" % tid),
                        json.dumps(final, indent=2, sort_keys=True))
-        run_id = draft.get("run_id", "")
         label_ctx = Ctx(a)
         for v in votes:
             extra = {"field": v["field"], "by": v["by"], "value": v["value"], "confidence": v["confidence"]}
@@ -1795,6 +1973,15 @@ def cmd_label(a) -> int:
         for field in CAS.FIELDS:
             if final["provenance"][field]["conflict"]:
                 conflicts += 1
+        if collect:
+            shadow_votes = _cascade_votes(roster, votes) + _bake_extra_votes(
+                judge, roster, final, text, drafts)
+            for vote in shadow_votes:
+                _emit_vote(label_ctx, tid, vote, "label", attempt=1)
+            outcomes = _bake_outcomes(final)
+            for vote in shadow_votes:
+                if vote["decision"] in outcomes:
+                    _emit_outcome(label_ctx, tid, vote["decision"], outcomes[vote["decision"]], "planner")
 
     print(json.dumps({"tasks": len(drafts), "votes": total_votes, "judge_abstains": judge_abstains,
                        "conflicts": conflicts, "disagreements": disagreements}, sort_keys=True))
@@ -1975,6 +2162,28 @@ def _interactive_adjudicate(c: Ctx) -> int:
 
 
 def cmd_adjudicate(a) -> int:
+    if getattr(a, "decision", None) is not None:
+        if a.decision not in DECISIONS.DECISIONS:
+            raise CliError(USAGE, "unknown decision %s" % a.decision)
+        if not DECISIONS.is_judged(a.decision):
+            raise CliError(USAGE, "decision %s is deterministic and is not judged" % a.decision)
+        if a.task is None or a.value is None:
+            raise CliError(USAGE, "--task and --value are required with --decision")
+        c = Ctx(a)
+        st = c.task(a.task)
+        already = [event for event in E.read_events(c.events_path)
+                    if event.get("type") == "adjudicated"
+                    and event.get("task_id") == a.task
+                    and (event.get("decision") or event.get("field")) == a.decision]
+        if already:
+            raise CliError(FAIL, "decision %s for task %s was already adjudicated" % (a.decision, a.task))
+        options = DECISIONS.options_for_decision(a.decision, c.roster, label=c.labels[a.task])
+        if a.value not in options:
+            raise CliError(FAIL, "%s=%r is not in the decision vocabulary" % (a.decision, a.value))
+        c.emit("adjudicated", a.task, None, st["attempt"], field=a.decision,
+               decision=a.decision, choice=a.value, value=a.value, by=a.by,
+               authority="lead", additive=True)
+        return OK
     if a.field is not None and (a.field == "lane" or a.field not in CAS.FIELDS):
         raise CliError(USAGE, "field %s cannot be relabeled or adjudicated" % a.field)
     c = Ctx(a)
@@ -1986,6 +2195,26 @@ def cmd_adjudicate(a) -> int:
     if a.task is None or a.field is None or a.value is None:
         raise CliError(USAGE, "--task, --field and --value are required unless --list is used")
     _emit_adjudicated(c, a.task, a.field, a.value, a.by)
+    return OK
+
+
+def cmd_judge_stats(a) -> int:
+    """Print evidence only; this command never changes labels or promotion state.
+
+    The run's events.jsonl is the single source: bake-time votes are imported
+    into it by ``init-run --plan``, and every later firing site appends there.
+    """
+    run_dir = _resolve_run_dir(a)
+    events = E.read_events(os.path.join(run_dir, "events.jsonl"))
+    judged = set(DECISIONS.judged_decision_ids())
+    votes = [event for event in events if event.get("type") == "shadow_vote" and event.get("decision") in judged]
+    outcomes = [event for event in events
+                if event.get("type") == "decision_outcome" and event.get("decision") in judged]
+    adjudications = [event for event in events if event.get("type") == "adjudicated"
+                     and (event.get("decision") or event.get("field")) in judged]
+    roster = R.load_roster(_resolve_roster(a))
+    stats = summarize_shadow(votes, outcomes, adjudications, (roster.get("judge") or {}).get("bar", {}))
+    print(json.dumps(stats, sort_keys=True, indent=2))
     return OK
 
 
@@ -2224,7 +2453,8 @@ def _plan_existing_labels(text: str) -> dict:
     return {label["task_id"]: label for _, label in extract_blocks(text)}
 
 
-def _plan_labels(text: str, path: str, run_id: str, roster: dict, no_judge: bool):
+def _plan_labels(text: str, path: str, run_id: str, roster: dict, no_judge: bool, collect: bool = False):
+    """Bake labels. ``collect`` (shadow mode only) adds the Part B decision votes."""
     from .bake import skeleton_label
     from .planparse import parse_plan
 
@@ -2232,8 +2462,11 @@ def _plan_labels(text: str, path: str, run_id: str, roster: dict, no_judge: bool
     existing = _plan_existing_labels(text)
     judge = None
     if not no_judge and (roster.get("judge") or {}).get("plugin") is not None:
-        jconf = roster["judge"]
-        judge = CommandJudge(jconf["command"], timeout_s=jconf.get("timeout_s", 30))
+        judge = _make_judge(roster)
+    collect = collect and judge is not None
+    bake_id = hashlib.sha256(("%s:%s:%s" % (os.path.abspath(path), time.time(), os.getpid()))
+                             .encode("utf-8")).hexdigest()[:12]
+    task_text = {}
     labels = {}
     shadow = []
     vocab = roster["vocab"]
@@ -2257,9 +2490,10 @@ def _plan_labels(text: str, path: str, run_id: str, roster: dict, no_judge: bool
         final, votes = CAS.label_task(draft, task.get("body", ""), roster, judge=judge)
         for field in CAS.FIELDS:
             current = final["provenance"].get(field, {})
+            # Only a rule vote can have produced a planner-attributed value here;
+            # a shadow judge vote never decides, so it must not change attribution.
             real_vote = any(v.get("field") == field and v.get("value") is not None
-                            and (v.get("by", "").startswith("rule:")
-                                 or v.get("by", "").startswith("judge:")) for v in votes)
+                            and v.get("by", "").startswith("rule:") for v in votes)
             if current.get("by") == "planner" and not real_vote:
                 final["provenance"][field] = {
                     "by": "default", "confidence": current.get("confidence"),
@@ -2305,10 +2539,22 @@ def _plan_labels(text: str, path: str, run_id: str, roster: dict, no_judge: bool
                 if field in old:
                     label["context"][field] = old[field]
         labels[task["task_id"]] = label
-        shadow.extend({"task_id": task["task_id"], "field": vote["field"],
-                       "by": vote["by"], "value": vote["value"],
-                       "confidence": vote.get("confidence"), "detail": vote.get("detail", {})}
-                      for vote in votes if vote["by"].startswith("judge:"))
+        task_text[task["task_id"]] = task.get("body", "")
+        if collect:
+            shadow.extend(dict(_vote_fields(vote), type="shadow_vote", run_id=run_id, task_id=task["task_id"],
+                               bake_id=bake_id, source="bake")
+                          for vote in _cascade_votes(roster, votes))
+        else:
+            shadow.extend({"task_id": task["task_id"], "field": vote["field"],
+                           "by": vote["by"], "value": vote["value"],
+                           "confidence": vote.get("confidence"), "detail": vote.get("detail", {})}
+                          for vote in votes if vote["by"].startswith("judge:"))
+    if collect:
+        # Second pass: lane needs the whole plan graph (independent tasks).
+        for task_id, label in labels.items():
+            for vote in _bake_extra_votes(judge, roster, label, task_text[task_id], labels):
+                shadow.append(dict(_vote_fields(vote), type="shadow_vote", run_id=run_id, task_id=task_id,
+                                   bake_id=bake_id, source="bake"))
     return labels, shadow
 
 
@@ -2397,7 +2643,10 @@ def cmd_plan_bake(a) -> int:
         text = handle.read()
     roster = _plan_roster(a)
     shadow_error = None
-    judge_enabled = bool(a.judge and not a.no_judge)
+    mode = _judge_mode(roster)
+    # shadow: collection is on by roster default; legacy: the old --judge opt-in;
+    # off: never, whatever the flags say. --no-judge always disables.
+    judge_enabled = bool(not a.no_judge and (mode == "shadow" or (mode == "legacy" and a.judge)))
     if judge_enabled:
         try:
             _plan_shadow_gate(a.plan_path)
@@ -2406,7 +2655,8 @@ def cmd_plan_bake(a) -> int:
     try:
         validate_compact_blocks(text)
         labels, shadow = _plan_labels(text, a.plan_path, _plan_run_id(a.plan_path, a.run_id),
-                                      roster, not judge_enabled or shadow_error is not None)
+                                      roster, not judge_enabled or shadow_error is not None,
+                                      collect=mode == "shadow")
         baked = bake(text, labels)
     except (PlanParseError, ValueError) as exc:
         raise CliError(FAIL, str(exc))
@@ -2486,6 +2736,34 @@ def cmd_plan_compile(a) -> int:
     return OK if _compile_plan_to_run(a.plan_path, run_dir, roster, a.run_id) is not None else FAIL
 
 
+def _import_bake_votes(c: "Ctx", plan_path: str) -> int:
+    """Copy the latest bake's shadow votes for this run into events.jsonl.
+
+    Bake happens before the run exists, so its votes wait in the plan's
+    git-ignored shadow file. At init-run they join the run's events (one source
+    for ``judge-stats``), and each bake decision's outcome is recorded from the
+    compiled label, which is what the planner actually shipped.
+    """
+    path = _plan_shadow_path(plan_path)
+    if not os.path.isfile(path):
+        return 0
+    rows = [row for row in _read_jsonl(path)
+            if row.get("type") == "shadow_vote" and row.get("run_id") == c.run_id
+            and row.get("task_id") in c.labels and DECISIONS.is_judged(row.get("decision"))]
+    if not rows:
+        return 0
+    latest = rows[-1].get("bake_id")
+    rows = [row for row in rows if row.get("bake_id") == latest]
+    for row in rows:
+        _emit_vote(c, row["task_id"], row, "bake", attempt=1)
+    for task_id in sorted({row["task_id"] for row in rows}):
+        outcomes = _bake_outcomes(c.labels[task_id])
+        for decision in sorted({row["decision"] for row in rows if row["task_id"] == task_id}):
+            if decision in outcomes:
+                _emit_outcome(c, task_id, decision, outcomes[decision], "planner")
+    return len(rows)
+
+
 def cmd_init_run_plan(a) -> int:
     if not a.plan:
         return cmd_init_run(a)
@@ -2512,6 +2790,8 @@ def cmd_init_run_plan(a) -> int:
     rhash = R.roster_hash(c.roster)
     for task_id, label in c.labels.items():
         c.emit("labeled", task_id, None, 1, labels=label["labels"], roster_hash=rhash)
+    if _judge_mode(c.roster) == "shadow":
+        _import_bake_votes(c, a.plan)
     decisions = os.path.join(c.run_dir, "decisions.md")
     if not os.path.exists(decisions):
         H.write_atomic(decisions, "# Decisions for run %s\n\n" % c.run_id)
@@ -2545,6 +2825,7 @@ def _parser() -> argparse.ArgumentParser:
     init_run.set_defaults(fn=cmd_init_run_plan)
     setup = sub.add_parser("setup")
     setup.add_argument("--force", action="store_true")
+    setup.add_argument("--judge", choices=["off", "shadow"])
     setup.set_defaults(fn=cmd_setup)
     run = sub.add_parser("run", parents=[common])
     run.set_defaults(fn=cmd_run)
@@ -2648,6 +2929,8 @@ def _parser() -> argparse.ArgumentParser:
     adj.add_argument("--field")
     adj.add_argument("--value")
     adj.add_argument("--by", default="human")
+    adj.add_argument("--decision")
+    add("judge-stats", cmd_judge_stats)
     add("paths-within", cmd_paths_within).add_argument("task_id")
     add("doctor", cmd_doctor)
     gp = add("guard-path", cmd_guard_path, task=True)
