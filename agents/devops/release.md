@@ -27,7 +27,8 @@ rules:
   deny_paths: []
   deny_tools: []
   require_before_submit: []
-checklist: []
+checklist:
+  - "Verify release artifacts, rollout steps, and rollback readiness"
 origin: orchestkit/release-engineer@9.8.0
 version: 1
 ---

@@ -27,7 +27,8 @@ reads:
   - "agents/_refs/memory/references/mermaid-patterns.md"
   - "agents/_refs/memory/references/session-resume-patterns.md"
 rules: {}
-checklist: []
+checklist:
+  - "Verify integration contracts, retries, and failure behavior"
 origin: orchestkit/event-driven-architect@9.8.0
 version: 1
 ---

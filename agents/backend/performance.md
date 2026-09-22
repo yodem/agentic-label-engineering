@@ -41,7 +41,8 @@ reads:
   - "agents/_refs/memory/references/session-resume-patterns.md"
 rules:
   deny_paths: ["frontend/**"]
-checklist: []
+checklist:
+  - "Measure the relevant performance baseline and verify the change against it"
 origin: orchestkit/python-performance-engineer@9.8.0
 version: 1
 ---

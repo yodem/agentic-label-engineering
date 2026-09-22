@@ -1,7 +1,7 @@
 ---
 name: docs-default
 role: docs
-sub: default
+sub: _default
 phases: [plan, implement, review, maintain]
 model_tier_min: cheap
 reads:

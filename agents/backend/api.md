@@ -61,7 +61,8 @@ reads:
   - "agents/_refs/memory/references/session-resume-patterns.md"
 rules:
   deny_paths: ["frontend/**"]
-checklist: []
+checklist:
+  - "Verify request validation, response compatibility, and error semantics"
 origin: orchestkit/backend-system-architect@9.8.0
 version: 1
 ---

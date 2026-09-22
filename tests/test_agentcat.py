@@ -109,6 +109,15 @@ def test_schema_errors_name_the_file(tmp_path, field, value):
         load_catalog([str(tmp_path)])
 
 
+def test_empty_reads_entry_is_rejected_with_file_name(tmp_path):
+    path = write_agent(tmp_path, "frontend/css.md", name="css", role="frontend", sub="css")
+    path.write_text(agent_text("css", "frontend", "css").replace(
+        "reads: []", 'reads: [""]'
+    ), encoding="utf-8")
+    with pytest.raises(CatalogError, match="css.md: reads entries must not be empty"):
+        load_catalog([str(tmp_path)])
+
+
 def test_sha256_is_stable_across_loads(tmp_path):
     write_agent(tmp_path, "frontend/css.md", name="css", role="frontend", sub="css")
     first = load_catalog([str(tmp_path)])["frontend/css"]["sha256"]
@@ -145,7 +154,8 @@ def test_missing_catalog_root_is_skipped(tmp_path):
 
 def test_real_agents_directory_validates():
     catalog = load_catalog(["agents"])
-    assert len(catalog) == 7
+    assert len(catalog) >= 7
+    assert {"general", "_cross/debugging", "frontend/_default", "backend/_default", "devops/_default", "test/_default", "docs/_default"} <= set(catalog)
 
 
 def test_symlinked_agent_file_outside_root_fails_closed(tmp_path):

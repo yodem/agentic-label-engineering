@@ -13,7 +13,6 @@ reads:
   - "**/pyproject.toml"
   - "**/package.json"
   - ".claude/rules/antipatterns.md"
-  - ""
   - "agents/_refs/testing-unit/SKILL.md"
   - "agents/_refs/testing-unit/references/aaa-pattern.md"
   - "agents/_refs/testing-unit/references/factory-patterns.md"
