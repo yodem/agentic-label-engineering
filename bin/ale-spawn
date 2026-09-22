@@ -27,6 +27,7 @@ values = {
     "ale_roster": env.get("ALE_ROSTER", ""),
     "ale_plugin_root": env.get("ALE_PLUGIN_ROOT", ""),
     "ale_read_only": env.get("ALE_READ_ONLY", ""),
+    "ale_deny_tools": ",".join(env.get("ALE_DENY_TOOLS", [])),
     "ale_herdr": "",
 }
 for key, value in env.items():
@@ -108,7 +109,11 @@ case "$ale_executor" in
                     set -- "$@" --plugin-dir "$ALE_PLUGIN_ROOT"
                 fi
                 if [ "$ale_kind" = "monitor" ] && [ "$ALE_READ_ONLY" = "1" ]; then
-                    set -- "$@" --disallowedTools "Write,Edit,MultiEdit,NotebookEdit"
+                    ale_deny_tools=${ale_deny_tools:+$ale_deny_tools,}
+                    ale_deny_tools="${ale_deny_tools}Write,Edit,MultiEdit,NotebookEdit"
+                fi
+                if [ -n "$ale_deny_tools" ]; then
+                    set -- "$@" --disallowedTools "$ale_deny_tools"
                 fi
                 set -- "$@" -p "$prompt_text"
                 if [ -n "$prefix" ]; then

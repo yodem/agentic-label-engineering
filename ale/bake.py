@@ -22,7 +22,7 @@ _GLOB = re.compile(r"[*?\[]")
 _COMPACT_KEYS = ("task_id", "title", "labels", "lane_reason", "acceptance", "allowed_paths",
                  "depends_on", "worktree", "assignments", "fixes", "spec_path", "pointers",
                  "watch", "milestone")
-_LABEL_KEYS = ("role", "model_tier", "lane", "risk", "effort")
+_LABEL_KEYS = ("role", "model_tier", "lane", "risk", "effort", "sub", "phase")
 _ASSIGNMENT_KEYS = ("kind", "role", "model_tier", "executor", "trigger")
 _ACCEPTANCE_KEYS = ("id", "cmd", "expect", "manual")
 _WORKTREE_KEYS = ("mode", "worktree_reason")
@@ -154,7 +154,8 @@ def skeleton_label(task: dict, run_id: str, votes: dict) -> dict:
         "task_id": task["task_id"],
         "title": task["title"],
         "labels": {"role": role, "model_tier": model_tier, "lane": None,
-                    "risk": risk, "effort": effort},
+                    "risk": risk, "effort": effort,
+                    "phase": "implement" if allowed_paths else None},
         "routing": routing,
         "context": {
             "spec_path": task.get("spec_path") or "plan",
@@ -182,7 +183,12 @@ def render_block(label: dict) -> str:
     labels = label.get("labels", {})
     context = label.get("context", {})
     worktree = context.get("worktree") or {}
-    compact_labels = {key: labels.get(key) for key in ("role", "model_tier", "risk", "effort", "lane")}
+    compact_labels = {key: labels.get(key) for key in
+                      ("role", "model_tier", "risk", "effort", "lane")}
+    if "phase" in labels:
+        compact_labels["phase"] = labels["phase"]
+    if "sub" in labels:
+        compact_labels["sub"] = labels["sub"]
     worktree_value = worktree.get("mode")
     if worktree_value == "shared":
         worktree_value = {"mode": "shared", "worktree_reason": worktree.get("worktree_reason")}
@@ -304,7 +310,7 @@ def compile_plan(text: str, run_id: str = "run-1", provenance: dict = None) -> D
             "schema_version": "1.0", "run_id": run_id,
             "task_id": compact.get("task_id"), "title": compact.get("title"),
             "labels": dict(compact.get("labels") or {}),
-            "routing": {"executor": None, "model": None, "resolved_from": None},
+            "routing": {"executor": None, "model": None, "resolved_from": None, "agent": None},
             "context": {"spec_path": compact.get("spec_path", "plan"),
                          "pointers": list(compact.get("pointers", [])),
                          "allowed_paths": list(compact.get("allowed_paths", [])),
@@ -381,6 +387,12 @@ def gaps(label: dict) -> List[str]:
     rule_votes = role_provenance.get("votes")
     if labels.get("role") is None:
         missing.append("role")
+    if ("sub" in labels and labels.get("role") in ("frontend", "backend", "devops")
+            and labels.get("sub") is None):
+        missing.append("sub")
+    if ("phase" in labels and labels.get("phase") is None
+            and not label.get("context", {}).get("allowed_paths")):
+        missing.append("phase")
     if not label.get("context", {}).get("allowed_paths"):
         missing.append("allowed_paths")
     return missing

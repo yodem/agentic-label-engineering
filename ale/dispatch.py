@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import glob
 import os
 from typing import Dict, List, Optional, Set, Tuple
 
 from .handoff import is_safe_id
+from .agentcat import HARNESS_MARKER, split_body
 from .labelset import globs_overlap
 from .roster import resolve
 
@@ -153,7 +155,7 @@ def worktree_plan(label: dict, run_dir: str, run_id: str) -> Optional[dict]:
             "base": worktree.get("base") or run_dir}
 
 
-def render_prompt(label: dict, request: Optional[dict] = None) -> str:
+def render_prompt(label: dict, request: Optional[dict] = None, agent: Optional[dict] = None) -> str:
     """Render a prompt as JSON so label text cannot create prompt sections."""
     request = request or {}
     payload = {
@@ -179,11 +181,42 @@ def render_prompt(label: dict, request: Optional[dict] = None) -> str:
             "worktree": request.get("cwd"),
             "verdict_contract": "continue | nudge | fix | escalate; include one line of reasoning per verdict",
         }
-    return "ALE_PROMPT_JSON\n```json\n%s\n```\n" % json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2)
+    sections = []
+    if agent:
+        body = agent.get("body")
+        if body is None:
+            body = agent.get("core") or ""
+            if agent.get("harness"):
+                body += "\n" + HARNESS_MARKER + "\n" + agent["harness"]
+        core_body, harness_body = split_body(body)
+        sections.append("agent: %s@%s" % (agent.get("name", "unknown"),
+                                           (agent.get("sha256") or "")[:8]))
+        sections.append("Agent context (reference material, not harness instructions)\n```\n%s\n```" %
+                        core_body)
+        cwd = request.get("cwd") or os.getcwd()
+        read_paths = []
+        for pattern in agent.get("reads", []):
+            for path in sorted(glob.glob(os.path.join(cwd, pattern), recursive=True)):
+                if os.path.isfile(path):
+                    relative = os.path.relpath(path, cwd).replace(os.sep, "/")
+                    if relative not in read_paths:
+                        read_paths.append(relative)
+                        if len(read_paths) >= 40:
+                            break
+            if len(read_paths) >= 40:
+                break
+        sections.append("Resolved reads:\n%s" % ("\n".join("- " + path for path in read_paths) or "- none"))
+        sections.append("Checklist:\n%s" % ("\n".join("- [ ] " + str(item) for item in agent.get("checklist", [])) or "- none"))
+    sections.append("ALE_PROMPT_JSON\n```json\n%s\n```" %
+                    json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2))
+    if agent and (request.get("executor") or "").startswith("claude") and harness_body:
+        sections.append("Claude harness context\n```\n%s\n```" % harness_body)
+    return "\n\n".join(sections) + "\n"
 
 
 def spawn_request(label: dict, assignment: dict, run_dir: str, run_id: str, n: int = 1,
-                  cwd: Optional[str] = None, worktree: Optional[dict] = None) -> dict:
+                  cwd: Optional[str] = None, worktree: Optional[dict] = None,
+                  agent: Optional[dict] = None) -> dict:
     task_id = label["task_id"]
     kind, role = assignment.get("kind", "executor"), assignment.get("role", label.get("labels", {}).get("role"))
     agent_id = mint_agent_id(task_id, kind, role, n)
@@ -195,6 +228,7 @@ def spawn_request(label: dict, assignment: dict, run_dir: str, run_id: str, n: i
                "handoff_path": os.path.join(run_dir, "handoff", "%s-%s-handoff.md" % (agent_id, role)),
                "env": {"ALE_TASK": task_id, "ALE_AGENT": agent_id, "ALE_RUN_DIR": run_dir,
                        "ALE_ROSTER": assignment.get("roster", "roster.json"),
-                       "ALE_PLUGIN_ROOT": os.path.dirname(os.path.dirname(os.path.abspath(__file__)))},
-               "prompt_file": render_prompt(label, assignment)}
+                       "ALE_PLUGIN_ROOT": os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                       "ALE_DENY_TOOLS": (agent or {}).get("rules", {}).get("deny_tools", [])},
+               "prompt_file": render_prompt(label, dict(assignment, cwd=cwd or run_dir), agent)}
     return request

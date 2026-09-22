@@ -1,0 +1,29 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "role", "phases", "model_tier_min", "reads", "rules", "checklist", "version"],
+  "properties": {
+    "name": {"type": "string", "minLength": 1},
+    "role": {"type": "string", "minLength": 1},
+    "sub": {"type": ["string", "null"], "minLength": 1},
+    "phases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"enum": ["plan", "design", "implement", "test", "review", "deploy", "operate", "maintain"]}
+    },
+    "model_tier_min": {"enum": ["cheap", "standard", "frontier"]},
+    "reads": {"type": "array", "items": {"type": "string"}},
+    "rules": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "deny_paths": {"type": "array", "items": {"type": "string"}},
+        "deny_tools": {"type": "array", "items": {"type": "string"}},
+        "require_before_submit": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "checklist": {"type": "array", "maxItems": 12, "items": {"type": "string"}},
+    "origin": {"type": "string"},
+    "version": {"type": "integer", "minimum": 1}
+  }
+}

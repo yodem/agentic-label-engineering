@@ -8,13 +8,22 @@ import time
 from typing import Callable, Dict, List, Optional
 
 
-def options_for(field: str, roster: dict, order: Optional[List[str]] = None) -> List[str]:
+def options_for(field: str, roster: dict, order: Optional[List[str]] = None, role: Optional[str] = None) -> List[str]:
     vocab = roster["vocab"][field]
+    if field == "sub":
+        if role is None or role not in vocab:
+            raise ValueError("a known role is required for sub options")
+        vocab = vocab[role]
+        keys = order if order is not None else list(vocab.keys())
+    elif isinstance(vocab, dict):
+        keys = order if order is not None else list(vocab.keys())
+    else:
+        keys = order if order is not None else list(vocab)
+        vocab = {key: key for key in keys}
     for key in vocab:
         if ":" in key or key == "other":
             raise ValueError("invalid vocabulary key")
 
-    keys = order if order is not None else list(vocab.keys())
     options = []
     for key in keys:
         guideline = str(vocab[key]).replace("\n", " ")

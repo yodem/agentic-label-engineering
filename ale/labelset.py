@@ -46,7 +46,7 @@ def globs_overlap(a: str, b: str) -> bool:
     return pa.startswith(pb) or pb.startswith(pa)
 
 
-def check_label(label: dict, roster: dict) -> List[str]:
+def check_label(label: dict, roster: dict, catalog: dict = None) -> List[str]:
     effective = copy.deepcopy(label)
     context = effective.setdefault("context", {})
     if "worktree" not in context:
@@ -101,11 +101,44 @@ def check_label(label: dict, roster: dict) -> List[str]:
         value = effective["labels"][field]
         if value not in roster["vocab"][field]:
             errs.append("%s: labels.%s=%r is not in the roster vocabulary" % (tid, field, value))
+    label_sub = effective["labels"].get("sub")
+    role = effective["labels"]["role"]
+    if ("phase" in effective["labels"] and effective["labels"]["phase"] is None and
+            effective["context"].get("allowed_paths")):
+        errs.append("%s: labels.phase may be null only when context.allowed_paths is empty" % tid)
+    if label_sub is not None:
+        allowed_subs = roster["vocab"].get("sub", {}).get(role, {})
+        sub_names = list(allowed_subs) if isinstance(allowed_subs, dict) else list(allowed_subs)
+        cross_subs = roster["vocab"].get("cross_sub", [])
+        if label_sub not in sub_names and label_sub not in cross_subs:
+            errs.append("%s: labels.sub=%r is not in the roster vocabulary for role=%s" %
+                        (tid, label_sub, role))
     if not errs:
         try:
             resolve(roster, label["labels"]["role"], label["labels"]["model_tier"])
         except RosterError as exc:
             errs.append("%s: routing: %s" % (tid, exc))
+        if catalog is not None and label_sub is not None:
+            from .agentcat import CatalogError, resolve_agent
+            try:
+                agent = resolve_agent(catalog, role, label_sub, effective["labels"].get("phase"))
+                expected_role = "devops" if role == "infra" else role
+                expected_sub = "infra" if role == "infra" else label_sub
+                cross_key = "_cross/%s" % label_sub
+                if (role in ("frontend", "backend", "devops", "infra") and
+                        agent["matched"] != "exact" and agent["key"] != cross_key):
+                    raise CatalogError("missing agent for sub %r; expected agents/%s/%s.md" %
+                                       (label_sub, expected_role, expected_sub))
+                denied = catalog.get(agent["key"], {}).get("rules", {}).get("deny_paths", [])
+                allowed = effective["context"].get("allowed_paths", [])
+                if allowed and all(any(globs_overlap(path, deny) for deny in denied)
+                                   for path in allowed):
+                    errs.append("%s: agent deny_paths cover every context.allowed_paths entry" % tid)
+            except CatalogError as exc:
+                expected_role = "devops" if role == "infra" else role
+                expected_sub = "infra" if role == "infra" else label_sub
+                errs.append("%s: %s (expected agents/%s/%s.md)" %
+                            (tid, exc, expected_role, expected_sub))
         watch = effective_watch(label, roster)
         for key in ("heartbeat_timeout_s", "stuck_after_s", "max_duration_s", "budget_tokens", "max_attempts"):
             if key not in watch:

@@ -115,6 +115,55 @@ def test_votes_returned_include_every_field(roster, label_t01):
     assert fields_seen == set(FIELDS)
 
 
+def test_css_rule_bakes_sub(roster, label_t01):
+    draft = copy.deepcopy(label_t01)
+    draft["labels"].pop("sub", None)
+    draft["labels"]["role"] = "backend"
+    draft["context"]["allowed_paths"] = ["styles.css"]
+
+    final, _ = label_task(draft, "Create styles.css", roster, judge=None)
+
+    assert final["labels"]["sub"] == "css"
+
+
+def test_review_rule_bakes_phase(roster, label_t01):
+    final, _ = label_task(label_t01, "Please review this change", roster, judge=None)
+
+    assert final["labels"]["phase"] == "review"
+    assert final["provenance"]["phase"]["by"] == "rule:12"
+
+
+def test_unmatched_task_does_not_invent_sub(roster, label_t01):
+    draft = copy.deepcopy(label_t01)
+    draft["labels"].pop("sub", None)
+    draft["context"]["allowed_paths"] = ["module.py"]
+
+    final, _ = label_task(draft, "Update the module", roster, judge=None)
+
+    assert "sub" not in final["labels"]
+
+
+def test_invalid_sub_rule_is_rejected(roster, label_t01):
+    from ale.labeling.rules import RuleError
+
+    invalid_roster = copy.deepcopy(roster)
+    invalid_roster["rules"] = [{"field": "role", "when": {"keyword": "(?i)style"},
+                                 "value": "sub:frontend/not-a-sub"}]
+
+    with pytest.raises(RuleError):
+        label_task(label_t01, "Style the page", invalid_roster, judge=None)
+
+
+def test_sub_rule_provenance_is_recorded(roster, label_t01):
+    draft = copy.deepcopy(label_t01)
+    draft["labels"].pop("sub", None)
+    draft["context"]["allowed_paths"] = ["styles.css"]
+
+    final, _ = label_task(draft, "Create styles.css", roster, judge=None)
+
+    assert final["provenance"]["sub"]["by"] == "rule:3"
+
+
 class TestReadSpecText:
     def test_file_inside_cwd_root_is_read(self, tmp_path):
         cwd = tmp_path / "cwd"
