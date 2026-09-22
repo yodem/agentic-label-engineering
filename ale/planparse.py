@@ -125,14 +125,14 @@ def parse_plan(text: str) -> List[Dict[str, object]]:
         ids.append(task_id)
 
     tasks = []
+    known = set(ids)
     for position, (start, title, _) in enumerate(candidates):
         end = candidates[position + 1][0] if position + 1 < len(candidates) else len(lines)
         files, commands, raw_dependencies = _task_fields(lines, start, end)
-        known = {task_id: number for number, task_id in enumerate(ids)}
         depends_on = []
         for raw_id in raw_dependencies:
             dependency = "T{}".format(raw_id)
-            if dependency in known and known[dependency] < position and dependency not in depends_on:
+            if dependency in known and dependency != ids[position] and dependency not in depends_on:
                 depends_on.append(dependency)
         body = "\n".join(lines[start + 1:end]).strip()
         tasks.append({

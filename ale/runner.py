@@ -13,13 +13,17 @@ def next_actions(state: dict, labels: dict, events: list) -> list:
         last_result = max((index for index, event in enumerate(events)
                            if event.get("task_id") == task_id
                            and event.get("type") in ("verified", "accepted", "rejected")), default=-1)
+        last_acceptance_change = max((index for index, event in enumerate(events)
+                                      if event.get("task_id") == task_id and event.get("type") == "relabeled"
+                                      and event.get("field") == "acceptance"), default=-1)
         last_rejection = max((index for index, event in enumerate(events)
                               if event.get("task_id") == task_id and event.get("type") == "rejected"), default=-1)
         last_fix_accept = max((index for index, event in enumerate(events)
                                if event.get("type") == "accepted"
                                and labels.get(event.get("task_id"), {}).get("fixes") == task_id), default=-1)
         needs_verification = last_submit is not None and (
-            last_result < last_submit or (last_fix_accept > last_rejection and last_result < last_fix_accept))
+            last_result < last_submit or last_acceptance_change > last_result
+            or (last_fix_accept > last_rejection and last_result < last_fix_accept))
         if status.get("state") == "submitted" and needs_verification:
             actions.append(("verify", task_id))
         elif status.get("state") == "accepted" and not status.get("integrated") and not is_fix:

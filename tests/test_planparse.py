@@ -149,3 +149,23 @@ def test_large_plan_is_parsed():
 def test_headings_inside_backtick_or_tilde_fences_are_ignored():
     text = "## Task 1: One\n~~~\n## Task 9: Nested\n~~~\n## Task 2: Two\n"
     assert [task["task_id"] for task in parse_plan(text)] == ["T1", "T2"]
+
+
+def test_forward_dependency_is_kept():
+    text = "## Task 1: One\nDepends on Task 2\n## Task 2: Two\n"
+    assert parse_plan(text)[0]["depends_on"] == ["T2"]
+
+
+def test_backward_dependency_is_kept():
+    text = "## Task 1: One\n## Task 2: Two\nDepends on Task 1\n"
+    assert parse_plan(text)[1]["depends_on"] == ["T1"]
+
+
+def test_self_dependency_is_dropped():
+    text = "## Task 1: One\nDepends on Task 1\n## Task 2: Two\n"
+    assert parse_plan(text)[0]["depends_on"] == []
+
+
+def test_unknown_dependency_is_dropped():
+    text = "## Task 1: One\nDepends on Task 9\n## Task 2: Two\n"
+    assert parse_plan(text)[0]["depends_on"] == []

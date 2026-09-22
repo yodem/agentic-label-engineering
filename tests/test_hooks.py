@@ -29,6 +29,28 @@ def test_non_edit_has_no_targets():
     assert target_paths("Bash", {"file_path": "src/a.py"}) == []
 
 
+def test_apply_patch_paths_are_reported():
+    patch = "*** Begin Patch\n*** Update File: src/a.py\n*** Add File: docs/new.md\n*** End Patch"
+    assert target_paths("apply_patch", {"command": patch}) == ["src/a.py", "docs/new.md"]
+
+
+def test_exec_command_heredoc_path_is_reported():
+    command = "cat > src/generated.py <<'EOF'\nvalue = 1\nEOF"
+    assert target_paths("exec_command", {"cmd": command}) == ["src/generated.py"]
+
+
+def test_write_file_path_shape_is_reported():
+    assert target_paths("write_file", {"path": "src/generated.py", "content": "value"}) == ["src/generated.py"]
+
+
+def test_edit_tool_path_alias_is_reported():
+    assert target_paths("Write", {"path": "src/generated.py", "content": "value"}) == ["src/generated.py"]
+
+
+def test_unknown_command_shape_does_not_guess_paths():
+    assert target_paths("exec_command", {"cmd": "echo src/not-a-target.py"}) == []
+
+
 def test_lease_lost_denies_every_tool():
     result = decide_pre_tool(binding("a1"), label(), live("a2"), "Bash", {}, "/project")
     assert result["action"] == "deny" and "exit 4" in result["reason"] and "stop" in result["reason"].lower()

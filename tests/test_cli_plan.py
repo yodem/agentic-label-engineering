@@ -243,6 +243,37 @@ def test_plan_bake_write_reports_unknown_compact_key_without_rewriting(tmp_path,
     assert plan.read_bytes() == before
 
 
+def test_plan_bake_write_preserves_handwritten_dependency(tmp_path):
+    roster = _roster(tmp_path)
+    plan = _valid_plan(tmp_path, roster)
+    text = plan.read_text()
+    text = text.replace("Consumes: Task 1", "Consumes: no earlier task")
+    text = text.replace("After Task 2", "Update the guide")
+    text = text.replace('"depends_on": [],', '"depends_on": ["T3"],', 1)
+    plan.write_text(text)
+
+    assert main(["plan", "bake", str(plan), "--no-judge", "--write", "--roster", roster]) == 0
+    from ale.bake import extract_blocks
+    blocks = dict((label["task_id"], label) for _, label in extract_blocks(plan.read_text()))
+    assert blocks["T1"]["depends_on"] == ["T3"]
+
+
+def test_plan_bake_write_adds_dependency_found_in_prose(tmp_path):
+    roster = _roster(tmp_path)
+    plan = _valid_plan(tmp_path, roster)
+    text = plan.read_text()
+    text = text.replace("Consumes: Task 1", "Consumes: no earlier task")
+    text = text.replace("After Task 2", "Update the guide")
+    text = text.replace("Create the model and its tests.", "Create the model and its tests.\nDepends on Task 2")
+    plan.write_text(text)
+    assert parse_plan(text)[0]["depends_on"] == ["T2"]
+
+    assert main(["plan", "bake", str(plan), "--no-judge", "--write", "--roster", roster]) == 0
+    from ale.bake import extract_blocks
+    blocks = dict((label["task_id"], label) for _, label in extract_blocks(plan.read_text()))
+    assert blocks["T1"]["depends_on"] == ["T2"]
+
+
 def test_plan_compile_reports_unknown_compact_key(tmp_path, capsys):
     roster = _roster(tmp_path)
     plan = _valid_plan(tmp_path, roster)
