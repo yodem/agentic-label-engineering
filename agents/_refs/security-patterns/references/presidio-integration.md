@@ -1,4 +1,4 @@
-origin: orchestkit/skills/security-patterns@9.8.0
+origin: orchestkit/security-patterns@9.8.0
 # Microsoft Presidio Integration
 
 Enterprise-grade PII detection and anonymization with Microsoft Presidio.
@@ -65,3 +65,4 @@ analyzer.registry.add_recognizer(internal_id_recognizer)
 
 - [Presidio Documentation](https://microsoft.github.io/presidio/)
 - [Supported Entities](https://microsoft.github.io/presidio/supported_entities/)
+

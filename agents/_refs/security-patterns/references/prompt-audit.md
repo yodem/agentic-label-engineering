@@ -1,4 +1,4 @@
-origin: orchestkit/skills/security-patterns@9.8.0
+origin: orchestkit/security-patterns@9.8.0
 # Prompt Audit
 
 ## Purpose
@@ -396,3 +396,4 @@ class TestPromptAudit:
         assert str(user_id) not in prompt
         assert context["user_id"] == user_id
 ```
+

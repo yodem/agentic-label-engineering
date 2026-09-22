@@ -1,5 +1,4 @@
-origin: orchestkit/skills/architecture-patterns/references/naming-conventions.md@9.8.0
-
+origin: orchestkit/architecture-patterns@9.8.0
 # Test Naming Conventions
 
 Descriptive test names that document expected behavior.

@@ -1,4 +1,4 @@
-origin: orchestkit/skills/security-patterns@9.8.0
+origin: orchestkit/security-patterns@9.8.0
 # Pre-LLM Filtering
 
 ## Purpose
@@ -322,3 +322,4 @@ class TestPreLLMFiltering:
         assert len(result.source_refs.document_ids) > 0
         assert result.source_refs.retrieval_timestamp is not None
 ```
+

@@ -1,5 +1,4 @@
-origin: orchestkit/skills/testing-e2e/SKILL.md@9.8.0
-
+origin: orchestkit/testing-e2e@9.8.0
 ---
 name: testing-e2e
 license: MIT
@@ -94,7 +93,7 @@ test('user can complete checkout', async ({ page }) => {
   await page.goto('/products');
   await page.getByRole('button', { name: 'Add to cart' }).click();
   await page.getByRole('link', { name: 'Checkout' }).click();
-  await page.getByLabel('Email').fill('test@example.com');
+  await page.getByLabel('Email').fill('[redacted-email]');
   await page.getByRole('button', { name: 'Submit' }).click();
   await expect(page.getByRole('heading', { name: 'Order confirmed' })).toBeVisible();
 });
@@ -130,7 +129,7 @@ Encapsulate page interactions into reusable classes.
 
 ```typescript
 const checkout = new CheckoutPage(page);
-await checkout.fillEmail('test@example.com');
+await checkout.fillEmail('[redacted-email]');
 await checkout.submit();
 await checkout.expectConfirmation();
 ```
@@ -262,3 +261,4 @@ upload, axe scans) now come from the vendor pages in the Upstream coverage table
 - `expect` - Diff-aware browser verification via agent-browser
 - `emulate-seed` - Seed configuration authoring for emulate providers
 - `portless` (upstream) - Stable HTTPS `baseURL` for local E2E tests (`https://myapp.localhost` instead of port guessing; HTTPS-on-443 default since portless 0.10)
+

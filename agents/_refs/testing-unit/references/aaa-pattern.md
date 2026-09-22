@@ -1,5 +1,4 @@
-origin: orchestkit/skills/testing-unit/references/aaa-pattern.md@9.8.0
-
+origin: orchestkit/testing-unit@9.8.0
 # AAA Pattern (Arrange-Act-Assert)
 
 Structure every test with three clear phases for readability and maintainability.
@@ -68,3 +67,4 @@ describe('PricingCalculator', () => {
 - [ ] Comments clearly separate each phase
 - [ ] No logic between Act and Assert phases
 - [ ] Single behavior tested per test method
+

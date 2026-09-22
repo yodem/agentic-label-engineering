@@ -1,5 +1,4 @@
-origin: orchestkit/skills/code-review-playbook/SKILL.md@9.8.0
-
+origin: orchestkit/code-review-playbook@9.8.0
 ---
 name: code-review-playbook
 license: MIT
@@ -232,3 +231,4 @@ Each category has individual rule files in `rules/` loaded on-demand:
 
 There is deliberately no review-report template here; `ork:review-pr` owns that output
 shape. See `references/ork-delta.md`.
+

@@ -1,4 +1,4 @@
-origin: orchestkit/skills/testing-perf@9.8.0
+origin: orchestkit/testing-perf@9.8.0
 # pytest-xdist Parallel Execution
 
 ## Distribution Modes
@@ -88,3 +88,4 @@ pytest -n logical
 - `-s/--capture=no` doesn't work with xdist
 - Some fixtures may need refactoring for parallelism
 - Database tests need worker-isolated databases
+

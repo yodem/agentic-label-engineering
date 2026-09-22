@@ -1,5 +1,4 @@
-origin: orchestkit/skills/testing-unit/SKILL.md@9.8.0
-
+origin: orchestkit/testing-unit@9.8.0
 ---
 name: testing-unit
 license: MIT
@@ -127,7 +126,7 @@ describe('calculateDiscount', () => {
 
 // 2. MSW mocked API test
 const server = setupServer(
-  http.get('/api/members/:id', ({ params }) => {
+  http.get('/api/accounts/:id', ({ params }) => {
     return HttpResponse.json({ id: params.id, name: 'Test User' });
   })
 );
@@ -140,7 +139,7 @@ test('fetches user from API', async () => {
   // Arrange - MSW handler set up above
 
   // Act
-  const response = await fetch('/api/members/123');
+  const response = await fetch('/api/accounts/123');
   const data = await response.json();
 
   // Assert

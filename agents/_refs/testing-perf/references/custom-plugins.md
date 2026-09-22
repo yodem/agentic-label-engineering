@@ -1,4 +1,4 @@
-origin: orchestkit/skills/testing-perf@9.8.0
+origin: orchestkit/testing-perf@9.8.0
 # Custom Pytest Plugins
 
 ## Plugin Types
@@ -104,3 +104,4 @@ version = "1.0.0"
 [project.entry-points.pytest11]
 my_plugin = "pytest_my_plugin"
 ```
+

@@ -1,5 +1,4 @@
-origin: orchestkit/skills/memory/references/memory-commands.md@9.8.0
-
+origin: orchestkit/memory@9.8.0
 # Memory Subcommand Reference
 
 Complete usage, flags, and output format details for each `/ork:memory` subcommand.
@@ -154,3 +153,4 @@ Memory System Status:
   Graph Memory:  healthy (42 decisions, 0 corrupt)
   Queue Depth:   3 pending
 ```
+

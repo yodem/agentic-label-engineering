@@ -1,4 +1,4 @@
-origin: orchestkit/skills/security-patterns@9.8.0
+origin: orchestkit/security-patterns@9.8.0
 # Langfuse Mask Callback
 
 Pre-trace PII masking using Langfuse's mask callback for automatic redaction before data reaches the server.
@@ -73,3 +73,4 @@ langfuse = Langfuse(mask=presidio_mask)
 
 - [Langfuse Mask Callback](https://langfuse.com/docs/sdk/python#mask-callback)
 - [Langfuse Privacy](https://langfuse.com/docs/data-security-privacy)
+

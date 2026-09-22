@@ -1,4 +1,4 @@
-origin: orchestkit/skills/security-patterns@9.8.0
+origin: orchestkit/security-patterns@9.8.0
 # Context Separation Pattern
 
 > **OWASP LLM Top 10 (2025):** This pattern mitigates **LLM07: System Prompt Leakage** - keeping identifiers and internal context out of prompts prevents the model from echoing or leaking system-level data.
@@ -275,3 +275,4 @@ class TestContextSeparation:
         assert len(violations) > 0
         assert "UUID" in violations[0]
 ```
+

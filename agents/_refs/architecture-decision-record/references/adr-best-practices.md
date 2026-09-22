@@ -1,4 +1,4 @@
-origin: orchestkit/skills/architecture-decision-record@9.8.0
+origin: orchestkit/architecture-decision-record@9.8.0
 # ADR Best Practices
 
 Complete reference guide for creating, managing, and evolving Architecture Decision Records following industry best practices and the Nygard format.
@@ -1340,3 +1340,4 @@ Use this quick reference before creating or reviewing an ADR:
 **Last Updated**: 2025-12-21
 **Maintained by**: AI Agent Hub Team
 **Skill**: architecture-decision-record v1.0.0
+

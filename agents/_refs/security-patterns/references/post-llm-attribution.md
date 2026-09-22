@@ -1,4 +1,4 @@
-origin: orchestkit/skills/security-patterns@9.8.0
+origin: orchestkit/security-patterns@9.8.0
 # Post-LLM Attribution
 
 ## The Principle
@@ -346,3 +346,4 @@ class TestAttribution:
 
         assert len(links) == len(result.source_document_ids)
 ```
+

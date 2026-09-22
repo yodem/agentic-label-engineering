@@ -1,5 +1,4 @@
-origin: orchestkit/skills/architecture-patterns/references/ork-delta.md@9.8.0
-
+origin: orchestkit/architecture-patterns@9.8.0
 # ork delta: architecture-patterns
 
 House decisions and scars rescued when the vendor-restatement reference files were
@@ -26,3 +25,4 @@ Upstream: ESLint no-restricted-imports rule, https://eslint.org/docs/latest/rule
 ## Keep test files under tests/ (or __tests__/), never co-located with source
 Why: House decision from test-standards-enforcer (enforcer consolidation; PR untraced). Vendor defaults (Vitest, Jest, pytest) all permit co-location; OrchestKit blocks it so coverage omit globs and CI test discovery stay one-pattern simple. `src/**/*.test.ts` and `app/**/test_*.py` are violations; move them to `tests/unit/`, `tests/integration/`, or `__tests__/`.
 Upstream: skill ork:testing-unit; pytest good practices, https://docs.pytest.org/en/stable/explanation/goodpractices.html
+

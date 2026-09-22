@@ -1,5 +1,4 @@
-origin: orchestkit/skills/performance/SKILL.md@9.8.0
-
+origin: orchestkit/performance@9.8.0
 ---
 name: performance
 license: MIT
@@ -333,3 +332,4 @@ Load on demand with `Read("${CLAUDE_PLUGIN_ROOT}/skills/performance/references/<
 | `database-optimization.md` | Postgres indexing and N+1 fixes backing the recorded audit wins |
 
 Real production before/after evidence (cache hierarchy, cost math): `examples/orchestkit-performance-wins.md`.
+

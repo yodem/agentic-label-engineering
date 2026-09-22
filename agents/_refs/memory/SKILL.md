@@ -1,5 +1,4 @@
-origin: orchestkit/skills/memory/SKILL.md@9.8.0
-
+origin: orchestkit/memory@9.8.0
 ---
 name: memory
 license: MIT
@@ -177,3 +176,4 @@ Load details: `Read("${CLAUDE_PLUGIN_ROOT}/skills/memory/references/session-resu
 - If memory files corrupt: Report and offer repair
 - If search query empty: Show recent entities instead
 - If no search results: Suggest alternatives
+

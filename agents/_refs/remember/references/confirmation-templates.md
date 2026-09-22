@@ -1,5 +1,4 @@
-origin: orchestkit/skills/remember/references/confirmation-templates.md@9.8.0
-
+origin: orchestkit/remember@9.8.0
 # Confirmation Output Templates
 
 Standard output formats for the remember skill.
@@ -80,3 +79,4 @@ Remembered (database): "Use connection pooling with min=5, max=20"
    Graph: 1 entity, 1 relation
    Agent: backend-system-architect
 ```
+

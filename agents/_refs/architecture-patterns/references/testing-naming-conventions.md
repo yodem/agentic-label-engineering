@@ -1,5 +1,4 @@
-origin: orchestkit/skills/architecture-patterns/references/testing-naming-conventions.md@9.8.0
-
+origin: orchestkit/architecture-patterns@9.8.0
 ---
 title: "Test Standards: Naming Conventions"
 category: test-standards
@@ -139,3 +138,4 @@ class TestUtils:
 class TestMisc:
     ...
 ```
+

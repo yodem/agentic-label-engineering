@@ -1,5 +1,4 @@
-origin: orchestkit/skills/memory/references/mermaid-patterns.md@9.8.0
-
+origin: orchestkit/memory@9.8.0
 # Mermaid Diagram Patterns for Graph Visualization
 
 Complete reference for the OrchestKit visualization system (GH #246).
@@ -292,3 +291,4 @@ graph TD
 - Use `graph LR` (left-right) for sequential/timeline or very wide graphs
 - Empty subgraphs should be omitted from output
 - Self-referential edges (entity -> itself) should be excluded
+

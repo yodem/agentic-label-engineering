@@ -1,5 +1,4 @@
-origin: orchestkit/skills/testing-unit/references/factory-patterns.md@9.8.0
-
+origin: orchestkit/testing-unit@9.8.0
 # Factory Patterns for Test Data
 
 Generate consistent, realistic test data with factory patterns.
@@ -68,7 +67,7 @@ class ProjectFactory(factory.Factory):
 user = UserFactory()
 
 # Override specific fields
-admin = UserFactory(email="admin@company.com", is_active=True)
+admin = UserFactory(email="[redacted-email]", is_active=True)
 
 # Use traits
 archived_project = ProjectFactory(archived=True)
@@ -88,3 +87,4 @@ temp_user = UserFactory.build()
 - [ ] Use Traits for common variations (archived, deleted, premium)
 - [ ] Keep factories close to model definitions
 - [ ] Document factory-specific test data assumptions
+

@@ -1,5 +1,4 @@
-origin: orchestkit/skills/remember/references/graph-operations.md@9.8.0
-
+origin: orchestkit/remember@9.8.0
 # Graph Operations Reference
 
 Entity and relation creation patterns for the knowledge graph.
@@ -77,3 +76,4 @@ Before storing, search for similar patterns in graph:
    - Inform user: "Updated existing entity (added observation)"
 3. If similar pattern found with opposite outcome:
    - Warn: "This conflicts with an existing pattern. Store anyway?"
+

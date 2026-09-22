@@ -1,4 +1,4 @@
-origin: orchestkit/skills/security-patterns@9.8.0
+origin: orchestkit/security-patterns@9.8.0
 # Audit Logging
 
 ## Purpose
@@ -250,3 +250,4 @@ generation = trace.generation(
 - Log all access to PHI
 - Log user ID, timestamp, action
 - Never log PHI content in logs
+

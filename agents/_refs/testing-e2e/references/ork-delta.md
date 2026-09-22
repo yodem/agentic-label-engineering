@@ -1,5 +1,4 @@
-origin: orchestkit/skills/testing-e2e/references/ork-delta.md@9.8.0
-
+origin: orchestkit/testing-e2e@9.8.0
 # OrchestKit delta for Playwright E2E
 
 House rules that are NOT in the vendor docs. Everything else about Playwright,
@@ -53,3 +52,4 @@ tolerance to the element that actually moves: `mask`, `stylePath`, and
 `animations: 'disabled'`.
 Distilled from the retired references/visual-regression.md; no traced incident.
 Upstream: https://playwright.dev/docs/api/class-pageassertions
+

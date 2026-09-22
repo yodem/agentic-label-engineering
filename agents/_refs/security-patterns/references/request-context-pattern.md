@@ -1,4 +1,4 @@
-origin: orchestkit/skills/security-patterns@9.8.0
+origin: orchestkit/security-patterns@9.8.0
 # Request Context Pattern
 
 ## Purpose
@@ -149,3 +149,4 @@ result = await service.process(content)  # Missing ctx!
 def process(self):
     ctx = RequestContext(...)  # Should come from gateway!
 ```
+

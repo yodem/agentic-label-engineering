@@ -1,5 +1,4 @@
-origin: orchestkit/skills/memory/references/session-resume-patterns.md@9.8.0
-
+origin: orchestkit/memory@9.8.0
 # CC 2.1.31 Session Resume Hints
 
 At session end, Claude shows resume hints. To maximize resume effectiveness:
@@ -41,3 +40,4 @@ Always store investigation findings before session end:
   Next steps: [what remains]
   Blockers: [if any]
 ```
+

@@ -1,4 +1,4 @@
-origin: orchestkit/skills/testing-perf@9.8.0
+origin: orchestkit/testing-perf@9.8.0
 ---
 name: testing-perf
 license: MIT
@@ -177,3 +177,4 @@ def db_engine(worker_id):
 - `ork:testing-unit` - Unit testing patterns, pytest fixtures
 - `ork:testing-e2e` - End-to-end performance testing with Playwright
 - `ork:performance` - Core Web Vitals and optimization patterns
+

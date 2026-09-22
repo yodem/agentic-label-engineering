@@ -1,5 +1,4 @@
-origin: orchestkit/skills/testing-unit/references/stateful-testing.md@9.8.0
-
+origin: orchestkit/testing-unit@9.8.0
 # Stateful Testing with Hypothesis
 
 ## RuleBasedStateMachine
@@ -140,3 +139,4 @@ state.teardown()
 ```
 
 You can replay this exact sequence to debug.
+

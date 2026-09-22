@@ -1,5 +1,4 @@
-origin: orchestkit/skills/architecture-patterns/references/structure-import-direction.md@9.8.0
-
+origin: orchestkit/architecture-patterns@9.8.0
 ---
 title: "Project Structure: Import Direction & Component Location"
 category: project-structure
@@ -66,7 +65,7 @@ Type-only imports across features are allowed since they are erased at compile t
 
 ```typescript
 // ALLOWED: Type-only import from another feature
-import type { User } from '@/features/members/types';
+import type { User } from '@/features/accounts/types';
 ```
 
 ## Component Location Rules

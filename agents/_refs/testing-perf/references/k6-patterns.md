@@ -1,4 +1,4 @@
-origin: orchestkit/skills/testing-perf@9.8.0
+origin: orchestkit/testing-perf@9.8.0
 # k6 Load Testing Patterns
 
 Common patterns for effective performance testing with k6.
@@ -81,3 +81,4 @@ export default function (data) {
 - [ ] Use checks for functional validation
 - [ ] Externalize configuration (stages, VUs)
 - [ ] Run smoke test before full load test
+

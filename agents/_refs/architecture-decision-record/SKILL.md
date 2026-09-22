@@ -1,4 +1,4 @@
-origin: orchestkit/skills/architecture-decision-record@9.8.0
+origin: orchestkit/architecture-decision-record@9.8.0
 ---
 name: architecture-decision-record
 license: MIT
@@ -239,3 +239,4 @@ Keep ADRs in version control alongside code:
 - What are the consequences of this decision?
 - Document decision impact
 - Risk and benefit analysis
+

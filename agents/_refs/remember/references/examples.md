@@ -1,5 +1,4 @@
-origin: orchestkit/skills/remember/references/examples.md@9.8.0
-
+origin: orchestkit/remember@9.8.0
 # Remember Skill - Examples
 
 ## Basic Remember (Graph Only)
@@ -40,3 +39,4 @@ Remembered (database): "Use connection pooling with min=5, max=20"
    Graph: 1 entity, 1 relation
    Agent: backend-system-architect
 ```
+

@@ -1,4 +1,4 @@
-origin: orchestkit/skills/security-patterns@9.8.0
+origin: orchestkit/security-patterns@9.8.0
 # Claude Code Permission-Rule Semantics (security-relevant)
 
 How Claude Code's `allow` / `ask` / `deny` permission rules actually behave as of
@@ -115,3 +115,4 @@ with Opus; `Agent(model:*)` denies all model-pinned subagent spawns.
 Verify after deploy: a `Grep` for a denied secret returns nothing (§1), the startup log
 shows no "unknown tool" warnings (§2), and a denied preapproved WebFetch domain is
 actually refused (§3).
+

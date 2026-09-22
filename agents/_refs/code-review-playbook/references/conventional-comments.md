@@ -1,5 +1,4 @@
-origin: orchestkit/skills/code-review-playbook/references/conventional-comments.md@9.8.0
-
+origin: orchestkit/code-review-playbook@9.8.0
 # Conventional Comments
 
 A standardized format for review comments that makes intent clear.
@@ -65,3 +64,4 @@ The `/api/admin/users` endpoint is missing authentication middleware.
 
 suggestion [if-minor]: Extract magic number to named constant
 ```
+

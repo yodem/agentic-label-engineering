@@ -1,4 +1,4 @@
-origin: orchestkit/skills/security-patterns@9.8.0
+origin: orchestkit/security-patterns@9.8.0
 # Output Guardrails
 
 ## Purpose
@@ -430,3 +430,4 @@ class TestGuardrails:
         assert parsed is not None
         assert all(r.is_valid for r in results)
 ```
+

@@ -1,5 +1,4 @@
-origin: orchestkit/skills/testing-e2e/references/playwright-setup.md@9.8.0
-
+origin: orchestkit/testing-e2e@9.8.0
 # Playwright Setup with Test Agents
 
 Install and configure Playwright with autonomous test agents for Claude Code.
@@ -61,7 +60,7 @@ test.beforeEach(async ({ page }) => {
   await page.goto('http://localhost:3000');
 
   // Login if needed
-  // await page.getByLabel('Email').fill('test@example.com');
+  // await page.getByLabel('Email').fill('[redacted-email]');
   // await page.getByLabel('Password').fill('password123');
   // await page.getByRole('button', { name: 'Login' }).click();
 });

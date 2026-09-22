@@ -1,4 +1,4 @@
-origin: orchestkit/skills/security-patterns@9.8.0
+origin: orchestkit/security-patterns@9.8.0
 ---
 name: security-patterns
 license: MIT
@@ -406,3 +406,4 @@ Load on demand with `Read("${CLAUDE_PLUGIN_ROOT}/skills/security-patterns/refere
 - Integrate masking with Langfuse observability
 - Implement pre-logging redaction
 - GDPR-compliant data handling
+

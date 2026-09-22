@@ -1,5 +1,4 @@
-origin: orchestkit/skills/performance/references/cc-prompt-cache-guide.md@9.8.0
-
+origin: orchestkit/performance@9.8.0
 # CC Prompt Cache Optimization Guide
 
 ## Why This Matters
@@ -66,3 +65,4 @@ hooks:
 | verify | 6 | ~210-270 tokens |
 | fix-issue | 5 | ~150-175 tokens |
 | brainstorm | 4 | ~100-120 tokens |
+

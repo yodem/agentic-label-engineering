@@ -1,5 +1,4 @@
-origin: orchestkit/skills/remember/references/entity-extraction-workflow.md@9.8.0
-
+origin: orchestkit/remember@9.8.0
 # Entity Extraction Workflow
 
 ## Step 4: Extract Entities from Text
@@ -100,3 +99,4 @@ Remembered (category): "summary of text"
    -> Created entity: {entity_name} ({entity_type})
    Graph: {N} entities, {M} relations
 ```
+

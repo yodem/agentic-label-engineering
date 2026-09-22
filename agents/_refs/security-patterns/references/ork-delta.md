@@ -1,4 +1,4 @@
-origin: orchestkit/skills/security-patterns@9.8.0
+origin: orchestkit/security-patterns@9.8.0
 # Ork Delta: security-patterns
 
 OrchestKit-specific knowledge rescued when this skill's vendor-restatement files were
@@ -46,3 +46,4 @@ Why: In OrchestKit itself the scanning rules are enforced, not advisory:
 secret or security failure to CI (repo CLAUDE.md house rule).
 
 Upstream: https://github.com/gitleaks/gitleaks and https://semgrep.dev/docs/
+

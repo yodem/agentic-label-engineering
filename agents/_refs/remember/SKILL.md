@@ -1,5 +1,4 @@
-origin: orchestkit/skills/remember/SKILL.md@9.8.0
-
+origin: orchestkit/remember@9.8.0
 ---
 name: remember
 license: MIT
@@ -229,3 +228,4 @@ Load on demand with `Read("${CLAUDE_PLUGIN_ROOT}/skills/remember/references/<fil
 - Empty text → ask user for content; text >2000 chars → truncate with notice
 - Both --success and --failed → ask user to clarify
 - Entity extraction fails → create generic Decision entity; relation fails → create entities first, retry
+

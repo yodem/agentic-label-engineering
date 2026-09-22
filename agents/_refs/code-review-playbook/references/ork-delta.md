@@ -1,5 +1,4 @@
-origin: orchestkit/skills/code-review-playbook/references/ork-delta.md@9.8.0
-
+origin: orchestkit/code-review-playbook@9.8.0
 # Code Review: ork delta
 
 What survives after the vendor tutorials were retired. Everything here is a house
@@ -53,3 +52,4 @@ anti-pattern, and this was the one concrete, non-generic finding in the retired
 token verifies. Distilled from the retired examples/pr-review-walkthrough.md; no traced
 incident.
 Upstream: https://pyjwt.readthedocs.io/en/stable/api.html
+

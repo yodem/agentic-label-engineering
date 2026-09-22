@@ -1,5 +1,4 @@
-origin: orchestkit/skills/remember/references/category-detection.md@9.8.0
-
+origin: orchestkit/remember@9.8.0
 # Category Detection Reference
 
 Auto-detection logic for categorizing memories.

@@ -1,5 +1,4 @@
-origin: orchestkit/skills/testing-unit/references/msw-2x-api.md@9.8.0
-
+origin: orchestkit/testing-unit@9.8.0
 # MSW 2.x API Reference
 
 ## Core Imports
@@ -16,7 +15,7 @@ import { setupWorker } from 'msw/browser';
 
 ```typescript
 // GET request
-http.get('/api/members/:id', ({ params }) => {
+http.get('/api/accounts/:id', ({ params }) => {
   return HttpResponse.json({ id: params.id, name: 'User' });
 });
 
@@ -27,18 +26,18 @@ http.post('/api/users', async ({ request }) => {
 });
 
 // PUT request
-http.put('/api/members/:id', async ({ request, params }) => {
+http.put('/api/accounts/:id', async ({ request, params }) => {
   const body = await request.json();
   return HttpResponse.json({ id: params.id, ...body });
 });
 
 // DELETE request
-http.delete('/api/members/:id', ({ params }) => {
+http.delete('/api/accounts/:id', ({ params }) => {
   return new HttpResponse(null, { status: 204 });
 });
 
 // PATCH request
-http.patch('/api/members/:id', async ({ request, params }) => {
+http.patch('/api/accounts/:id', async ({ request, params }) => {
   const body = await request.json();
   return HttpResponse.json({ id: params.id, ...body });
 });

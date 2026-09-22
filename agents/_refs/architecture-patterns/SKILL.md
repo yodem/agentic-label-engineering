@@ -1,5 +1,4 @@
-origin: orchestkit/skills/architecture-patterns/SKILL.md@9.8.0
-
+origin: orchestkit/architecture-patterns@9.8.0
 ---
 name: architecture-patterns
 license: MIT
@@ -216,7 +215,7 @@ Not every project needs architecture patterns. Match complexity to project tier:
 from app.infrastructure.database import engine  # In domain layer!
 
 # NEVER leak ORM models to API layer
-@router.get("/members/{id}")
+@router.get("/accounts/{id}")
 async def get_user(id: str, db: Session) -> UserModel:  # Returns ORM model!
 
 # NEVER have domain depend on framework

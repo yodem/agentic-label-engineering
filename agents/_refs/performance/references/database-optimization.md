@@ -1,5 +1,4 @@
-origin: orchestkit/skills/performance/references/database-optimization.md@9.8.0
-
+origin: orchestkit/performance@9.8.0
 # Database Query Optimization
 
 Strategies for optimizing database performance and eliminating slow queries.
@@ -136,3 +135,4 @@ LIMIT 20;  -- Only scans 20 rows
 - [PostgreSQL Performance Tips](https://wiki.postgresql.org/wiki/Performance_Optimization)
 - [Use The Index, Luke](https://use-the-index-luke.com/)
 - See `scripts/database-optimization.ts` for implementation patterns
+
