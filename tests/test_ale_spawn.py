@@ -15,6 +15,7 @@ def _request(tmp_path, executor, agent="T1-executor-backend-1", kind="executor")
            "ALE_ROSTER": "roster.json"}
     if kind == "monitor":
         env.pop("ALE_TASK")
+        env["ALE_READ_ONLY"] = "1"
     path.write_text(json.dumps({
         "agent_id": agent, "task_id": "T1", "kind": kind, "role": "backend",
         "executor": executor, "model": "model-x", "cwd": str(tmp_path),
@@ -70,7 +71,8 @@ def test_monitor_claude_does_not_receive_plugin_dir(tmp_path):
                 {"ALE_PLUGIN_ROOT": ROOT})
     assert proc.returncode == 0
     assert "claude" in proc.stdout and "--model model-x" in proc.stdout
-    assert "--plugin-dir" not in proc.stdout and "ale-exec" not in proc.stdout
+    assert "--plugin-dir" in proc.stdout and "--disallowedTools Write,Edit,MultiEdit,NotebookEdit" in proc.stdout
+    assert "ALE_READ_ONLY=1" in proc.stdout
 
 
 def test_herdr_pane_starts_and_sends_with_safe_agent_name(tmp_path):

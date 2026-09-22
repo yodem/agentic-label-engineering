@@ -26,6 +26,7 @@ values = {
     "ale_run_dir": env.get("ALE_RUN_DIR", ""),
     "ale_roster": env.get("ALE_ROSTER", ""),
     "ale_plugin_root": env.get("ALE_PLUGIN_ROOT", ""),
+    "ale_read_only": env.get("ALE_READ_ONLY", ""),
     "ale_herdr": "",
 }
 for key, value in env.items():
@@ -45,6 +46,7 @@ if [ -n "$ale_agent" ]; then ALE_AGENT=$ale_agent; export ALE_AGENT; fi
 if [ -n "$ale_run_dir" ]; then ALE_RUN_DIR=$ale_run_dir; export ALE_RUN_DIR; fi
 if [ -n "$ale_roster" ]; then ALE_ROSTER=$ale_roster; export ALE_ROSTER; fi
 if [ -n "$ale_model" ]; then ALE_MODEL=$ale_model; export ALE_MODEL; fi
+if [ -n "$ale_read_only" ]; then ALE_READ_ONLY=$ale_read_only; export ALE_READ_ONLY; fi
 plugin_root=${ALE_PLUGIN_ROOT:-$ale_plugin_root}
 if [ -z "$plugin_root" ]; then plugin_root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd); fi
 ALE_PLUGIN_ROOT=$plugin_root
@@ -71,6 +73,7 @@ run_argv() {
     if [ "${ALE_SPAWN_DRY:-0}" = "1" ]; then
         print_argv "$@"
         printf 'ALE_BIN=%s\nPYTHONPATH=%s\n' "$ALE_BIN" "$PYTHONPATH"
+        if [ -n "$ALE_READ_ONLY" ]; then printf 'ALE_READ_ONLY=%s\n' "$ALE_READ_ONLY"; fi
         return 0
     fi
     "$@"
@@ -101,8 +104,11 @@ case "$ale_executor" in
             claude-headless)
                 set -- claude
                 if [ -n "$ale_model" ]; then set -- "$@" --model "$ale_model"; fi
-                if [ -n "$ALE_PLUGIN_ROOT" ] && [ "$ale_kind" = "executor" ]; then
+                if [ -n "$ALE_PLUGIN_ROOT" ]; then
                     set -- "$@" --plugin-dir "$ALE_PLUGIN_ROOT"
+                fi
+                if [ "$ale_kind" = "monitor" ] && [ "$ALE_READ_ONLY" = "1" ]; then
+                    set -- "$@" --disallowedTools "Write,Edit,MultiEdit,NotebookEdit"
                 fi
                 set -- "$@" -p "$prompt_text"
                 if [ -n "$prefix" ]; then

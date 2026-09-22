@@ -50,7 +50,7 @@ export function translateHookResult(event: string, code: number, stderr: string)
 }
 
 export function isExecutorEnvironment(env: NodeJS.ProcessEnv = process.env): boolean {
-	return Boolean(env.ALE_TASK);
+	return Boolean(env.ALE_TASK || env.ALE_READ_ONLY === "1");
 }
 
 export function rememberToolInput(
@@ -86,7 +86,7 @@ interface HookResult {
 
 function runWithStdin(command: string, args: string[], input: string, cwd: string): Promise<HookResult> {
 	return new Promise((resolve, reject) => {
-		const child = spawn(command, args, { cwd, stdio: ["pipe", "pipe", "pipe"] });
+		const child = spawn(command, args, { cwd, env: process.env, stdio: ["pipe", "pipe", "pipe"] });
 		let stdout = "";
 		let stderr = "";
 		child.stdout.setEncoding("utf8");
@@ -196,23 +196,25 @@ export default function aleExtension(pi: ExtensionAPI): void {
 		try {
 			await runHook(command, "stop", buildHookDocument("Stop", { sessionId, cwd: ctx.cwd }), ctx.cwd);
 			const [program, args] = splitCommand(command);
-			const usageArgs = [
-				...args,
-				"usage",
-				"--task",
-				task,
-				"--agent",
-				agent,
-				"--model",
-				ctx.model?.id ?? "unknown",
-				"--input-tokens",
-				String(inputTokens),
-				"--output-tokens",
-				String(outputTokens),
-				"--source",
-				"adapter",
-			];
-			await pi.exec(program, usageArgs, { cwd: runDir ?? ctx.cwd });
+			if (task) {
+				const usageArgs = [
+					...args,
+					"usage",
+					"--task",
+					task,
+					"--agent",
+					agent,
+					"--model",
+					ctx.model?.id ?? "unknown",
+					"--input-tokens",
+					String(inputTokens),
+					"--output-tokens",
+					String(outputTokens),
+					"--source",
+					"adapter",
+				];
+				await pi.exec(program, usageArgs, { cwd: runDir ?? ctx.cwd });
+			}
 		} catch {
 			// Cleanup/reporting must not worsen the agent session.
 		}

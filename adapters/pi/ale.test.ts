@@ -35,6 +35,7 @@ describe("Pi ALE helpers", () => {
 	test("session-start internal failure is ignored", () => expect(translateHookResult("session-start", 1, "oops")).toBeUndefined());
 	test("missing ALE_TASK disables registration", () => expect(isExecutorEnvironment({ ALE_AGENT: "a" })).toBe(false));
 	test("ALE_TASK enables registration", () => expect(isExecutorEnvironment({ ALE_TASK: "t" })).toBe(true));
+	test("ALE_READ_ONLY enables monitor hook registration", () => expect(isExecutorEnvironment({ ALE_READ_ONLY: "1" })).toBe(true));
 	test("remembers input for a tool call", () => {
 		const inputs = rememberToolInput(new Map(), "call-1", { path: "a.ts" });
 		expect(takeToolInput(inputs, "call-1").input).toEqual({ path: "a.ts" });

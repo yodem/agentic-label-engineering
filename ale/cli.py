@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import glob
+import hashlib
 import json
 import os
 import re
@@ -491,6 +492,10 @@ def cmd_hook(a) -> int:
     if not isinstance(data, dict):
         return OK
     event = a.event
+    if (event == "pre-tool" and os.environ.get("ALE_READ_ONLY") == "1"
+            and data.get("tool_name") in HK.EDIT_TOOLS):
+        print("monitor is read-only", file=sys.stderr)
+        return 2
     if event == "prompt-submit" and os.environ.get("ALE_ORCHESTRATOR_RUN_DIR"):
         try:
             return _hook_orchestrator(data)
@@ -656,6 +661,7 @@ def _make_dispatch_request(c: Ctx, due: dict, project_cwd: str, n: int) -> dict:
     request["env"]["ALE_ROSTER"] = c.roster_path if hasattr(c, "roster_path") else "roster.json"
     if due["kind"] == "monitor":
         request["env"].pop("ALE_TASK", None)
+        request["env"]["ALE_READ_ONLY"] = "1"
         breach = next((event for event in reversed(E.read_events(c.events_path))
                        if event.get("type") == "breach" and event.get("task_id") == due["task_id"]), None)
         if breach:
@@ -741,6 +747,7 @@ def cmd_dispatch(a) -> int:
         return OK
     for item, request, request_path in spawned_requests:
         spawn_bin = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, "bin", "ale-spawn"))
+        before = _monitor_worktree_snapshot(request["cwd"]) if item["kind"] == "monitor" else None
         proc = subprocess.run([spawn_bin, request_path],
                               cwd=request["cwd"], text=True, capture_output=True,
                               env=os.environ.copy())
@@ -753,13 +760,22 @@ def cmd_dispatch(a) -> int:
                    c.state()["tasks"][item["task_id"]]["attempt"],
                    reason="spawn failed: %s" % (proc.stderr.strip() or proc.returncode),
                    spawn_key=[item["task_id"], item["kind"], item["trigger_instance"]])
-        elif item["kind"] == "monitor":
+        if item["kind"] == "monitor":
+            after = _monitor_worktree_snapshot(request["cwd"])
+            wrote_files = _monitor_worktree_changes(before, after)
+            if wrote_files:
+                _revert_monitor_worktree_changes(request["cwd"], wrote_files, after)
             verdict = _extract_monitor_verdict(proc.stdout or "")
+            if wrote_files:
+                verdict = "escalate"
+                verdict_text = "monitor wrote files: %s" % ", ".join(wrote_files)
+            else:
+                verdict_text = (proc.stdout or "")[:1500]
             if verdict:
                 c.emit("monitor_verdict", item["task_id"], None,
                        c.state()["tasks"][item["task_id"]]["attempt"],
                        agent_id_minted=request["agent_id"], verdict=verdict,
-                       text=(proc.stdout or "")[:1500])
+                       text=verdict_text, **({"wrote_files": wrote_files} if wrote_files else {}))
     for request in requests:
         if request.get("executor") == "claude-subagent":
             print(json.dumps(request, sort_keys=True))
@@ -769,8 +785,87 @@ def cmd_dispatch(a) -> int:
 def _extract_monitor_verdict(text: str) -> Optional[str]:
     import re
 
-    match = re.search(r"(?im)^[ \t]*(?:verdict:[ \t]*)?(continue|nudge|fix|escalate)\b[^\n]*$", text)
-    return match.group(1).lower() if match else None
+    verdict_line = re.compile(r"(?i)^(?:\*\*)?(?:verdict:[ \t]*)?(?:\*\*)?(continue|nudge|fix|escalate)(?:\*\*)?(?:\b|$)")
+    heading = re.compile(r"(?i)^##[ \t]+verdict[ \t]*#*[ \t]*$")
+    lines = text.splitlines()
+    found = []
+    for index, line in enumerate(lines):
+        candidate = line.strip()
+        if heading.match(candidate):
+            following = next(((line_index, value.strip()) for line_index, value in enumerate(lines[index + 1:], index + 1)
+                              if value.strip()), None)
+            if following:
+                match = verdict_line.match(following[1])
+                if match:
+                    found.append((following[0], match.group(1).lower()))
+            continue
+        match = verdict_line.match(candidate)
+        if match and (candidate.lower().startswith("verdict:") or candidate.lower().startswith("**")
+                      or candidate.lower() in ("continue", "nudge", "fix", "escalate")):
+            found.append((index, match.group(1).lower()))
+    return max(found, default=(None, None), key=lambda item: item[0])[1]
+
+
+def _monitor_worktree_snapshot(worktree: str) -> Optional[dict]:
+    proc = subprocess.run(["git", "status", "--porcelain", "-z", "--untracked-files=all"],
+                          cwd=worktree, capture_output=True, text=True)
+    if proc.returncode != 0:
+        return None
+    records = proc.stdout.split("\0")
+    snapshot = {}
+    index = 0
+    while index < len(records):
+        record = records[index]
+        index += 1
+        if len(record) < 4:
+            continue
+        status, path = record[:2], record[3:]
+        full_path = os.path.join(worktree, path)
+        fingerprint = None
+        try:
+            info = os.lstat(full_path)
+            if os.path.islink(full_path):
+                fingerprint = "link:" + os.readlink(full_path)
+            elif os.path.isfile(full_path):
+                digest = hashlib.sha256()
+                with open(full_path, "rb") as handle:
+                    for chunk in iter(lambda: handle.read(65536), b""):
+                        digest.update(chunk)
+                fingerprint = "file:" + digest.hexdigest()
+            else:
+                fingerprint = "other:%s:%s" % (info.st_mode, info.st_mtime_ns)
+        except OSError:
+            fingerprint = "missing"
+        snapshot[path] = (status, fingerprint)
+        if "R" in status or "C" in status:
+            if index < len(records):
+                snapshot[records[index]] = (status, None)
+                index += 1
+    return snapshot
+
+
+def _monitor_worktree_changes(before: Optional[dict], after: Optional[dict]) -> List[str]:
+    if before is None or after is None:
+        return []
+    return sorted(path for path in set(before) | set(after) if before.get(path) != after.get(path))
+
+
+def _revert_monitor_worktree_changes(worktree: str, paths: List[str], snapshot: Optional[dict]) -> None:
+    tracked = []
+    untracked = []
+    for path in paths:
+        status = (snapshot or {}).get(path, ("??", None))[0]
+        pathspec = ":(literal)" + path
+        if status == "??":
+            untracked.append(pathspec)
+        else:
+            tracked.append(pathspec)
+    if tracked:
+        subprocess.run(["git", "checkout", "--"] + tracked, cwd=worktree,
+                       capture_output=True, text=True)
+    if untracked:
+        subprocess.run(["git", "clean", "-fd", "--"] + untracked, cwd=worktree,
+                       capture_output=True, text=True)
 
 
 def cmd_integrate(a) -> int:

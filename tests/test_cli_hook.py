@@ -143,6 +143,14 @@ def test_pre_tool_denial_uses_exit_two_and_stderr(fixture, monkeypatch, capsys):
     assert code == 2 and "allowed" in capsys.readouterr().err
 
 
+def test_read_only_env_denies_edit_tools_without_binding(monkeypatch, capsys):
+    monkeypatch.setenv("ALE_READ_ONLY", "1")
+    hook_input(monkeypatch, {"session_id": "missing", "hook_event_name": "PreToolUse",
+                            "tool_name": "Write", "tool_input": {"file_path": "created.txt"}})
+    assert main(["hook", "pre-tool"]) == 2
+    assert "monitor is read-only" in capsys.readouterr().err
+
+
 def test_lease_lost_denies_read_tool(fixture, monkeypatch, capsys):
     tmp_path, run_dir, roster, home = fixture
     bind(home, run_dir, roster, agent="a1")

@@ -4,6 +4,7 @@ import subprocess
 import sys
 
 from ale.cli import main
+from ale.cli import _extract_monitor_verdict
 from ale.events import make_event, read_events
 from ale.handoff import handoff_path
 
@@ -116,12 +117,49 @@ def test_monitor_spawn_captures_child_verdict_event(tmp_path, monkeypatch, capsy
     assert verdict["agent_id_minted"] == "T1-monitor-backend-1"
     request = json.loads((run / "requests" / "T1-monitor-backend-1.json").read_text())
     assert "ALE_TASK" not in request["env"] and request["env"]["ALE_PLUGIN_ROOT"]
+    assert request["env"]["ALE_READ_ONLY"] == "1"
     prompt = (run / "prompts" / "T1-monitor-backend-1.md").read_text()
     assert '"type": "lease_expired"' in prompt and '"attempt": 2' in prompt
     assert '"last_heartbeat_step": null' in prompt
     assert '"acceptance_commands"' in prompt and '"handoff_path"' in prompt and '"worktree"' in prompt
     payload = json.loads(prompt.split("```json\n", 1)[1].split("\n```", 1)[0])
     assert "commands" not in payload
+    assert "Verdict: escalate" in capsys.readouterr().out
+
+
+def test_monitor_verdict_parser_accepts_required_forms_and_last_occurrence():
+    assert _extract_monitor_verdict("**continue**") == "continue"
+    assert _extract_monitor_verdict("Verdict: continue") == "continue"
+    assert _extract_monitor_verdict("## Verdict\n\nContinue\n") == "continue"
+    assert _extract_monitor_verdict("nudge") == "nudge"
+    assert _extract_monitor_verdict("continue\n\n**ESCALATE**") == "escalate"
+
+
+def test_monitor_file_write_is_reverted_and_escalated(tmp_path, monkeypatch, capsys):
+    repo = _git_repo(tmp_path)
+    roster = _roster(tmp_path)
+    assignment = [{"kind": "monitor", "role": "backend", "model_tier": "standard",
+                   "executor": "claude-headless", "trigger": "on_breach"}]
+    run = _run(tmp_path, {"T1": _label(mode="none", assignments=assignment)})
+    breach = make_event("breach", "run-1", 3, "T1", None, 2, breach="lease_expired", detail="lease elapsed")
+    (run / "events.jsonl").write_text(json.dumps(breach) + "\n")
+    created = repo / "monitor-created.txt"
+    original_run = subprocess.run
+
+    def fake_child(args, **kwargs):
+        if args[0].endswith("ale-spawn"):
+            created.write_text("unauthorized")
+            return subprocess.CompletedProcess(args, 1, stdout="Verdict: continue\n", stderr="monitor failed")
+        return original_run(args, **kwargs)
+
+    monkeypatch.setattr("ale.cli.subprocess.run", fake_child)
+    assert main(_dispatch_args(run, roster, "--spawn", "--cwd", str(repo))) == 0
+    assert not created.exists()
+    verdict = next(event for event in read_events(str(run / "events.jsonl"))
+                   if event["type"] == "monitor_verdict")
+    assert verdict["verdict"] == "escalate"
+    assert verdict["wrote_files"] == ["monitor-created.txt"]
+    assert verdict["text"] == "monitor wrote files: monitor-created.txt"
 
 
 def test_failed_spawn_releases_assignment(tmp_path, capsys):
@@ -304,3 +342,8 @@ def test_handoff_path_keeps_old_signature_and_supports_role(tmp_path):
     new = handoff_path(str(tmp_path), "T1", "agent", "backend")
     assert old.endswith("T1.agent.md")
     assert new.endswith("agent-backend-handoff.md")
+
+
+def test_extract_verdict_bold_prefixed_label():
+    assert _extract_monitor_verdict("**Verdict: escalate**\n\n**Reasoning:** A1 fails.") == "escalate"
+    assert _extract_monitor_verdict("## Verdict\n\n**continue** because A1 and A2 pass") == "continue"
