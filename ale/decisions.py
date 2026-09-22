@@ -60,7 +60,7 @@ CHOICE_QUESTION_KEYS = {
 
 # Evidence decisions ask one Noul per key, each from judge.questions[<key>].
 EVIDENCE_QUESTIONS = {
-    "lane": ["large_change"],
+    "lane": [],
     "needs_monitor": ["large_change", "needs_person", "external_side_effects"],
     "locality": ["locality"],
     "rejection_action": ["rejection_environment", "rejection_spec_conflict", "rejection_needs_human"],
@@ -69,7 +69,7 @@ EVIDENCE_QUESTIONS = {
 
 # Facts are computed from labels, the plan graph, or events. They are never asked.
 EVIDENCE_FACTS = {
-    "lane": ["role", "independent_tasks", "unattended"],
+    "lane": ["effort", "role", "independent_tasks", "unattended"],
     "needs_monitor": ["risk"],
     "locality": [],
     "rejection_action": ["fix_count", "is_fix_task"],
@@ -82,7 +82,7 @@ LIVENESS_BREACHES = ("stuck", "lease_expired", "overrun", "input_required")
 # "yes(k)" means the Noul probability for evidence key k is at least 0.5.
 RULE_TABLES = {
     "lane": [
-        ("large_change", "yes(large_change) -> pane"),
+        ("effort_large", "effort is the largest roster effort (L, or XL if present) -> pane"),
         ("unattended", "unattended -> pane"),
         ("verification_role", "role in {test, review} -> workflow"),
         ("independent_tasks", "independent_tasks >= 2 -> workflow"),
@@ -234,8 +234,8 @@ def compute_decision(decision: str, answers: Dict[str, Optional[float]], facts: 
 
 def _apply_table(decision: str, yes, facts: Dict[str, object]):
     if decision == "lane":
-        if yes("large_change"):
-            return "pane", "large_change"
+        if facts.get("effort") in ("L", "XL"):
+            return "pane", "effort_large"
         if facts.get("unattended") is True:
             return "pane", "unattended"
         if facts.get("role") in ("test", "review"):

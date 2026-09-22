@@ -143,21 +143,23 @@ class _Judge:
 
 
 def test_evidence_vote_records_uncertain_and_missing_answers():
-    roster = {"judge": {"questions": {"large_change": "Q1?", "needs_person": "Q2?"}}}
-    uncertain = EV.evidence_vote(_Judge({"large_change": 0.55}), "lane", roster, "{}",
-                                 {"role": "backend", "independent_tasks": 0})
-    assert uncertain["choice"] == "pane" and uncertain["uncertain"] is True
-    assert uncertain["latency_ms"] == 5 and uncertain["answers"] == {"large_change": 0.55}
-    missing = EV.evidence_vote(_Judge({}), "lane", roster, "{}",
-                               {"role": "backend", "independent_tasks": 0})
+    roster = {"judge": {"questions": {"rejection_environment": "Q1?",
+                                        "rejection_spec_conflict": "Q2?",
+                                        "rejection_needs_human": "Q3?"}}}
+    uncertain = EV.evidence_vote(_Judge({"rejection_needs_human": 0.55}), "rejection_action", roster, "{}",
+                                 {"fix_count": 0, "is_fix_task": False})
+    assert uncertain["choice"] == "escalate" and uncertain["uncertain"] is True
+    assert uncertain["latency_ms"] == 19 and uncertain["answers"]["rejection_needs_human"] == 0.55
+    missing = EV.evidence_vote(_Judge({}), "rejection_action", roster, "{}",
+                               {"fix_count": 0, "is_fix_task": False})
     assert missing["choice"] is None and missing["rule"] == "missing_evidence"
     assert "timeout" in missing["error"]
 
 
 def test_evidence_vote_without_a_roster_question_abstains_and_asks_nothing():
-    judge = _Judge({"large_change": 0.9})
-    vote = EV.evidence_vote(judge, "lane", {"judge": {"questions": {}}}, "{}",
-                            {"role": "backend", "independent_tasks": 0})
+    judge = _Judge({"rejection_environment": 0.9})
+    vote = EV.evidence_vote(judge, "rejection_action", {"judge": {"questions": {}}}, "{}",
+                            {"fix_count": 0, "is_fix_task": False})
     assert judge.asked == [] and vote["choice"] is None and "missing_question" in vote["error"]
 
 
@@ -175,10 +177,11 @@ def test_shared_evidence_latency_is_counted_once_per_call():
     roster = {"judge": {"questions": {"large_change": "Q1?", "needs_person": "Q2?", "external_side_effects": "Q3?"}}}
     judge = _Judge({"large_change": 0.1, "needs_person": 0.1, "external_side_effects": 0.1})
     cache = {}
-    lane = EV.evidence_vote(judge, "lane", roster, "{}", {"role": "backend", "independent_tasks": 0}, cache)
+    lane = EV.evidence_vote(judge, "lane", roster, "{}",
+                            {"effort": "S", "role": "backend", "independent_tasks": 0}, cache)
     monitor = EV.evidence_vote(judge, "needs_monitor", roster, "{}", {"risk": "low"}, cache)
-    assert lane["calls_latency_ms"] == [5] and lane["latency_ms"] == 5
-    assert monitor["calls_latency_ms"] == [5, 5] and monitor["latency_ms"] == 10
+    assert lane["calls_latency_ms"] == [] and lane["latency_ms"] is None
+    assert monitor["calls_latency_ms"] == [5, 5, 5] and monitor["latency_ms"] == 15
     stats = summarize_shadow([dict(lane, task_id="T1"), dict(monitor, task_id="T1")], [], [], {})
-    assert stats["decisions"]["lane"]["latency_ms_median"] == 5
+    assert stats["decisions"]["lane"]["latency_ms_median"] is None
     assert stats["decisions"]["needs_monitor"]["latency_ms_median"] == 5

@@ -84,7 +84,7 @@ def _shadow_judge(roster: dict):
 def _vote_fields(vote: dict) -> dict:
     fields = {key: vote.get(key) for key in ("decision", "options", "choice", "confidence",
                                              "model", "latency_ms", "uncertain")}
-    for key in ("answers", "rule", "error", "bake_id", "calls_latency_ms"):
+    for key in ("answers", "rule", "facts", "error", "bake_id", "calls_latency_ms"):
         if vote.get(key) is not None:
             fields[key] = vote[key]
     return fields
@@ -139,6 +139,7 @@ def _bake_extra_votes(judge, roster: dict, label: dict, task_text: str, all_labe
              EV.choice_vote(judge, "phase", roster, state)]
     cache = {}
     votes.append(EV.evidence_vote(judge, "lane", roster, state, {
+        "effort": labels.get("effort"),
         "role": labels.get("role"),
         "independent_tasks": DECISIONS.independent_task_count(label["task_id"], all_labels),
         "unattended": False}, cache))

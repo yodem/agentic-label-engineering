@@ -11,6 +11,7 @@ import os
 from ale import decisions as DECISIONS
 from ale.cli import main
 from ale.events import read_events
+from ale import labelset as L
 
 from judge_fakes import PLAN, drive_run, fill_blocks, read_calls, setup_repo
 
@@ -66,6 +67,13 @@ def test_end_to_end_every_judged_decision_collects_votes(tmp_path, monkeypatch, 
 
     # Evidence votes carry their answers, the rule that fired, and the model.
     votes = _events_of(run_dir, "shadow_vote")
+    labels = L.load_labels(run_dir)
+    lane_votes = [event for event in votes if event["decision"] == "lane"]
+    assert lane_votes
+    assert all(event["answers"] == {} and event["confidence"] == 1.0
+               and event["uncertain"] is False for event in lane_votes)
+    assert all(event["facts"]["effort"] == labels[event["task_id"]]["labels"]["effort"]
+               for event in lane_votes)
     rejection = next(event for event in votes
                      if event["decision"] == "rejection_action" and event["task_id"] == "T1")
     assert set(rejection["answers"]) == set(DECISIONS.EVIDENCE_QUESTIONS["rejection_action"])
@@ -75,8 +83,9 @@ def test_end_to_end_every_judged_decision_collects_votes(tmp_path, monkeypatch, 
     assert fix_of_fix["rule"] == "fixes_exhausted"
     monitor = next(event for event in votes if event["decision"] == "monitor_verdict")
     assert set(monitor["answers"]) == set(DECISIONS.EVIDENCE_QUESTIONS["monitor_verdict"])
-    assert all(event["model"] == "fake-jev" for event in votes)
-    assert all(isinstance(event["latency_ms"], int) for event in votes)
+    assert all(event["model"] == "fake-jev" for event in votes if event["decision"] != "lane")
+    assert all(isinstance(event["latency_ms"], int) for event in votes if event["decision"] != "lane")
+    assert all(event["model"] is None and event["latency_ms"] is None for event in lane_votes)
     # The monitor's own verdict line never reaches the judge's state.
     monitor_states = [call["state"] for call in calls if "monitor_report" in call["state"]]
     assert monitor_states and not [state for state in monitor_states if "Verdict" in state]

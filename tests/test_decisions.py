@@ -38,7 +38,7 @@ def test_locality_options_are_the_label_field_values(roster):
 def test_verdict_decisions_are_asked_as_evidence_not_as_one_choice():
     for decision in ("rejection_action", "monitor_verdict", "needs_monitor", "lane"):
         keys = D.EVIDENCE_QUESTIONS[decision]
-        assert (len(keys) == 1) if decision == "lane" else (2 <= len(keys) <= 4)
+        assert (len(keys) == 0) if decision == "lane" else (2 <= len(keys) <= 4)
         assert decision not in D.CHOICE_QUESTION_KEYS
         assert decision in D.RULE_TABLES
     assert D.EVIDENCE_QUESTIONS["locality"] == ["locality"]
@@ -73,27 +73,25 @@ def test_verdict_questions_are_evidence_not_verdicts():
         assert "\u2014" not in questions[key]
 
 
-# Lane mirrors flow lane: large change or an unattended run -> pane; role
-# test/review -> workflow; >= 2 independent tasks -> workflow; else inline.
+# Lane derives large effort and run structure from facts, with no Jev evidence.
 @pytest.mark.parametrize("answers,facts,expected,rule", [
-    ({"large_change": .01, "needs_person": .02}, {"role": "docs", "independent_tasks": 0},
-     "inline", "default"),
-    ({"large_change": .01}, {"role": "docs", "independent_tasks": 0, "unattended": True}, "pane", "unattended"),
-    ({"large_change": .01}, {"role": "test", "independent_tasks": 0}, "workflow",
+    ({}, {"role": "docs", "effort": "S", "independent_tasks": 0}, "inline", "default"),
+    ({}, {"role": "docs", "effort": "L", "independent_tasks": 0}, "pane", "effort_large"),
+    ({}, {"role": "docs", "effort": "XL", "independent_tasks": 0}, "pane", "effort_large"),
+    ({}, {"role": "docs", "effort": "S", "independent_tasks": 0, "unattended": True}, "pane", "unattended"),
+    ({}, {"role": "test", "effort": "S", "independent_tasks": 0}, "workflow",
      "verification_role"),
-    ({"large_change": .01}, {"role": "review", "independent_tasks": 5}, "workflow",
+    ({}, {"role": "review", "effort": "S", "independent_tasks": 5}, "workflow",
      "verification_role"),
-    ({"large_change": .01}, {"role": "backend", "independent_tasks": 2}, "workflow",
+    ({}, {"role": "backend", "effort": "S", "independent_tasks": 2}, "workflow",
      "independent_tasks"),
-    ({"large_change": .01}, {"role": "docs", "independent_tasks": 0}, "inline", "default"),
-    ({"large_change": .99}, {"role": "docs", "independent_tasks": 0}, "pane", "large_change"),
 ])
 def test_lane_rule_table(answers, facts, expected, rule):
     result = compute_decision("lane", answers, facts)
     assert (result["choice"], result["rule"]) == (expected, rule)
 
 
-def test_lane_does_not_ask_needs_person():
+def test_lane_asks_no_evidence():
     from ale.labeling import evidence as EV
 
     class FakeJudge:
@@ -105,10 +103,14 @@ def test_lane_does_not_ask_needs_person():
             return {"p": 0.01, "model": "fake", "detail": {"latency_ms": 1}}
 
     judge = FakeJudge()
-    EV.evidence_vote(judge, "lane", {"judge": {"questions": {
-        "large_change": "Is this large?", "needs_person": "Does it need a person?"}}},
-        "{}", {"role": "docs", "independent_tasks": 0})
-    assert judge.asked == ["large_change"]
+    vote = EV.evidence_vote(judge, "lane", {"judge": {"questions": {
+        "large_change": "Is this large?"}}}, "{}",
+        {"effort": "S", "role": "docs", "independent_tasks": 0})
+    assert D.EVIDENCE_QUESTIONS["lane"] == []
+    assert judge.asked == []
+    assert vote["choice"] == "inline" and vote["rule"] == "default"
+    assert vote["facts"]["effort"] == "S"
+    assert vote["answers"] == {} and vote["confidence"] == 1.0 and vote["uncertain"] is False
 
 
 @pytest.mark.parametrize("answers,facts,expected,rule", [
