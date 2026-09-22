@@ -17,6 +17,7 @@
         "lane": {"type": ["string", "null"], "enum": ["inline", "workflow", "pane", null]},
         "risk": {"type": "string", "minLength": 1},
         "effort": {"type": "string", "minLength": 1},
+        "locality": {"type": "string", "minLength": 1},
         "sub": {"type": ["string", "null"]},
         "phase": {"type": ["string", "null"], "enum": ["plan", "design", "implement", "test", "review", "deploy", "operate", "maintain", null]}
       }

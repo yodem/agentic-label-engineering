@@ -5,6 +5,20 @@ description: Bake a plan into ALE labels, fill planning gaps, and run the determ
 
 # Label layer
 
+## Where this skill sits in a lifecycle
+
+ALE labels a plan someone else wrote. In a ten-stage agentic lifecycle (intake, explore, plan, label, isolate, build, verify, govern, publish, observe), this skill owns the following stages:
+
+- **label**: bake, fill gaps, and answer lane.
+- **isolate**: create `ale dispatch` worktrees.
+- **build**: own the executor protocol (claim, heartbeat, submit).
+- **verify**: use `ale verify`, the only writer of `accepted`.
+- **publish**: use `ale integrate`.
+
+It never owns intake, explore, plan, or govern; those belong to the planner and the human.
+
+The label layer carries `locality` (`any` or `local`) from the plan into executor prompts.
+
 Given a plan path:
 
 1. If `.ale/roster.json` is missing, run `ale setup`.

@@ -7,12 +7,13 @@
     "vocab": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["role", "model_tier", "risk", "effort"],
+      "required": ["role", "model_tier", "risk", "effort", "locality"],
       "properties": {
         "role": {"type": "object"},
         "model_tier": {"type": "object"},
         "risk": {"type": "object"},
         "effort": {"type": "object"},
+        "locality": {"type": "object"},
         "sub": {"type": "object", "additionalProperties": {"type": "object", "additionalProperties": {"type": "string"}}},
         "cross_sub": {"type": "array", "items": {"type": "string"}},
         "phase": {"type": "array", "items": {"type": "string", "enum": ["plan", "design", "implement", "test", "review", "deploy", "operate", "maintain"]}}
@@ -42,7 +43,7 @@
         "additionalProperties": false,
         "required": ["field", "when", "value"],
         "properties": {
-          "field": {"enum": ["role", "model_tier", "risk", "effort"]},
+          "field": {"enum": ["role", "model_tier", "risk", "effort", "locality"]},
           "when": {
             "type": "object",
             "additionalProperties": false,
@@ -69,7 +70,8 @@
             "role": {"type": "string", "minLength": 1},
             "model_tier": {"type": "string", "minLength": 1},
             "risk": {"type": "string", "minLength": 1},
-            "effort": {"type": "string", "minLength": 1}
+            "effort": {"type": "string", "minLength": 1},
+            "locality": {"type": "string", "minLength": 1}
           }
         },
         "timeout_s": {"type": "integer", "minimum": 1},
@@ -82,6 +84,7 @@
             "model_tier": {"enum": ["off", "shadow", "authoritative"]},
             "risk": {"enum": ["off", "shadow", "authoritative"]},
             "effort": {"enum": ["off", "shadow", "authoritative"]},
+            "locality": {"enum": ["off", "shadow", "authoritative"]},
             "sub": {"enum": ["off", "shadow", "authoritative"]},
             "phase": {"enum": ["off", "shadow", "authoritative"]}
           }

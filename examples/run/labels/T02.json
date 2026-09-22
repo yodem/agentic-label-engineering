@@ -3,7 +3,7 @@
   "run_id": "example-run",
   "task_id": "T02",
   "title": "Document the refresh endpoint",
-  "labels": {"role": "docs", "model_tier": "cheap", "lane": "inline", "risk": "low", "effort": "S"},
+  "labels": {"role": "docs", "model_tier": "cheap", "lane": "inline", "risk": "low", "effort": "S", "locality": "any"},
   "routing": {"executor": null, "model": null, "resolved_from": null},
   "context": {"spec_path": "specs/T02.md", "pointers": [], "allowed_paths": ["docs/**"], "depends_on": ["T01"]},
   "acceptance": [

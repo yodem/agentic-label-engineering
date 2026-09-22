@@ -99,14 +99,14 @@ def test_judge_exception_is_an_abstain_not_raised(roster, label_t01):
     judge = FakeJudge(raises_for={"role", "model_tier", "risk", "effort"})
     final, votes = label_task(label_t01, "", r, judge=judge)
     judge_votes = [v for v in votes if v["by"].startswith("judge:")]
-    assert len(judge_votes) == 4
+    assert len(judge_votes) == 5
     assert all(v["value"] is None for v in judge_votes)
     # planner value preserved since judge abstained (shadow mode by default)
     assert final["labels"]["role"] == label_t01["labels"]["role"]
 
 
 def test_fields_constant():
-    assert FIELDS == ("role", "model_tier", "risk", "effort")
+    assert FIELDS == ("role", "model_tier", "risk", "effort", "locality")
 
 
 def test_votes_returned_include_every_field(roster, label_t01):

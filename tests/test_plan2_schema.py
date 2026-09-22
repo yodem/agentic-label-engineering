@@ -28,7 +28,7 @@ def test_abstain_vote_value_may_be_null():
 def test_example_roster_valid_with_rules_and_judge_config(roster):
     assert validate(roster, load_schema("roster.schema.json")) == []
     assert isinstance(roster["rules"], list) and roster["rules"]
-    assert set(roster["judge"]["questions"]) == {"role", "model_tier", "risk", "effort"}
+    assert set(roster["judge"]["questions"]) == {"role", "model_tier", "risk", "effort", "locality"}
     assert "lane" not in roster["judge"]["questions"] and "lane" not in roster["judge"]["modes"]
     assert set(roster["judge"]["modes"].values()) == {"shadow"}
     assert roster["judge"]["command"] == ["jev-ask"]

@@ -87,7 +87,7 @@ def test_broken_judge_command_still_exits_zero_and_abstains(label_run):
     with open(os.path.join(run_dir, "labels", "T1.json"), encoding="utf-8") as f:
         final = json.load(f)
     draft = _draft("T1")
-    assert final["labels"] == draft["labels"]
+    assert final["labels"] == dict(draft["labels"], locality="any")
 
 
 def test_summary_reports_judge_abstains_and_disagreements(label_run, tmp_path, capsys):
@@ -111,7 +111,7 @@ def test_summary_reports_judge_abstains_and_disagreements(label_run, tmp_path, c
     assert summary["tasks"] == 1
     role_disagreements = [d for d in summary["disagreements"] if d["field"] == "role"]
     assert role_disagreements == [{"task": "T1", "field": "role", "planner": "backend", "judge": "frontend"}]
-    assert summary["judge_abstains"] == 3  # model_tier, risk, effort all abstain (stub always says "frontend")
+    assert summary["judge_abstains"] == 4  # model_tier, risk, effort, locality abstain (stub always says "frontend")
 
 
 def test_outside_spec_path_content_never_reaches_the_judge(label_run, tmp_path, capsys, monkeypatch):

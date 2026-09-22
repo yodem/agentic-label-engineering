@@ -22,7 +22,7 @@ _GLOB = re.compile(r"[*?\[]")
 _COMPACT_KEYS = ("task_id", "title", "labels", "lane_reason", "acceptance", "allowed_paths",
                  "depends_on", "worktree", "assignments", "fixes", "spec_path", "pointers",
                  "watch", "milestone")
-_LABEL_KEYS = ("role", "model_tier", "lane", "risk", "effort", "sub", "phase")
+_LABEL_KEYS = ("role", "model_tier", "lane", "risk", "effort", "locality", "sub", "phase")
 _ASSIGNMENT_KEYS = ("kind", "role", "model_tier", "executor", "trigger")
 _ACCEPTANCE_KEYS = ("id", "cmd", "expect", "manual")
 _WORKTREE_KEYS = ("mode", "worktree_reason")
@@ -154,7 +154,7 @@ def skeleton_label(task: dict, run_id: str, votes: dict) -> dict:
         "task_id": task["task_id"],
         "title": task["title"],
         "labels": {"role": role, "model_tier": model_tier, "lane": None,
-                    "risk": risk, "effort": effort,
+                    "risk": risk, "effort": effort, "locality": task.get("locality", "any"),
                     "phase": "implement" if allowed_paths else None},
         "routing": routing,
         "context": {
@@ -185,6 +185,7 @@ def render_block(label: dict) -> str:
     worktree = context.get("worktree") or {}
     compact_labels = {key: labels.get(key) for key in
                       ("role", "model_tier", "risk", "effort", "lane")}
+    compact_labels["locality"] = labels.get("locality", "any")
     if "phase" in labels:
         compact_labels["phase"] = labels["phase"]
     if "sub" in labels:
@@ -322,6 +323,8 @@ def compile_plan(text: str, run_id: str = "run-1", provenance: dict = None) -> D
             "assignments": list(compact.get("assignments", [])),
             "provenance": {},
         }
+        label["labels"].setdefault(
+            "locality", parsed_tasks.get(label.get("task_id"), {}).get("locality", "any"))
         worktree = compact.get("worktree")
         if isinstance(worktree, dict):
             mode = worktree.get("mode")
@@ -348,7 +351,7 @@ def compile_plan(text: str, run_id: str = "run-1", provenance: dict = None) -> D
             if isinstance(sidecar.get("routing"), dict):
                 label["routing"] = copy.deepcopy(sidecar["routing"])
         else:
-            for field in ("role", "model_tier", "risk", "effort"):
+            for field in ("role", "model_tier", "risk", "effort", "locality"):
                 label["provenance"][field] = copy.deepcopy(sidecar.get(field) or {"by": "default"})
             label["provenance"]["lane_reason"] = sidecar.get("lane_reason")
             for field in ("acceptance", "allowed_paths", "depends_on", "assignments", "worktree"):
@@ -361,6 +364,7 @@ def compile_plan(text: str, run_id: str = "run-1", provenance: dict = None) -> D
         for field in ("role", "model_tier", "risk", "effort", "lane"):
             if field not in label["labels"]:
                 label["labels"][field] = None
+        label["labels"].setdefault("locality", "any")
         task_id = label.get("task_id")
         if not task_id:
             raise BakeError("ale-label block has no task_id")

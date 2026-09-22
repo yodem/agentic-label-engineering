@@ -10,7 +10,7 @@ from typing import Dict, List, Set
 from .roster import RosterError, resolve
 from .validate import load_schema, validate
 
-_VOCAB_FIELDS = ("role", "model_tier", "risk", "effort")
+_VOCAB_FIELDS = ("role", "model_tier", "risk", "effort", "locality")
 
 
 def load_labels(run_dir: str) -> Dict[str, dict]:
@@ -52,6 +52,7 @@ def globs_overlap(a: str, b: str) -> bool:
 
 def check_label(label: dict, roster: dict, catalog: dict = None) -> List[str]:
     effective = copy.deepcopy(label)
+    effective.setdefault("labels", {}).setdefault("locality", "any")
     context = effective.setdefault("context", {})
     if "worktree" not in context:
         allowed = context.get("allowed_paths", [])

@@ -3,7 +3,7 @@
   "run_id": "example-run",
   "task_id": "T01",
   "title": "Add token refresh endpoint",
-  "labels": {"role": "backend", "model_tier": "standard", "lane": "pane", "risk": "low", "effort": "M"},
+  "labels": {"role": "backend", "model_tier": "standard", "lane": "pane", "risk": "low", "effort": "M", "locality": "any"},
   "routing": {"executor": null, "model": null, "resolved_from": null},
   "context": {"spec_path": "specs/T01.md", "pointers": ["src/auth/session.py"], "allowed_paths": ["src/auth/**", "tests/auth/**"], "depends_on": []},
   "acceptance": [

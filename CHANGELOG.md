@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.3 (2026-09-22)
+
+- Add `labels.locality` (`any` or `local`) and document the label-layer lifecycle.
+
+## 0.2.2 (2026-09-22)
+
 ## 0.2.1 (2026-09-22)
 
 - `/ale-board` answers its command again, with or without an argument: the hooks module called `process.cwd()`, which does not exist in the function-hook environment, and two resolver helpers it called were never imported, so every `command.run` and every board refresh threw

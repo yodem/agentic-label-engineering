@@ -24,7 +24,7 @@ For the plan-to-dispatch workflow, typed label fields, worktree isolation, fix t
 
 ## Concepts
 
-- **Label**: `labels` (closed vocabulary from `roster.json`: role, model_tier, lane, risk, effort),
+- **Label**: `labels` (closed vocabulary from `roster.json`: role, model_tier, lane, risk, effort, locality),
   `context` (spec, pointers, allowed paths, dependencies), `acceptance` (2 to 5 commands), `watch` thresholds.
 - **Roster**: your vocabulary plus the `(role, model_tier) -> executor, model` table. A new model is a
   one-line change here.

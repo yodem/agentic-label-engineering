@@ -75,6 +75,12 @@ def test_prompt_task_payload_includes_acceptance_and_allowed_paths(tmp_path):
     assert "src/**" in prompt
 
 
+def test_prompt_task_payload_includes_locality():
+    prompt = render_prompt({"title": "Goal", "labels": {"locality": "local"},
+                            "context": {}}, {}, None)
+    assert '"locality": "local"' in prompt
+
+
 def test_agent_sha_header_uses_first_eight_chars(tmp_path):
     agent = write_agent(tmp_path)
     prompt = render_prompt({"title": "Goal", "context": {}}, {}, agent)

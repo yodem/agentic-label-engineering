@@ -130,7 +130,7 @@ def test_body_excludes_boundary_lines_and_has_task_fields():
 
     assert tasks[0]["body"] == "first line\nsecond line"
     assert set(tasks[0]) == {
-        "task_id", "title", "body", "files", "commands", "depends_on", "line"
+        "task_id", "title", "body", "files", "commands", "depends_on", "line", "locality"
     }
 
 

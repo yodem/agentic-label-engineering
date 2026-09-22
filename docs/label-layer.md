@@ -2,6 +2,8 @@
 
 ALE turns a plan into a typed, append-only task board for multi-agent coding. Labels contain the plan's declared intent. The roster resolves a label's model tier to an executor and model. Events record claims, progress, verification, and lead decisions. No executor can accept its own work.
 
+The `locality` label is `any` by default, or `local` when a task requires planner-machine resources such as a GUI, keychain, or unsynced files.
+
 ## Flow
 
 From any Git repository, initialize the local roster once, then use the label-layer skill or the manual commands:

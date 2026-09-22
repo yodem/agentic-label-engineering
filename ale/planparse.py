@@ -103,6 +103,14 @@ def _task_fields(lines: List[str], start: int, end: int) -> Tuple[List[str], Lis
     return files, commands, dependencies
 
 
+def _locality(files: List[str]) -> str:
+    local_markers = ("~/Library/", "~/.ssh/", "Library/Application Support/")
+    for path in files:
+        if any(marker in path for marker in local_markers) or path.endswith((".app", ".app/")):
+            return "local"
+    return "any"
+
+
 def parse_plan(text: str) -> List[Dict[str, object]]:
     """Return task skeletons parsed from a plan."""
     lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
@@ -142,6 +150,7 @@ def parse_plan(text: str) -> List[Dict[str, object]]:
             "files": files,
             "commands": commands,
             "depends_on": depends_on,
+            "locality": _locality(files),
             "line": start + 1,
         })
     return tasks

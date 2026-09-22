@@ -1,2 +1,2 @@
-__version__ = "0.2.1"
+__version__ = "0.2.3"
 SCHEMA_VERSION = "1.0"

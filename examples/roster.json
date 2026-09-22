@@ -27,6 +27,10 @@
       "M": "15 to 60 minutes.",
       "L": "Over an hour."
     },
+    "locality": {
+      "any": "No planner-machine-only resources are required.",
+      "local": "Requires the planner's own machine or local-only resources."
+    },
     "sub": {
       "frontend": {
         "css": "CSS and styling work.",
@@ -152,6 +156,7 @@
       "model_tier": "shadow",
       "risk": "shadow",
       "effort": "shadow",
+      "locality": "shadow",
       "sub": "shadow",
       "phase": "shadow"
     },
@@ -159,7 +164,8 @@
       "role": "Which kind of engineering work is this task?",
       "model_tier": "How much model capability does this task need?",
       "risk": "How risky is this task if it is done wrong?",
-      "effort": "How long will this task take a competent engineer?"
+      "effort": "How long will this task take a competent engineer?",
+      "locality": "Does this task need the planner's own machine (GUI, keychain, unsynced files)?"
     }
   },
   "rules": [

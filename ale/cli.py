@@ -1762,9 +1762,12 @@ def cmd_label(a) -> int:
             if v["by"].startswith("judge:"):
                 if v["value"] is None:
                     judge_abstains += 1
-                elif v["value"] != draft["labels"][v["field"]]:
+                elif v["value"] != draft["labels"].get(
+                        v["field"], "any" if v["field"] == "locality" else None):
                     disagreements.append({"task": tid, "field": v["field"],
-                                           "planner": draft["labels"][v["field"]], "judge": v["value"]})
+                                           "planner": draft["labels"].get(
+                                               v["field"], "any" if v["field"] == "locality" else None),
+                                           "judge": v["value"]})
         for field in CAS.FIELDS:
             if final["provenance"][field]["conflict"]:
                 conflicts += 1

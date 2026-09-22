@@ -208,6 +208,7 @@ def render_prompt(label: dict, request: Optional[dict] = None, agent: Optional[d
         "goal": label.get("title"), "spec_path": label.get("context", {}).get("spec_path"),
         "spec_text": label.get("context", {}).get("spec_text", ""),
         "allowed_paths": label.get("context", {}).get("allowed_paths", []),
+        "locality": label.get("labels", {}).get("locality", "any"),
         "acceptance": label.get("acceptance", []),
         "commands": ["$ALE_BIN status", "$ALE_BIN heartbeat", "$ALE_BIN submit", "$ALE_BIN usage"],
     }

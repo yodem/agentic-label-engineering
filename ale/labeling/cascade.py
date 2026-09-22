@@ -10,7 +10,7 @@ from .judge import options_for
 from .merge import merge
 from .rules import rule_votes
 
-FIELDS = ("role", "model_tier", "risk", "effort")
+FIELDS = ("role", "model_tier", "risk", "effort", "locality")
 OPTIONAL_FIELDS = ("sub", "phase")
 
 
@@ -85,7 +85,8 @@ def label_task(draft: dict, text: str, roster: dict, judge=None) -> Tuple[dict, 
     provenance = {"lane_reason": draft["provenance"]["lane_reason"]}
 
     for field in FIELDS:
-        planner_vote = {"field": field, "value": draft["labels"][field], "by": "planner",
+        planner_value = draft["labels"].get(field, "any" if field == "locality" else None)
+        planner_vote = {"field": field, "value": planner_value, "by": "planner",
                          "confidence": None, "detail": {}}
         field_votes = [planner_vote] + [v for v in rvotes if v["field"] == field]
         mode = modes.get(field, "off")
