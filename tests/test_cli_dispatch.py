@@ -226,6 +226,38 @@ def test_reattempt_reuses_per_task_worktree_and_branch(tmp_path, monkeypatch, ca
     assert second["branch"] == first["branch"]
 
 
+def test_dispatch_after_lease_release_uses_new_instance_once_and_reuses_worktree(
+        tmp_path, monkeypatch, capsys):
+    repo = _git_repo(tmp_path)
+    roster = _roster(tmp_path)
+    run = _run(tmp_path, {"T1": _label(mode="per_task")})
+    monkeypatch.setenv("ALE_SPAWN_DRY", "1")
+
+    assert main(_dispatch_args(run, roster, "--spawn", "--cwd", str(repo))) == 0
+    first = read_events(str(run / "events.jsonl"))[0]
+    from ale.events import append_event
+    append_event(str(run / "events.jsonl"), make_event(
+        "claimed", "run-1", 1.5, "T1", first["agent_id_minted"], 1))
+    append_event(str(run / "events.jsonl"), make_event(
+        "lease_expired", "run-1", 3, "T1", None, 1))
+    append_event(str(run / "events.jsonl"), make_event(
+        "released", "run-1", 4, "T1", None, 1))
+
+    assert main(_dispatch_args(run, roster, "--spawn", "--cwd", str(repo))) == 0
+    capsys.readouterr()
+    events = read_events(str(run / "events.jsonl"))
+    spawned = [event for event in events if event["type"] == "spawned"]
+    second = spawned[1]
+    assert second["trigger_instance"] == "ready#2#1"
+    assert second["worktree"] == first["worktree"]
+    assert second["branch"] == first["branch"]
+
+    assert main(_dispatch_args(run, roster, "--spawn", "--cwd", str(repo))) == 0
+    capsys.readouterr()
+    assert len([event for event in read_events(str(run / "events.jsonl"))
+                if event["type"] == "spawned"]) == 2
+
+
 def test_fix_task_reuses_parent_worktree(tmp_path, monkeypatch, capsys):
     repo = _git_repo(tmp_path)
     roster = _roster(tmp_path)

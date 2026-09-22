@@ -24,6 +24,23 @@ def test_ready_executor_due():
     assert len(got) == 1 and got[0]["kind"] == "executor" and got[0]["model"] == "m"
 
 
+def test_released_task_after_liveness_breach_is_due_again():
+    run_state = state(("T1", "released"), breaches=[
+        {"task_id": "T1", "breach": "lease_expired", "attempt": 1}])
+    run_state["tasks"]["T1"]["attempt"] = 2
+    run_state["tasks"]["T1"]["release_counts"] = {"executor": 1}
+    run_state["spawned"] = [{"task_id": "T1", "kind": "executor", "trigger_instance": "ready"}]
+    got = due_assignments(run_state, {"T1": label()}, roster())
+    assert len(got) == 1 and got[0]["kind"] == "executor"
+    assert got[0]["trigger_instance"] == "ready#2#1"
+
+
+def test_live_owned_stuck_task_is_not_redispatched():
+    run_state = state(("T1", "working"), breaches=[
+        {"task_id": "T1", "breach": "stuck", "attempt": 1}])
+    assert due_assignments(run_state, {"T1": label()}, roster()) == []
+
+
 def test_not_due_when_not_ready():
     assert due_assignments(state(("T1", "planned")), {"T1": label()}, roster()) == []
 

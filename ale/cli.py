@@ -556,9 +556,20 @@ def cmd_run(a) -> int:
         if RUNNER.is_complete(state, context.labels):
             return _finish_run(context, OK)
         pending = RUNNER.next_actions(state, context.labels, latest)
-        due = __import__("ale.dispatch", fromlist=["due_assignments"]).due_assignments(state, context.labels, context.roster)
+        dispatch_state = _dispatch_state(context)
+        due = __import__("ale.dispatch", fromlist=["due_assignments"]).due_assignments(
+            dispatch_state, context.labels, context.roster)
         if not pending and not due:
             break
+        liveness_breaches = {"stuck", "lease_expired"}
+        released_retries = sorted({item["task_id"] for item in due
+                                   if state["tasks"].get(item["task_id"], {}).get("state") == "released"
+                                   and any(event.get("task_id") == item["task_id"]
+                                           and event.get("type") == "breach"
+                                           and event.get("breach") in liveness_breaches
+                                           for event in latest)})
+        for task_id in released_retries:
+            print("redispatching released task %s after liveness breach" % task_id)
     state = context.state()
     return _finish_run(context, OK if RUNNER.is_complete(state, context.labels) else BREACH)
 
@@ -1065,15 +1076,28 @@ def _dispatch_state(c: Ctx) -> dict:
     spawned = {}
     released = set()
     breaches = []
+    release_counts = {}
+    last_spawned_kind = {}
     for event in E.read_events(c.events_path):
         if event.get("type") == "spawned":
             key = (event.get("task_id"), event.get("assignment_kind"),
                    event.get("trigger_instance", event.get("trigger", "ready")))
             spawned[key] = {"task_id": key[0], "kind": key[1], "trigger_instance": key[2]}
+            last_spawned_kind[key[0]] = key[1]
         elif event.get("type") == "released" and event.get("spawn_key"):
             released.add(tuple(event["spawn_key"]))
+            task_id, kind = event["spawn_key"][:2]
+            if kind == "executor":
+                release_counts[task_id] = release_counts.get(task_id, 0) + 1
+        elif event.get("type") == "released":
+            task_id = event.get("task_id")
+            if last_spawned_kind.get(task_id) == "executor":
+                release_counts[task_id] = release_counts.get(task_id, 0) + 1
         elif event.get("type") == "breach":
             breaches.append(event)
+    for task_id, count in release_counts.items():
+        if task_id in state["tasks"]:
+            state["tasks"][task_id]["release_counts"] = {"executor": count}
     state["spawned"] = [value for key, value in spawned.items() if key not in released]
     state["breaches"] = breaches
     return state

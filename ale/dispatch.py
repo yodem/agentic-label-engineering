@@ -53,6 +53,12 @@ def _breaches(run_state: dict) -> List[dict]:
 def _trigger_instance(assignment: dict, task_id: str, st: dict, breaches: List[dict]) -> Optional[str]:
     trigger = assignment.get("trigger", "ready")
     if trigger == "ready":
+        if assignment.get("kind", "executor") == "executor":
+            release_count = (st.get("release_counts") or {}).get("executor", 0)
+            if release_count:
+                return "ready#%s#%s" % (st.get("attempt", 1), release_count)
+        if assignment.get("kind", "executor") == "executor" and st.get("state") == "released":
+            return "released:%s:%s" % (st.get("attempt", 1), st.get("last_heartbeat_ts"))
         if st.get("resumable"):
             return "resume:%s:%s" % (st.get("attempt", 1), st.get("last_heartbeat_ts"))
         return "ready"
@@ -118,7 +124,8 @@ def held_for_integration(run_state: dict, labels: Dict[str, dict]) -> List[Tuple
             if kind == "fixer":
                 continue
             trigger = assignment.get("trigger", "ready")
-            if kind == "executor" and trigger == "ready" and state.get("state") != "ready" and not state.get("resumable"):
+            if (kind == "executor" and trigger == "ready" and state.get("state") not in ("ready", "released")
+                    and not state.get("resumable")):
                 continue
             if kind == "monitor" and trigger == "milestone" and not _milestone_ready(task_id, assignment, labels, tasks):
                 continue
@@ -154,7 +161,8 @@ def due_assignments(run_state: dict, labels: Dict[str, dict], roster: dict) -> L
             if kind == "fixer":
                 continue
             trigger = assignment.get("trigger", "ready")
-            if kind == "executor" and trigger == "ready" and state.get("state") != "ready" and not state.get("resumable"):
+            if (kind == "executor" and trigger == "ready" and state.get("state") not in ("ready", "released")
+                    and not state.get("resumable")):
                 continue
             if kind == "monitor" and trigger == "milestone" and not _milestone_ready(task_id, assignment, labels, tasks):
                 continue
