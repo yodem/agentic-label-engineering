@@ -12,6 +12,8 @@ import {
   noRunMessage,
   parseStatusOutput,
   pickLatestRunDir,
+  chooseRun,
+  formatOtherRunsLine,
   truncateTo,
   type RawTask,
 } from './lib.ts'
@@ -42,6 +44,36 @@ describe('resolveRunDirectory', () => {
   test('formats an unknown argument with what was tried', () => {
     expect(unknownRunArgumentMessage('missing')).toContain('"missing"')
     expect(unknownRunArgumentMessage('missing')).toContain('unknown argument')
+  })
+})
+
+describe('chooseRun', () => {
+  test('prefers the command argument, then ALE_RUN_DIR, then ale runs order', () => {
+    const runs = [{ dir: 'newest', path: '/repo/.ale/runs/newest', run_id: 'newest', last_event_ts: 20 }]
+    expect(chooseRun({ arg: 'chosen', argRunsDir: '/repo/.ale/runs', envDir: '/env/run', runs })).toEqual({ runDir: '/repo/.ale/runs/chosen', source: 'arg' })
+    expect(chooseRun({ envDir: '/env/run', runs })).toEqual({ runDir: '/env/run', source: 'env' })
+    expect(chooseRun({ runs })).toEqual({ runDir: '/repo/.ale/runs/newest', source: 'latest' })
+  })
+  test('does not fall back when ale runs fails', () => {
+    expect(chooseRun({ runsError: 'ale runs failed' })).toBeUndefined()
+  })
+})
+
+describe('formatOtherRunsLine', () => {
+  test('shows at most three other recent runs with ages', () => {
+    const line = formatOtherRunsLine('main', [
+      { dir: 'main', path: '/runs/main', run_id: 'main', last_event_ts: 1000 },
+      { dir: 'older', run_id: 'run-older', last_event_ts: 900 },
+      { dir: 'two', run_id: 'run-two', last_event_ts: 800 },
+      { dir: 'three', run_id: 'run-three', last_event_ts: 700 },
+      { dir: 'four', run_id: 'run-four', last_event_ts: 600 },
+      { dir: 'stale', run_id: 'stale', last_event_ts: 1 },
+    ], 1000, 80)
+    expect(line).toContain('Other runs: run-older 1m')
+    expect(line).toContain('run-three 5m')
+    expect(line).not.toContain('run-four')
+    expect(line).not.toContain('stale')
+    expect([...line].length).toBeLessThanOrEqual(80)
   })
 })
 

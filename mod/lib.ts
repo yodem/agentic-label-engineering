@@ -39,6 +39,26 @@ export type LabelData = Record<string, any>
 export type AleEvent = Record<string, any> & { type: string; ts?: number; task_id?: string | null; agent_id?: string | null }
 
 export type RunResolution = { runDir: string; source: 'env' | 'cwd' | 'launch' | 'arg' }
+export type ListedRun = { dir: string; path?: string; run_id?: string; last_event_ts: number }
+
+/** Resolve an explicit run, the configured run, or the first row returned by ale runs. */
+export function chooseRun(input: { arg?: string; argRunsDir?: string; envDir?: string; runs?: readonly ListedRun[]; runsError?: string }): { runDir: string; source: 'arg' | 'env' | 'latest' } | undefined {
+  const arg = input.arg?.trim()
+  if (arg) return { runDir: arg.startsWith('/') ? arg : input.argRunsDir ? `${input.argRunsDir}/${arg}` : arg, source: 'arg' }
+  if (input.envDir) return { runDir: input.envDir, source: 'env' }
+  if (input.runsError) return undefined
+  const first = input.runs?.[0]
+  return first ? { runDir: first.path ?? first.dir, source: 'latest' } : undefined
+}
+
+/** Format recent alternatives as a single terminal-safe line. */
+export function formatOtherRunsLine(selectedRunDir: string, runs: readonly ListedRun[], nowS: number, columns: number): string | undefined {
+  const recent = runs.filter(run => run.path !== selectedRunDir && run.dir !== selectedRunDir && nowS - run.last_event_ts <= 86400 && nowS >= run.last_event_ts)
+    .slice(0, 3)
+  if (!recent.length) return undefined
+  const parts = recent.map(run => `${run.run_id ?? run.dir} ${ageOf(run.last_event_ts, nowS)}`)
+  return truncateTo(`Other runs: ${parts.join(' · ')}`, columns)
+}
 
 export function runDirFromCurrent(input: {
   runsDir: string
@@ -415,7 +435,7 @@ export function glyphFor(state: string): string {
 }
 
 export type BoardSegment = { text: string; color?: string; bold?: boolean; dimColor?: boolean }
-export type RenderBoardInput = { runId: string; runPath?: string; tasks: Record<string, RawTask>; run: RawRun; labels: Record<string, LabelInfo>; boardUrl?: string; nowS: number; columns: number }
+export type RenderBoardInput = { runId: string; runPath?: string; tasks: Record<string, RawTask>; run: RawRun; labels: Record<string, LabelInfo>; otherRuns?: readonly ListedRun[]; boardUrl?: string; nowS: number; columns: number }
 
 const toneColor: Record<string, string> = { needs: 'yellow', fail: 'red', run: 'blue', verify: 'magenta', ready: 'cyan', done: 'green' }
 const sectionOrder = ['Needs you', 'Running', 'Waiting', 'Done'] as const
@@ -468,6 +488,7 @@ export function renderBoard(input: RenderBoardInput): BoardSegment[][] {
     [{ text: 'ALE ' }, ...(!input.boardUrl ? [{ text: 'web: /ale:board  ' }] : []), { text: `${runId}  ` }, { text: `■ ${doneLabel}`, color: doneColor, ...(doneColor === 'red' ? { bold: true } : {}) }],
     ...(input.runPath ? [boardLine(`Run directory: ${input.runPath}`, columns)] : []),
     ...(lastEvent > 0 ? [boardLine(`Last event ${formatAge(Math.max(0, input.nowS - lastEvent))} ago`, columns)] : []),
+    ...(formatOtherRunsLine(input.runPath ?? '', input.otherRuns ?? [], input.nowS, columns) ? [boardLine(formatOtherRunsLine(input.runPath ?? '', input.otherRuns ?? [], input.nowS, columns)!, columns)] : []),
     boardLine(headline, columns),
     boardLine(`${ribbon}  ${completed.length} of ${total} done   ${formatTokens(runTokens)} tok, run total   ${cost ? `$${cost.toFixed(2)}` : runTokens ? 'cost not reported' : '$0.00'}`, columns),
   ]
@@ -521,7 +542,8 @@ export function renderBoard(input: RenderBoardInput): BoardSegment[][] {
   rows.push(boardLine(`Done ${done.length}`, columns))
   for (const row of done.slice(0, 3)) rows.push(...plainRow(row.id, row.task, row.state, 'Done'))
   if (done.length > 3) rows.push(boardLine(`  +${done.length - 3} more done`, columns))
-  if (input.boardUrl) rows.push(boardLine(`board: ${input.boardUrl}  (copy into a browser)`, columns))
+  if (input.boardUrl) rows.push(boardLine(`board: ${input.boardUrl}  (copy into a browser) · /ale-board <run> switches`, columns))
+  else rows.push(boardLine('/ale-board <run> switches', columns))
   return rows.map(line => {
     const text = line.map(segment => segment.text).join('')
     return [...text].length > columns ? boardLine(text, columns) : line

@@ -12,14 +12,17 @@
 import type { On, Register } from 'claude-code'
 import {
   type LabelInfo,
+  type ListedRun,
   type RawStatus,
   type Section,
   bandLine,
   budgetRows,
   bundledAleArgv,
   createRefreshErrorLogger,
+  chooseRun,
   displayState,
   formatTokens,
+  formatOtherRunsLine,
   noRunMessage,
   parseStatusOutput,
   resolveRunDirectory,
@@ -46,7 +49,7 @@ const logRefreshErrorOnce = createRefreshErrorLogger()
 type BoardModel =
   | { kind: 'no-run' }
   | { kind: 'error'; runLabel: string; runPath: string; source: string; message: string }
-  | { kind: 'ok'; runLabel: string; runPath: string; source: string; status: RawStatus; labels: Record<string, LabelInfo>; refreshedAtS: number }
+  | { kind: 'ok'; runLabel: string; runPath: string; source: string; status: RawStatus; labels: Record<string, LabelInfo>; runs: ListedRun[]; refreshedAtS: number }
 
 type Timer = { cancel: () => void }
 
@@ -100,34 +103,50 @@ function startPolling(engine: Host): void {
   })
 }
 
-async function nearestRun(engine: Host, start: string): Promise<{ runDir?: string; runsDir?: string }> {
+async function nearestRunsDir(engine: Host, start: string): Promise<string | undefined> {
   let dir = start
-  let nearestRunsDir: string | undefined
   while (dir) {
     const runsDir = `${dir}/.ale/runs`
-    const current = `${runsDir}/current`
-    const hasRunsDir = await engine.fsExists(runsDir).catch(() => false)
-    if (hasRunsDir && nearestRunsDir === undefined) nearestRunsDir = runsDir
-    const currentStat = await engine.fsStat(current, { resolve: true }).catch(() => undefined)
-    if (currentStat) {
-      const text = currentStat.kind === 'file' ? await engine.fsRead(current).catch(() => '') : undefined
-      return { runDir: runDirFromCurrent({ runsDir, kind: currentStat.kind, realPath: currentStat.realPath, text }), runsDir: nearestRunsDir }
-    }
+    if (await engine.fsExists(runsDir).catch(() => false)) return runsDir
     const parent = dir.slice(0, dir.lastIndexOf('/'))
     if (!parent || parent === dir) break
     dir = parent
   }
-  return { runsDir: nearestRunsDir }
+  return undefined
 }
 
-async function discoverRun(engine: Host): Promise<{ runDir: string; source: 'env' | 'cwd' | 'launch' } | undefined> {
+async function discoverRun(engine: Host): Promise<{ runDir: string; source: 'env' | 'latest'; runs: ListedRun[] } | undefined> {
   const envDir = await engine.envGetAleRunDir().catch(() => undefined)
+  if (envDir) return { runDir: envDir, source: 'env', runs: [] }
   const liveCwd = await engine.liveCwd().catch(() => engine.cwd)
-  const cwd = await nearestRun(engine, liveCwd)
-  const launch = await nearestRun(engine, engine.cwd)
-  const resolved = resolveRunDirectory({ envDir, cwdRunDir: cwd.runDir, launchRunDir: launch.runDir })
-  if (!resolved || resolved.source === 'arg') return undefined
-  return { runDir: resolved.runDir, source: resolved.source }
+  const runsDir = await nearestRunsDir(engine, liveCwd) ?? await nearestRunsDir(engine, engine.cwd)
+  if (!runsDir) return undefined
+  const repoRoot = runsDir.slice(0, -'/.ale/runs'.length)
+  let result: { exitCode: number; stdout: string; stderr: string }
+  try {
+    result = await engine.processRun(bundledAleArgv(engine.pluginRoot, ['runs', '--json', '--runs-dir', runsDir]), { cwd: repoRoot, timeoutMs: STATUS_TIMEOUT_MS })
+  } catch (err) {
+    const message = `ale runs failed: ${err instanceof Error ? err.message : String(err)}`
+    logRefreshErrorOnce(text => engine.uiLog(`${PLUGIN}: ${text}`), message)
+    return undefined
+  }
+  if (result.exitCode !== 0) {
+    const message = `ale runs failed: ${result.stderr.trim() || `exit ${result.exitCode}`}`
+    logRefreshErrorOnce(text => engine.uiLog(`${PLUGIN}: ${text}`), message)
+    return undefined
+  }
+  let runs: ListedRun[]
+  try {
+    const parsed: unknown = JSON.parse(result.stdout)
+    if (!Array.isArray(parsed)) throw new Error('expected a JSON array')
+    runs = parsed.filter((row): row is ListedRun => !!row && typeof row === 'object' && typeof (row as ListedRun).dir === 'string' && typeof (row as ListedRun).last_event_ts === 'number')
+  } catch (err) {
+    const message = `ale runs failed: ${err instanceof Error ? err.message : String(err)}`
+    logRefreshErrorOnce(text => engine.uiLog(`${PLUGIN}: ${text}`), message)
+    return undefined
+  }
+  const resolved = chooseRun({ runs })
+  return resolved ? { runDir: resolved.runDir, source: 'latest', runs } : undefined
 }
 
 async function resolveRosterPath(engine: Host, repoRoot = engine.cwd): Promise<string> {
@@ -187,7 +206,8 @@ async function latestEventTs(engine: Host, runDir: string): Promise<number | und
 async function refresh(engine: Host): Promise<BoardModel> {
   if (refreshing) return refreshing
   refreshing = (async (): Promise<BoardModel> => {
-    const resolved = selectedRun ?? (await discoverRun(engine))
+    const discovered = selectedRun ? undefined : await discoverRun(engine)
+    const resolved = selectedRun ?? discovered
     if (resolved === undefined) {
       const next: BoardModel = { kind: 'no-run' }
       model = next
@@ -213,7 +233,7 @@ async function refresh(engine: Host): Promise<BoardModel> {
     const labels = await loadLabels(engine, runDir, Object.keys(parsed.status.tasks))
     const lastEventTs = await latestEventTs(engine, runDir)
     if (lastEventTs !== undefined) parsed.status.run.last_event_ts = lastEventTs
-    const next: BoardModel = { kind: 'ok', runLabel, runPath: runDir, source: resolved.source, status: parsed.status, labels, refreshedAtS: Date.now() / 1000 }
+    const next: BoardModel = { kind: 'ok', runLabel, runPath: runDir, source: resolved.source, status: parsed.status, labels, runs: discovered?.runs ?? [], refreshedAtS: Date.now() / 1000 }
     model = next
     engine.invalidate()
     return next
@@ -359,9 +379,8 @@ export const register: Register = (on: On) => {
     if (lower.startsWith('run ') || arg) {
       const runArg = lower.startsWith('run ') ? arg.slice('run '.length).trim() : arg
       const liveCwd = await engine.liveCwd().catch(() => engine.cwd)
-      const cwd = await nearestRun(engine, liveCwd)
-      const launch = await nearestRun(engine, engine.cwd)
-      const resolved = resolveRunDirectory({ arg: runArg, cwdRunsDir: cwd.runsDir, launchRunsDir: launch.runsDir })
+      const runsDir = await nearestRunsDir(engine, liveCwd) ?? await nearestRunsDir(engine, engine.cwd)
+      const resolved = resolveRunDirectory({ arg: runArg, cwdRunsDir: runsDir })
       if (!resolved || !await engine.fsExists(resolved.runDir).catch(() => false)) return { text: unknownRunArgumentMessage(runArg || arg) }
       selectedRun = { runDir: resolved.runDir, source: 'arg' }
       model = { kind: 'no-run' }
@@ -431,7 +450,7 @@ export const register: Register = (on: On) => {
       )
     }
 
-    const lines = renderBoard({ runId: model.runLabel, runPath: model.runPath, tasks: model.status.tasks, run: model.status.run, labels: model.labels, boardUrl: typeof (model.status.run as any).board_url === 'string' ? (model.status.run as any).board_url : undefined, nowS: Date.now() / 1000, columns })
+    const lines = renderBoard({ runId: model.runLabel, runPath: model.runPath, tasks: model.status.tasks, run: model.status.run, labels: model.labels, otherRuns: model.runs, boardUrl: typeof (model.status.run as any).board_url === 'string' ? (model.status.run as any).board_url : undefined, nowS: Date.now() / 1000, columns })
 
     return (
       <Box flexDirection="column">

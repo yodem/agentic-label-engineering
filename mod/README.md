@@ -28,7 +28,7 @@ silently ignored).
 
 ## Run discovery
 
-Resolution precedence is `/ale-board <absolute-run-dir>` or `<run-id>` first (run ids resolve under the nearest `.ale/runs`), then `ALE_RUN_DIR`, then the nearest `.ale/runs/current` found from the live working directory, and finally the same lookup from the session launch directory; the band and pane identify the selected source as `arg`, `env`, `cwd`, or `launch`. Live-cwd discovery uses the session API and falls back to the session launch directory if it fails. If no run resolves, the pane displays a single no-run line, and an invalid argument returns one line naming the argument tried.
+Resolution precedence is `/ale-board <absolute-run-dir>` or `<run-id>` first (run ids resolve under the nearest `.ale/runs`), then `ALE_RUN_DIR`, then the first entry from the plugin's bundled `ale runs --json --runs-dir <nearest .ale/runs>`. The Mod does not read `.ale/runs/current`. The band and pane identify the selected source as `arg`, `env`, or `latest`. Live-cwd discovery uses the session API and falls back to the session launch directory if it fails. If `ale runs` fails, its error is logged once and the board shows no run. When recent alternatives exist, the pane names up to three runs with their ages and ends with `/ale-board <run> switches`.
 
 ## Terminal board layout
 

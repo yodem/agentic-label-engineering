@@ -60,6 +60,16 @@ describe('renderBoard', () => {
     expect(header).toContain('/tmp/copied-run')
     expect(header).toContain('Idle, last activity 3h ago')
   })
+  test('shows other runs on one truncated line at 80 and 120 columns', () => {
+    const otherRuns = Array.from({ length: 3 }, (_, i) => ({ run_id: `run-${i}-${'x'.repeat(35)}`, dir: `d${i}`, path: `/runs/d${i}`, last_event_ts: nowS - i * 60 }))
+    for (const columns of [80, 120]) {
+      const lines = renderBoard({ ...fixture, otherRuns, columns })
+      const text = lines.map(line => line.map(s => s.text).join(''))
+      const other = text.find(line => line.startsWith('Other runs:'))
+      expect(other).toBeDefined()
+      expect([...other!].length).toBeLessThanOrEqual(columns)
+    }
+  })
 })
 
 // Captured real `ale status --json` output for the run that exposed the bug.
