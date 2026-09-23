@@ -1,0 +1,36 @@
+{
+  "acceptance": [
+    {
+      "id": "A1",
+      "manual": "Fixture acceptance for T5"
+    }
+  ],
+  "context": {
+    "allowed_paths": [
+      "src/example/t5.py"
+    ],
+    "depends_on": [],
+    "pointers": [],
+    "spec_path": "fixture"
+  },
+  "labels": {
+    "effort": "M",
+    "lane": "workflow",
+    "model_tier": "standard",
+    "risk": "medium",
+    "role": "backend"
+  },
+  "provenance": {
+    "lane_reason": "Fixture lane reason for board realistic run."
+  },
+  "routing": {
+    "agent": null,
+    "executor": "claude-headless",
+    "model": "claude-sonnet-5",
+    "resolved_from": "roster"
+  },
+  "run_id": "board-check-realistic",
+  "schema_version": "1.0",
+  "task_id": "T5",
+  "title": "Migrate the session store off in-memory cache"
+}

@@ -1,0 +1,9 @@
+{
+  "run": {"id": "superseded-fixes", "finished": false},
+  "tasks": {
+    "T4": {"task_id": "T4", "state": "accepted"},
+    "T4.fix1": {"task_id": "T4.fix1", "state": "rejected", "fixes": "T4"},
+    "T4.fix2": {"task_id": "T4.fix2", "state": "rejected", "fixes": "T4"},
+    "T20": {"task_id": "T20", "state": "ready"}
+  }
+}

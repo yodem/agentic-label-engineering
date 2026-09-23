@@ -1,0 +1,36 @@
+{
+  "acceptance": [
+    {
+      "id": "A1",
+      "manual": "Fixture acceptance for T9"
+    }
+  ],
+  "context": {
+    "allowed_paths": [
+      "src/example/t9.py"
+    ],
+    "depends_on": [],
+    "pointers": [],
+    "spec_path": "fixture"
+  },
+  "labels": {
+    "effort": "S",
+    "lane": "workflow",
+    "model_tier": "standard",
+    "risk": "low",
+    "role": "backend"
+  },
+  "provenance": {
+    "lane_reason": "Fixture lane reason for board realistic run."
+  },
+  "routing": {
+    "agent": null,
+    "executor": "claude-headless",
+    "model": "claude-sonnet-5",
+    "resolved_from": "roster"
+  },
+  "run_id": "board-check-realistic",
+  "schema_version": "1.0",
+  "task_id": "T9",
+  "title": "Backfill missing indexes on the events table"
+}

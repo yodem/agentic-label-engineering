@@ -182,6 +182,79 @@ export type LabelInfo = {
   role?: string
   tier?: string
   fixes?: string
+  sub?: string
+  phase?: string
+  risk?: string
+  effort?: string
+  lane?: string
+}
+
+export type BoardMetadata = { pid?: unknown; url?: unknown; instance_id?: unknown; updated_ts?: unknown }
+
+export const STATE_DISPLAY = [
+  { raw: 'input-required', label: 'Needs your answer', glyph: '?', tone: 'needs', section: 'Needs you' },
+  { raw: 'released-fail', label: 'Failed to start', glyph: '✗', tone: 'fail', section: 'Needs you' },
+  { raw: 'out-of-attempts', label: 'Out of attempts', glyph: '■', tone: 'fail', section: 'Needs you' },
+  { raw: 'rejected', label: 'Rejected', glyph: '✕', tone: 'fail', section: 'Needs you' },
+  { raw: 'failed', label: 'Failed', glyph: '✗', tone: 'fail', section: 'Needs you' },
+  { raw: 'stale', label: 'No heartbeat', glyph: '~', tone: 'needs', section: 'Needs you' },
+  { raw: 'working', label: 'Running', glyph: '●', tone: 'run', section: 'Running' },
+  { raw: 'claimed', label: 'Running', glyph: '●', tone: 'run', section: 'Running' },
+  { raw: 'submitted', label: 'Verifying', glyph: '»', tone: 'verify', section: 'Running' },
+  { raw: 'fixing', label: 'Waiting on fix', glyph: '↻', tone: 'wait', section: 'Waiting' },
+  { raw: 'ready', label: 'Ready', glyph: '○', tone: 'ready', section: 'Waiting' },
+  { raw: 'released', label: 'Retrying', glyph: '↺', tone: 'ready', section: 'Waiting' },
+  { raw: 'planned', label: 'Waiting', glyph: '·', tone: 'wait', section: 'Waiting' },
+  { raw: 'accepted', label: 'Done', glyph: '✓', tone: 'done', section: 'Done' },
+  { raw: 'canceled', label: 'Canceled', glyph: '⦸', tone: 'cancel', section: 'Done' },
+] as const
+
+export type DisplayState = typeof STATE_DISPLAY[number] | { raw: string; label: string; glyph: string; tone: 'cancel'; section: 'Waiting' }
+
+export function displayState(task: RawTask, nowS = Date.now() / 1000): DisplayState {
+  const raw = asString(task.state, 'unknown')
+  if (raw === 'released' && asString((task.outcome as Record<string, unknown> | undefined)?.reason).toLowerCase().startsWith('spawn failed')) return STATE_DISPLAY[1]
+  if (raw === 'rejected' && asNumber(task.attempt) > asNumber(task.max_attempts, Number.POSITIVE_INFINITY) && !(Array.isArray(task.fixed_by) && task.fixed_by.some(id => String(id)))) return STATE_DISPLAY[2]
+  if ((raw === 'working' || raw === 'claimed') && asNumber(task.lease_expires_ts) < nowS) return STATE_DISPLAY[5]
+  return STATE_DISPLAY.find(row => row.raw === raw) ?? { raw, label: `Unknown: ${raw}`, glyph: '◇', tone: 'cancel', section: 'Waiting' }
+}
+
+function boardState(id: string, task: RawTask, tasks: Record<string, RawTask>, nowS: number): DisplayState {
+  if (task.state === 'rejected') {
+    const parent = Object.entries(tasks).find(([, candidate]) =>
+      candidate.state === 'accepted' && Array.isArray(candidate.fixes) && candidate.fixes.includes(id))
+    if (parent) return { raw: 'superseded', label: 'Superseded', glyph: '→', tone: 'done', section: 'Done' }
+  }
+  return displayState(task, nowS)
+}
+
+export function formatTokens(value: unknown): string {
+  const n = asNumber(value)
+  if (n < 1000) return Math.round(n).toLocaleString('en')
+  if (n < 10000) return `${(n / 1000).toFixed(1)}k`
+  if (n < 1000000) return `${Math.round(n / 1000)}k`
+  if (n < 10000000) return `${(n / 1000000).toFixed(1)}M`
+  return `${Math.round(n / 1000000)}M`
+}
+
+export function attentionOrder(tasks: Record<string, RawTask>): string[] {
+  const need = Object.entries(tasks).filter(([, task]) => displayState(task).section === 'Needs you')
+  return need.sort(([a, left], [b, right]) => {
+    const leftSeverity = displayState(left).tone === 'fail' ? 0 : 1
+    const rightSeverity = displayState(right).tone === 'fail' ? 0 : 1
+    return leftSeverity - rightSeverity || a.localeCompare(b)
+  }).map(([id]) => id)
+}
+
+export function boardUrl(metadata: BoardMetadata | undefined, currentPid: number, nowS = Date.now() / 1000): string | undefined {
+  if (!metadata || asNumber(metadata.pid) !== currentPid || typeof metadata.instance_id !== 'string' || !metadata.instance_id) return undefined
+  if (typeof metadata.updated_ts === 'number' && nowS - metadata.updated_ts > 30) return undefined
+  if (typeof metadata.url !== 'string') return undefined
+  try {
+    const parsed = new URL(metadata.url)
+    if (parsed.protocol !== 'http:' || parsed.hostname !== '127.0.0.1' || !parsed.port || !parsed.pathname.endsWith('/')) return undefined
+    return metadata.url
+  } catch { return undefined }
 }
 
 export type ParsedStatus = { ok: true; status: RawStatus } | { ok: false; error: string }
@@ -230,6 +303,22 @@ export function parseStatusOutput(exitCode: number, stdout: string, stderr: stri
     if (isRecord(value)) tasks[id] = value
   }
   return { ok: true, status: { run: runRaw, tasks } }
+}
+
+/** Runs the plugin's bundled ALE package while passing every path as an argv item. */
+export function bundledAleArgv(pluginRoot: string, args: readonly string[]): string[] {
+  const bootstrap = 'import sys; sys.path.insert(0, sys.argv[1]); from ale.cli import main; sys.exit(main(sys.argv[2:]))'
+  return ['python3', '-c', bootstrap, pluginRoot, ...args]
+}
+
+/** Logs each distinct refresh error once for the lifetime of this module. */
+export function createRefreshErrorLogger(): (log: (message: string) => void, message: string) => void {
+  const seen = new Set<string>()
+  return (log, message) => {
+    if (seen.has(message)) return
+    seen.add(message)
+    log(message)
+  }
 }
 
 /** The board's section order, and which task states fall in each. */
@@ -290,9 +379,10 @@ export function groupTaskIds(tasks: Record<string, RawTask>): { name: string; id
 /** Truncates to `width` columns, with a trailing ellipsis when it must cut. */
 export function truncateTo(text: string, width: number): string {
   if (width <= 0) return ''
-  if (text.length <= width) return text
-  if (width === 1) return text.slice(0, 1)
-  return `${text.slice(0, width - 1)}…`
+  const chars = [...text]
+  if (chars.length <= width) return text
+  if (width === 1) return chars[0] ?? ''
+  return `${chars.slice(0, width - 1).join('')}…`
 }
 
 const GLYPH_OF: Record<string, string> = {
@@ -308,11 +398,121 @@ const GLYPH_OF: Record<string, string> = {
   accepted: '✓',
   failed: '✗',
   canceled: '⦸',
+  fixing: '↻',
 }
 
 /** One glyph per state (rule 27: glyphs, not only colour — survives `tmux capture-pane -p`). */
 export function glyphFor(state: string): string {
-  return GLYPH_OF[state] ?? '·'
+  return GLYPH_OF[state] ?? '◇'
+}
+
+export type BoardSegment = { text: string; color?: string; bold?: boolean; dimColor?: boolean }
+export type RenderBoardInput = { runId: string; tasks: Record<string, RawTask>; run: RawRun; labels: Record<string, LabelInfo>; boardUrl?: string; nowS: number; columns: number }
+
+const toneColor: Record<string, string> = { needs: 'yellow', fail: 'red', run: 'blue', verify: 'magenta', ready: 'cyan', done: 'green' }
+const sectionOrder = ['Needs you', 'Running', 'Waiting', 'Done'] as const
+
+function plural(n: number, one: string, many = `${one}s`): string { return `${n} ${n === 1 ? one : many}` }
+function rowReason(task: RawTask, tasks: Record<string, RawTask>, nowS: number, supersededBy?: string): string {
+  if (supersededBy) return `Superseded: parent ${supersededBy} accepted`
+  const info = displayState(task, nowS)
+  if (info.raw === 'input-required') return `Needs your answer: "${String(task.waiting_on ?? '')}"`
+  if (info.raw === 'rejected') return `Rejected: ${String(task.last_reject_reason ?? 'needs a fix')}`
+  if (info.raw === 'failed') return `Failed: ${String(task.reason ?? 'executor failed')}`
+  if (info.raw === 'stale') return 'No heartbeat. The executor may have died.'
+  const unmet = (Array.isArray(task.depends_on) ? task.depends_on : []).filter(dep => tasks[String(dep)]?.state !== 'accepted')
+  if (unmet.length) return `Waiting on ${unmet.join(', ')} (blocked by ${unmet[0]}, needs you)`
+  if (info.raw === 'fixing') return `Waiting on fix ${(Array.isArray(task.fixed_by) ? task.fixed_by : []).join(', ')}`
+  if (info.raw === 'ready') return 'Ready, not picked up yet.'
+  if (info.raw === 'released') return `Retrying: attempt ${String(task.attempt ?? 1)} of ${String(task.max_attempts ?? '?')}.`
+  return ''
+}
+
+function boardLine(text: string, columns: number, color?: string, bold?: boolean): BoardSegment[] {
+  const safe = truncateTo(text, columns)
+  return [{ text: safe, ...(color ? { color } : {}), ...(bold ? { bold: true } : {}) }]
+}
+
+export function renderBoard(input: RenderBoardInput): BoardSegment[][] {
+  const { tasks, labels, nowS, columns } = input
+  const entries = Object.entries(tasks).map(([id, task]) => ({ id, task, state: boardState(id, task, tasks, nowS) }))
+  const inSection = (section: string) => entries.filter(row => row.state.section === section).sort((a, b) => section === 'Done'
+    ? Number(b.state.raw === 'superseded') - Number(a.state.raw === 'superseded') || asNumber(b.task.submitted_ts) - asNumber(a.task.submitted_ts) || a.id.localeCompare(b.id)
+    : a.id.localeCompare(b.id))
+  const needs = inSection('Needs you'), running = inSection('Running'), waiting = inSection('Waiting'), done = inSection('Done')
+  const completed = done.filter(row => row.state.raw !== 'superseded')
+  const total = entries.length
+  const runId = input.runId
+  const headline = running.length === 0 && needs.length > 0
+    ? `Nothing is running. ${needs.length === 1 ? '1 needs you' : `${needs.length} need you`}; ${waiting.length === 1 ? '1 is' : `${waiting.length} are`} waiting behind them.`
+    : `${running.length} running, ${waiting.length} waiting, ${completed.length} of ${total} done.`
+  const ribbon = total > 40
+    ? `✓ ${done.length}  ● ${running.length}  ? ${needs.length}  · ${waiting.length}`
+    : [...done.map(() => '✓'), ...running.map(r => r.state.glyph), ...needs.map(r => r.state.glyph), ...waiting.map(r => r.state.glyph)].join('')
+  const doneLabel = input.run.finished === true ? 'Finished' : needs.length ? 'Stalled: needs you' : running.length ? 'Running' : 'Idle'
+  const doneColor = needs.length && !running.length ? 'red' : running.length ? 'blue' : 'green'
+  const runTokens = asNumber(input.run.tokens)
+  const cost = asNumber(input.run.cost_usd)
+  const rows: BoardSegment[][] = [
+    [{ text: `ALE ${runId}  ` }, { text: `■ ${doneLabel}`, color: doneColor, ...(doneColor === 'red' ? { bold: true } : {}) }],
+    boardLine(headline, columns),
+    boardLine(`${ribbon}  ${completed.length} of ${total} done   ${formatTokens(runTokens)} tok, run total   ${cost ? `$${cost.toFixed(2)}` : runTokens ? 'cost not reported' : '$0.00'}`, columns),
+  ]
+  const prefix = (id: string, state: DisplayState, boldId = false): BoardSegment[] => [
+    { text: `${state.glyph} `, color: toneColor[state.tone] ?? undefined, ...(['wait', 'cancel'].includes(state.tone) ? { dimColor: true } : {}) },
+    { text: id.padEnd(8), ...(boldId ? { bold: true } : {}) },
+    { text: ` ${state.label.padEnd(17)} `, color: toneColor[state.tone] ?? undefined, ...(['wait', 'cancel'].includes(state.tone) ? { dimColor: true } : {}) },
+  ]
+  const plainRow = (id: string, task: RawTask, state: DisplayState, section: string): BoardSegment[][] => {
+    const title = labels[id]?.title ?? id
+    const p = prefix(id, state, section === 'Needs you')
+    const base = p.map(s => s.text).join('')
+    const supersededBy = state.raw === 'superseded'
+      ? Object.entries(tasks).find(([, parent]) => parent.state === 'accepted' && Array.isArray(parent.fixes) && parent.fixes.includes(id))?.[0]
+      : undefined
+    const reason = rowReason(task, tasks, nowS, supersededBy)
+    if (section === 'Needs you') {
+      const first = `${base}${title}`
+      const lines = [p.concat([{ text: truncateTo(`${title}`, Math.max(0, columns - [...base].length)) }])]
+      if (reason) lines.push([{ text: ' '.repeat(11) }, { text: truncateTo(reason, Math.max(0, columns - 11)) }])
+      lines.push([{ text: ' '.repeat(11) }, { text: `Blocks ${entries.filter(other => (Array.isArray(other.task.depends_on) && other.task.depends_on.includes(id))).length} ${entries.filter(other => Array.isArray(other.task.depends_on) && other.task.depends_on.includes(id)).length === 1 ? 'task' : 'tasks'}` }])
+      if (columns >= 120 && asNumber(task.tokens)) lines[lines.length - 1].push({ text: `   ${formatTokens(task.tokens)} tok` })
+      return lines
+    }
+    const titleWidth = columns >= 120 ? 32 : columns >= 80 ? 16 : Math.max(0, columns - 29)
+    const titleText = truncateTo(title, titleWidth)
+    if (columns < 80) return [p.concat([{ text: titleText }])]
+    const reasonText = state.raw === 'superseded' ? reason : section === 'Done' ? `Done ${ageOf(task.submitted_ts, nowS)} ago` : reason
+    const tokenMeta = section === 'Done' && columns >= 120 && asNumber(task.tokens) ? `${formatTokens(task.tokens)} tok` : ''
+    const paddedTitle = titleText.padEnd(titleWidth)
+    const reasonWidth = Math.max(0, columns - [...base + paddedTitle].length - 1 - (tokenMeta ? [...tokenMeta].length + 1 : 0))
+    const reasonPart = truncateTo(reasonText, reasonWidth)
+    const fill = tokenMeta ? Math.max(1, columns - [...base + paddedTitle + ' ' + reasonPart + tokenMeta].length) : 0
+    return [p.concat([{ text: `${paddedTitle} ` }, { text: reasonPart }, ...(tokenMeta ? [{ text: `${' '.repeat(fill)}${tokenMeta}` }] : [])])]
+  }
+  rows.push(boardLine(`Needs you ${needs.length}`, columns))
+  for (const row of needs) rows.push(...plainRow(row.id, row.task, row.state, 'Needs you'))
+  rows.push(boardLine(`Running ${running.length}`, columns))
+  if (!running.length) rows.push(boardLine('  Nothing is running.', columns))
+  else for (const row of running) rows.push(...plainRow(row.id, row.task, row.state, 'Running'))
+  rows.push(boardLine(`Waiting ${waiting.length}`, columns))
+  const firstWaiting = waiting[0]
+  if (firstWaiting) {
+    const dependencies = Array.isArray(firstWaiting.task.depends_on) ? firstWaiting.task.depends_on : []
+    const firstDep = dependencies.length ? String(dependencies[0] ?? '') : ''
+    const blockerTask = firstDep ? tasks[firstDep] : undefined
+    const blocker = blockerTask ? displayState(blockerTask, nowS) : firstWaiting.state
+    rows.push(boardLine(`  Blocked by ${firstDep || firstWaiting.id} (${blocker.label}), ${plural(waiting.length, 'task')}`, columns))
+  }
+  for (const row of waiting) rows.push(...plainRow(row.id, row.task, row.state, 'Waiting'))
+  rows.push(boardLine(`Done ${done.length}`, columns))
+  for (const row of done.slice(0, 3)) rows.push(...plainRow(row.id, row.task, row.state, 'Done'))
+  if (done.length > 3) rows.push(boardLine(`  +${done.length - 3} more done`, columns))
+  if (input.boardUrl) rows.push(boardLine(`board: ${input.boardUrl}  (copy into a browser)`, columns))
+  return rows.map(line => {
+    const text = line.map(segment => segment.text).join('')
+    return [...text].length > columns ? boardLine(text, columns) : line
+  })
 }
 
 /** A short human age, from a `ts` (epoch seconds) to `nowS` (epoch seconds). */
@@ -324,10 +524,10 @@ export function ageOf(ts: unknown, nowS: number): string {
   if (minutes < 60) return `${minutes}m`
   const hours = Math.floor(minutes / 60)
   const restMinutes = minutes % 60
-  if (hours < 24) return `${hours}h${restMinutes}m`
+  if (hours < 24) return `${hours}h ${restMinutes}m`
   const days = Math.floor(hours / 24)
   const restHours = hours % 24
-  return `${days}d${restHours}h`
+  return `${days}d ${restHours}h`
 }
 
 export type TaskRow = {

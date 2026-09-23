@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>empty-render fixture</title>
+</head>
+<body>
+<!--
+  Simulates the real bug this gate exists to catch: a board whose run has
+  real tasks but whose page renders nothing (blocked EventSource, wrong
+  run dir, status subprocess failing silently). No `.task` element ever
+  appears, so the default --ready-selector never matches and the case
+  must fail with [not-ready] rather than passing on an empty page.
+-->
+<p>0 tasks, 0 of 0 done</p>
+</body>
+</html>

@@ -1,0 +1,21 @@
+{
+  "run": {"id": "2026-09-22-work-entry-point-orchestration", "finished": false},
+  "tasks": {
+    "T3": {"task_id": "T3", "state": "accepted", "tokens": 939355},
+    "T4": {"task_id": "T4", "state": "fixing", "fixed_by": ["T4.fix1"], "depends_on": []},
+    "T4.fix1": {"task_id": "T4.fix1", "state": "rejected", "tokens": 540044},
+    "T9": {"task_id": "T9", "state": "stale"},
+    "T5": {"task_id": "T5", "state": "planned", "depends_on": ["T4.fix1"]},
+    "T6": {"task_id": "T6", "state": "planned", "depends_on": ["T4.fix1"]},
+    "T7": {"task_id": "T7", "state": "planned", "depends_on": ["T4.fix1"]},
+    "T8": {"task_id": "T8", "state": "planned", "depends_on": ["T4.fix1"]},
+    "T10": {"task_id": "T10", "state": "planned", "depends_on": ["T4.fix1"]},
+    "T11": {"task_id": "T11", "state": "planned", "depends_on": ["T4.fix1"]},
+    "T12": {"task_id": "T12", "state": "planned", "depends_on": ["T4.fix1"]},
+    "T13": {"task_id": "T13", "state": "planned", "depends_on": ["T4.fix1"]},
+    "T14": {"task_id": "T14", "state": "planned", "depends_on": ["T4.fix1"]},
+    "T15": {"task_id": "T15", "state": "planned", "depends_on": ["T4.fix1"]},
+    "T16": {"task_id": "T16", "state": "planned", "depends_on": ["T9"]},
+    "T17": {"task_id": "T17", "state": "planned", "depends_on": ["T4.fix1"]}
+  }
+}

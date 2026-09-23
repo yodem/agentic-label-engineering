@@ -1,0 +1,6 @@
+{"type":"claimed","task_id":"T1","attempt":1,"ts":1}
+{"type":"heartbeat","task_id":"T1","attempt":1,"ts":2,"step":"process alive"}
+{"type":"accepted","task_id":"T1","attempt":1,"ts":3,"evidence":{"results":[{"id":"A1","ok":true}]}}
+{"type":"claimed","task_id":"T2","attempt":1,"ts":4}
+{"type":"released","task_id":"T2","attempt":1,"ts":5,"reason":"spawn failed: FileNotFoundError"}
+{"type":"heartbeat","task_id":"T2","attempt":1,"ts":6,"step":"process alive","auto":true}

@@ -1,0 +1,38 @@
+{
+  "acceptance": [
+    {
+      "id": "A1",
+      "manual": "Fixture acceptance for T15"
+    }
+  ],
+  "context": {
+    "allowed_paths": [
+      "src/example/t15.py"
+    ],
+    "depends_on": [
+      "T14"
+    ],
+    "pointers": [],
+    "spec_path": "fixture"
+  },
+  "labels": {
+    "effort": "S",
+    "lane": "workflow",
+    "model_tier": "standard",
+    "risk": "low",
+    "role": "docs"
+  },
+  "provenance": {
+    "lane_reason": "Fixture lane reason for board realistic run."
+  },
+  "routing": {
+    "agent": null,
+    "executor": "claude-headless",
+    "model": "claude-sonnet-5",
+    "resolved_from": "roster"
+  },
+  "run_id": "board-check-realistic",
+  "schema_version": "1.0",
+  "task_id": "T15",
+  "title": "Link the runbook from the release checklist"
+}

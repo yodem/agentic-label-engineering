@@ -1,0 +1,48 @@
+{"agent_id":null,"attempt":null,"run_id":"board-check-realistic","schema_version":"1.0","task_id":null,"ts":1790099217.085927,"type":"run_started"}
+{"agent_id":"T3-executor-frontend-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","task_id":"T3","ts":1790099218.085927,"type":"claimed"}
+{"agent_id":"T3-executor-frontend-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","step":"editing src/example/t3.py","task_id":"T3","ts":1790099219.085927,"type":"heartbeat"}
+{"agent_id":"T4-executor-backend-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","task_id":"T4","ts":1790099220.085927,"type":"claimed"}
+{"agent_id":"T4-executor-backend-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","step":"reading spec","task_id":"T4","ts":1790099221.085927,"type":"heartbeat"}
+{"agent_id":"T4-executor-backend-1","attempt":1,"question":"Fixed backoff or exponential with jitter?","run_id":"board-check-realistic","schema_version":"1.0","task_id":"T4","ts":1790099222.085927,"type":"input_required"}
+{"agent_id":"T5-executor-backend-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","task_id":"T5","ts":1790099223.085927,"type":"claimed"}
+{"agent_id":"T5-executor-backend-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","step":"running migration","task_id":"T5","ts":1790099224.085927,"type":"heartbeat"}
+{"agent_id":"T5-executor-backend-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","summary":"Migrated session store, tests green","task_id":"T5","ts":1790099225.085927,"type":"submitted"}
+{"agent_id":null,"attempt":1,"evidence":{"passed":false,"results":[]},"reason":"acceptance failed: A1","run_id":"board-check-realistic","schema_version":"1.0","task_id":"T5","ts":1790099226.085927,"type":"rejected"}
+{"agent_id":"T6-executor-backend-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","task_id":"T6","ts":1790099227.085927,"type":"claimed"}
+{"agent_id":"T6-executor-backend-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","step":"implementing","task_id":"T6","ts":1790099228.085927,"type":"heartbeat"}
+{"agent_id":"T6-executor-backend-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","summary":"Implemented and tested","task_id":"T6","ts":1790099229.085927,"type":"submitted"}
+{"agent_id":null,"attempt":1,"evidence":{"passed":true,"results":[{"exit":0,"id":"A1","ok":true,"tail":"ok"}]},"run_id":"board-check-realistic","schema_version":"1.0","task_id":"T6","ts":1790099230.085927,"type":"accepted"}
+{"agent_id":"T7-executor-backend-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","task_id":"T7","ts":1790099231.085927,"type":"claimed"}
+{"agent_id":"T7-executor-backend-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","step":"implementing","task_id":"T7","ts":1790099232.085927,"type":"heartbeat"}
+{"agent_id":"T7-executor-backend-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","summary":"Implemented and tested","task_id":"T7","ts":1790099233.085927,"type":"submitted"}
+{"agent_id":null,"attempt":1,"evidence":{"passed":true,"results":[{"exit":0,"id":"A1","ok":true,"tail":"ok"}]},"run_id":"board-check-realistic","schema_version":"1.0","task_id":"T7","ts":1790099234.085927,"type":"accepted"}
+{"agent_id":"T8-executor-backend-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","task_id":"T8","ts":1790099235.085927,"type":"claimed"}
+{"agent_id":"T8-executor-backend-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","step":"implementing","task_id":"T8","ts":1790099236.085927,"type":"heartbeat"}
+{"agent_id":"T8-executor-backend-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","summary":"Implemented and tested","task_id":"T8","ts":1790099237.085927,"type":"submitted"}
+{"agent_id":null,"attempt":1,"evidence":{"passed":true,"results":[{"exit":0,"id":"A1","ok":true,"tail":"ok"}]},"run_id":"board-check-realistic","schema_version":"1.0","task_id":"T8","ts":1790099238.085927,"type":"accepted"}
+{"agent_id":"T9-executor-backend-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","task_id":"T9","ts":1790099239.085927,"type":"claimed"}
+{"agent_id":"T9-executor-backend-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","step":"implementing","task_id":"T9","ts":1790099240.085927,"type":"heartbeat"}
+{"agent_id":"T9-executor-backend-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","summary":"Implemented and tested","task_id":"T9","ts":1790099241.085927,"type":"submitted"}
+{"agent_id":null,"attempt":1,"evidence":{"passed":true,"results":[{"exit":0,"id":"A1","ok":true,"tail":"ok"}]},"run_id":"board-check-realistic","schema_version":"1.0","task_id":"T9","ts":1790099242.085927,"type":"accepted"}
+{"agent_id":"T10-executor-backend-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","task_id":"T10","ts":1790099243.085927,"type":"claimed"}
+{"agent_id":"T10-executor-backend-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","step":"implementing","task_id":"T10","ts":1790099244.085927,"type":"heartbeat"}
+{"agent_id":"T10-executor-backend-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","summary":"Implemented and tested","task_id":"T10","ts":1790099245.085927,"type":"submitted"}
+{"agent_id":null,"attempt":1,"evidence":{"passed":true,"results":[{"exit":0,"id":"A1","ok":true,"tail":"ok"}]},"run_id":"board-check-realistic","schema_version":"1.0","task_id":"T10","ts":1790099246.085927,"type":"accepted"}
+{"agent_id":"T11-executor-backend-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","task_id":"T11","ts":1790099247.085927,"type":"claimed"}
+{"agent_id":"T11-executor-backend-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","step":"implementing","task_id":"T11","ts":1790099248.085927,"type":"heartbeat"}
+{"agent_id":"T11-executor-backend-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","summary":"Implemented and tested","task_id":"T11","ts":1790099249.085927,"type":"submitted"}
+{"agent_id":null,"attempt":1,"evidence":{"passed":true,"results":[{"exit":0,"id":"A1","ok":true,"tail":"ok"}]},"run_id":"board-check-realistic","schema_version":"1.0","task_id":"T11","ts":1790099250.085927,"type":"accepted"}
+{"agent_id":"T12-executor-backend-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","task_id":"T12","ts":1790099251.085927,"type":"claimed"}
+{"agent_id":"T12-executor-backend-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","step":"implementing","task_id":"T12","ts":1790099252.085927,"type":"heartbeat"}
+{"agent_id":"T12-executor-backend-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","summary":"Implemented and tested","task_id":"T12","ts":1790099253.085927,"type":"submitted"}
+{"agent_id":null,"attempt":1,"evidence":{"passed":true,"results":[{"exit":0,"id":"A1","ok":true,"tail":"ok"}]},"run_id":"board-check-realistic","schema_version":"1.0","task_id":"T12","ts":1790099254.085927,"type":"accepted"}
+{"agent_id":"T13-executor-test-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","task_id":"T13","ts":1790099255.085927,"type":"claimed"}
+{"agent_id":"T13-executor-test-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","step":"implementing","task_id":"T13","ts":1790099256.085927,"type":"heartbeat"}
+{"agent_id":"T13-executor-test-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","summary":"Implemented and tested","task_id":"T13","ts":1790099257.085927,"type":"submitted"}
+{"agent_id":null,"attempt":1,"evidence":{"passed":true,"results":[{"exit":0,"id":"A1","ok":true,"tail":"ok"}]},"run_id":"board-check-realistic","schema_version":"1.0","task_id":"T13","ts":1790099258.085927,"type":"accepted"}
+{"agent_id":"T13.fix1-executor-fixer-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","task_id":"T13.fix1","ts":1790099259.085927,"type":"claimed"}
+{"agent_id":"T13.fix1-executor-fixer-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","step":"implementing","task_id":"T13.fix1","ts":1790099260.085927,"type":"heartbeat"}
+{"agent_id":"T13.fix1-executor-fixer-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","summary":"Alternate fix implemented","task_id":"T13.fix1","ts":1790099261.085927,"type":"submitted"}
+{"agent_id":null,"attempt":1,"evidence":{"passed":false,"results":[]},"reason":"superseded by T13","run_id":"board-check-realistic","schema_version":"1.0","task_id":"T13.fix1","ts":1790099262.085927,"type":"rejected"}
+{"agent_id":"T16-executor-test-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","task_id":"T16","ts":1790099263.085927,"type":"claimed"}
+{"agent_id":"T16-executor-test-1","attempt":1,"run_id":"board-check-realistic","schema_version":"1.0","step":"investigating timeouts","task_id":"T16","ts":1790099264.085927,"type":"heartbeat"}

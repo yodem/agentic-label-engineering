@@ -75,7 +75,9 @@ describe('runDirFromCurrent', () => {
 describe('register source shape', () => {
   test('imports called lib helpers and avoids Node process globals', async () => {
     const source = await Bun.file(`${import.meta.dir}/register.tsx`).text()
-    expect(source).not.toContain('process.')
+    // Node's process global is unavailable in function hooks (0.2.1 broke on process.cwd()).
+    // The engine's own $.process API is allowed; a bare or aliased `process.` is not.
+    expect(source).not.toMatch(/(^|[^$.\w])process\./m)
     const importBlock = source.match(/import\s*\{([\s\S]*?)\}\s*from\s*'\.\/lib\.ts'/)?.[1] ?? ''
     for (const identifier of ['resolveRunDirectory', 'unknownRunArgumentMessage', 'runDirFromCurrent']) {
       expect(importBlock).toContain(identifier)

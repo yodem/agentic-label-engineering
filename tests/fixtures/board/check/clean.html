@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>clean fixture</title>
+<style>
+  body { margin:0; background:#fff; color:#111; font:14px sans-serif; padding:8px; }
+  .task { padding:4px 0; }
+  .state svg { width:16px; height:16px; }
+  .row { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+</style>
+</head>
+<body>
+<div class="task">Task one is ready and rendered cleanly</div>
+<span class="state">
+  <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="4" fill="currentColor"/></svg>
+  Done
+</span>
+<div class="row">A normal row of text that fits fine and never overlaps anything else on the page.</div>
+</body>
+</html>

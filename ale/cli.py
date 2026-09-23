@@ -10,8 +10,10 @@ import os
 import re
 import subprocess
 import sys
+import secrets
 import tempfile
 import time
+import webbrowser
 from typing import List, Optional
 
 from . import events as E
@@ -40,9 +42,11 @@ from .evalharness import corpus as CORPUS
 from .evalharness import goldset as GOLDSET
 from .evalharness import jevrun as JEVRUN
 from .evalharness import report as REPORT
+from .board import BoardServer, build_snapshot
 
 
 _HERDR_RUNNER = subprocess.run
+_PANE_UNSET = object()
 
 OK, FAIL, USAGE, CLAIM_LOST, LEASE_LOST, SIGNOFF, BREACH = 0, 1, 2, 3, 4, 5, 6
 TEXT_MAX = 1000
@@ -431,10 +435,23 @@ class Ctx:
         return E.reduce_run(E.read_events(self.events_path), self.labels)
 
     def emit(self, kind: str, task_id: Optional[str] = None, agent_id: Optional[str] = None,
-             attempt: Optional[int] = None, **extra) -> None:
-        pane = os.environ.get("HERDR_PANE_ID")
-        if kind in ("claimed", "spawned") and pane:
+             attempt: Optional[int] = None, pane: Optional[str] = _PANE_UNSET,
+             bind_claim_pane: bool = True, **extra) -> None:
+        if kind == "spawned" and pane is _PANE_UNSET:
+            # Keep the low-level helper's old default for direct callers. Dispatch
+            # always passes pane explicitly (including None), so its pane cannot
+            # leak into a spawned executor's event.
+            pane = os.environ.get("HERDR_PANE_ID")
+        elif pane is _PANE_UNSET or (pane is None and kind != "spawned"):
+            pane = os.environ.get("HERDR_PANE_ID")
+        if kind == "spawned" and pane:
             extra["pane"] = pane
+        elif kind == "claimed":
+            if pane and bind_claim_pane:
+                extra["pane"] = pane
+            else:
+                extra.pop("pane", None)
+            extra.pop("explicit_pane", None)
         E.append_event(self.events_path, E.make_event(kind, self.run_id, self.now, task_id, agent_id, attempt, **extra))
         self._publish(task_id)
 
@@ -450,10 +467,13 @@ class Ctx:
         if not pane or task_id not in self.labels:
             return
         try:
-            text = token_text(task_id, self.labels[task_id], self.state()["tasks"][task_id])
+            task_state = self.state()["tasks"][task_id]
+            text = token_text(task_id, self.labels[task_id], task_state)
+            terminal = (task_state["state"] in ("accepted", "rejected", "canceled", "failed") or
+                        (task_state["state"] == "released" and not task_state["claimable"]))
             result = _HERDR_RUNNER(
                 ["herdr", "pane", "report-metadata", pane, "--source", "ale",
-                 "--token", "ale=" + text, "--ttl-ms", "900000"],
+                 "--token", "ale=" + text, "--ttl-ms", "60000" if terminal else "900000"],
                 timeout=2, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             if getattr(result, "returncode", 0) != 0:
                 raise RuntimeError("herdr exited with %s" % result.returncode)
@@ -825,6 +845,49 @@ def cmd_status(a) -> int:
     return OK
 
 
+def cmd_board(a) -> int:
+    """Serve the read-only board for one run until interrupted."""
+    run_dir = _resolve_run_dir(a)
+    events_path = os.path.join(run_dir, "events.jsonl")
+    labels_dir = os.path.join(run_dir, "labels")
+    if not os.path.isdir(run_dir) or not os.path.isdir(labels_dir) or not os.path.isfile(events_path):
+        raise CliError(FAIL, "run directory must contain labels/ and events.jsonl: %s" % run_dir)
+
+    def provider():
+        status_args = [sys.executable, "-m", "ale", "status", "--json", "--run-dir", run_dir]
+        if getattr(a, "roster", None):
+            status_args += ["--roster", a.roster]
+        result = subprocess.run(
+            status_args,
+            shell=False, capture_output=True, text=True, timeout=15)
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip() or "status failed")
+        status = json.loads(result.stdout)
+        labels = L.load_labels(run_dir)
+        try:
+            events = E.read_events(events_path)
+        except (ValueError, TypeError):
+            events = []
+        return build_snapshot(run_dir, status, labels, events, {})
+
+    token = secrets.token_urlsafe(32)
+    server = BoardServer(run_dir, provider, token=token, port=0)
+    try:
+        server.start()
+    except OSError as exc:
+        raise CliError(FAIL, "cannot bind board listener: %s" % exc)
+    print(server.url, flush=True)
+    if a.open:
+        webbrowser.open(server.url)
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        return OK
+    finally:
+        server.close()
+
+
 def cmd_ready(a) -> int:
     c = Ctx(a)
     for tid, st in sorted(c.state()["tasks"].items()):
@@ -842,7 +905,9 @@ def cmd_claim(a) -> int:
     if not state["tasks"][a.task]["claimable"] or state["tasks"][a.task]["attempt"] > cap:
         print("claim lost: %s" % a.task, file=sys.stderr)
         return CLAIM_LOST
-    c.emit("claimed", a.task, a.agent, state["tasks"][a.task]["attempt"])
+    executor_id = os.environ.get("ALE_AGENT_ID") or os.environ.get("ALE_AGENT")
+    c.emit("claimed", a.task, a.agent, state["tasks"][a.task]["attempt"], pane=a.pane,
+           bind_claim_pane=bool(a.pane) or bool(executor_id and a.agent == executor_id))
     if c.state()["tasks"][a.task]["owner"] != a.agent:
         print("claim lost: %s" % a.task, file=sys.stderr)
         return CLAIM_LOST
@@ -1450,7 +1515,8 @@ def _append_spawned(c: Ctx, due: dict, request: dict, plan: Optional[dict]) -> N
              "trigger_instance": due["trigger_instance"]}
     if plan:
         extra.update({"worktree": plan["path"], "branch": plan["branch"]})
-    c.emit("spawned", due["task_id"], None, c.state()["tasks"][due["task_id"]]["attempt"], **extra)
+    c.emit("spawned", due["task_id"], None, c.state()["tasks"][due["task_id"]]["attempt"],
+           pane=request.get("executor_pane"), **extra)
 
 
 def cmd_dispatch(a) -> int:
@@ -2891,6 +2957,8 @@ def _parser() -> argparse.ArgumentParser:
     integrate = add("integrate", cmd_integrate, task=True)
     integrate.add_argument("--cwd")
     add("status", cmd_status).add_argument("--json", action="store_true")
+    board = add("board", cmd_board)
+    board.add_argument("--open", action="store_true")
     timeline = add("timeline", cmd_timeline)
     timeline.add_argument("--task")
     timeline.add_argument("--json", action="store_true")
@@ -2899,7 +2967,7 @@ def _parser() -> argparse.ArgumentParser:
     meta.add_argument("--json", action="store_true")
     meta.add_argument("--csv", action="store_true")
     add("ready", cmd_ready)
-    add("claim", cmd_claim, task=True, agent=True)
+    add("claim", cmd_claim, task=True, agent=True).add_argument("--pane")
     hb = add("heartbeat", cmd_heartbeat, task=True, agent=True)
     hb.add_argument("--step", required=True)
     hb.add_argument("--files")

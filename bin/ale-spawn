@@ -16,6 +16,7 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 env = request.get("env") or {}
 values = {
     "ale_agent": env.get("ALE_AGENT", request.get("agent_id", "")),
+    "ale_agent_id": env.get("ALE_AGENT_ID", env.get("ALE_AGENT", request.get("agent_id", ""))),
     "ale_task": env.get("ALE_TASK", ""),
     "ale_kind": request.get("kind", ""),
     "ale_role": request.get("role", ""),
@@ -44,6 +45,7 @@ safe_agent=$(printf '%s' "$safe_agent" | cut -c 1-32)
 
 if [ -n "$ale_task" ]; then ALE_TASK=$ale_task; export ALE_TASK; fi
 if [ -n "$ale_agent" ]; then ALE_AGENT=$ale_agent; export ALE_AGENT; fi
+if [ -n "$ale_agent_id" ]; then ALE_AGENT_ID=$ale_agent_id; export ALE_AGENT_ID; fi
 if [ -n "$ale_run_dir" ]; then ALE_RUN_DIR=$ale_run_dir; export ALE_RUN_DIR; fi
 if [ -n "$ale_roster" ]; then ALE_ROSTER=$ale_roster; export ALE_ROSTER; fi
 if [ -n "$ale_model" ]; then ALE_MODEL=$ale_model; export ALE_MODEL; fi

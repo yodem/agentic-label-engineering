@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0",
+  "run_id": "fixture-run",
+  "task_id": "T1",
+  "title": "Fixture board task",
+  "labels": {"role": "backend", "model_tier": "fast", "lane": "workflow", "risk": "low", "effort": "S"},
+  "routing": {"executor": "claude-subagent", "model": "m", "resolved_from": "fixture", "agent": null},
+  "context": {"spec_path": "fixture", "pointers": [], "allowed_paths": [], "depends_on": []},
+  "acceptance": [{"id": "A1", "manual": "Fixture acceptance"}],
+  "provenance": {"lane_reason": "Fixture lane reason for board smoke test."}
+}
