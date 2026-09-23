@@ -31,7 +31,7 @@ def test_unknown_lane_rejected(label_t01):
 
 
 def test_short_lane_reason_rejected(label_t01):
-    label_t01["provenance"]["lane_reason"] = "pane"
+    label_t01["provenance"]["lane_reason"] = "ok"
     assert validate(label_t01, load_schema("label.schema.json")) != []
 
 
