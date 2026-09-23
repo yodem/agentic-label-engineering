@@ -9,9 +9,10 @@ Use `/ale:board [run-dir]` to start or reuse the web board for an ALE run.
 
 1. Resolve the run directory in this order:
    - Use the supplied `run-dir` argument. Resolve a relative run ID under the repo's `.ale/runs` directory.
-   - Otherwise, find the git root from the current directory and use its `.ale/runs/current` target (or the run ID stored in that file).
-   - Otherwise, choose the newest run directory under the git root's `.ale/runs`, based on modification time.
+   - Otherwise, use `$ALE_RUN_DIR` when it is set.
+   - Otherwise, find the git root from the current directory and choose the first run from `PYTHONPATH="${CLAUDE_PLUGIN_ROOT}" python3 -m ale runs --json --runs-dir <git root>/.ale/runs`.
    If no run can be found, explain that and stop.
+   If the list has more than one run with an event in the last 24 hours, mention the other active runs to the user.
 2. Resolve the run's repository root from its path under `.ale/runs`. Use `<repo>/.ale/roster.json` when it exists; otherwise use `${CLAUDE_PLUGIN_ROOT}/ale/example_roster.json`.
 3. Read `<run-dir>/board.json`. If its URL is present and its recorded process is still serving this run, reuse that URL and do not start another server.
 4. Otherwise start the bundled server in the background, capture its output, and wait for its URL (up to 10 seconds):

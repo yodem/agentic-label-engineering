@@ -13,6 +13,8 @@ import time
 import uuid
 from typing import Callable, Dict, Iterable, List, Optional
 
+from .runs import list_runs
+
 
 MAX_EVENT_LINE = 1024 * 1024
 TERMINAL_EVENTS = {"accepted", "rejected", "canceled", "failed", "released", "spawn_failed"}
@@ -69,7 +71,8 @@ def _terminal_override(events: List[dict], task_id: str, state: str) -> Optional
     return chosen
 
 
-def build_snapshot(run_dir: str, status: dict, labels: dict, events: list, metadata: dict) -> dict:
+def build_snapshot(run_dir: str, status: dict, labels: dict, events: list, metadata: dict,
+                   runs_dir: Optional[str] = None) -> dict:
     """Merge authoritative status with labels and bounded, safe timeline data."""
     status = status if isinstance(status, dict) else {}
     status_tasks = status.get("tasks") or {}
@@ -243,6 +246,15 @@ def build_snapshot(run_dir: str, status: dict, labels: dict, events: list, metad
     run["last_event_ts"] = max((float(event.get("ts", 0)) for event in (events or [])
                                 if isinstance(event, dict) and event.get("ts") is not None), default=None)
     run["path"] = os.path.abspath(run_dir)
+    run["other_runs"] = []
+    if runs_dir:
+        current_path = os.path.abspath(run_dir)
+        cutoff = time.time() - 24 * 60 * 60
+        run["other_runs"] = [
+            {"id": row["run_id"], "dir": row["dir"], "last_event_ts": row["last_event_ts"]}
+            for row in list_runs(runs_dir)
+            if row["path"] != current_path and row["last_event_ts"] >= cutoff
+        ][:3]
     return {"run": run, "tasks": projected, "updated_ts": time.time()}
 
 

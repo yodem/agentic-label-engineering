@@ -44,6 +44,7 @@ from .evalharness import goldset as GOLDSET
 from .evalharness import jevrun as JEVRUN
 from .evalharness import report as REPORT
 from .board import BoardServer, build_snapshot
+from .runs import list_runs
 
 
 _HERDR_RUNNER = subprocess.run
@@ -879,7 +880,14 @@ def cmd_status(a) -> int:
 
 def cmd_board(a) -> int:
     """Serve the read-only board for one run until interrupted."""
-    run_dir = _resolve_run_dir(a)
+    runs_dir = _default_runs_dir()
+    if not getattr(a, "run_dir", None) and not os.environ.get("ALE_RUN_DIR") and not getattr(a, "run_id", None):
+        run_dir = _choose_board_run(runs_dir)
+        if not run_dir:
+            raise CliError(FAIL, "no run found under %s" % runs_dir)
+        print("ale board: chose run %s" % run_dir, file=sys.stderr)
+    else:
+        run_dir = _resolve_run_dir(a)
     events_path = os.path.join(run_dir, "events.jsonl")
     labels_dir = os.path.join(run_dir, "labels")
     if not os.path.isdir(run_dir) or not os.path.isdir(labels_dir) or not os.path.isfile(events_path):
@@ -900,7 +908,8 @@ def cmd_board(a) -> int:
             events = E.read_events(events_path)
         except (ValueError, TypeError):
             events = []
-        return build_snapshot(run_dir, status, labels, events, {})
+        return build_snapshot(run_dir, status, labels, events, {},
+                              runs_dir=os.path.dirname(os.path.abspath(run_dir)))
 
     token = secrets.token_urlsafe(32)
     server = BoardServer(run_dir, provider, token=token, port=0)
@@ -925,6 +934,36 @@ def cmd_board(a) -> int:
         return OK
     finally:
         server.close()
+
+
+def _choose_board_run(runs_dir: str) -> Optional[str]:
+    rows = list_runs(runs_dir)
+    return rows[0]["path"] if rows else None
+
+
+def _default_runs_dir() -> str:
+    return os.path.join(_ale_dir(), "runs")
+
+
+def cmd_runs(a) -> int:
+    runs_dir = a.runs_dir or _default_runs_dir()
+    rows = list_runs(runs_dir)
+    if a.json:
+        print(json.dumps(rows, sort_keys=True))
+        return OK
+    now = time.time()
+    for row in rows:
+        age = max(0, int(now - row["last_event_ts"]))
+        if age < 60:
+            age_text = "%ds ago" % age
+        elif age < 3600:
+            age_text = "%dm ago" % (age // 60)
+        elif age < 86400:
+            age_text = "%dh ago" % (age // 3600)
+        else:
+            age_text = "%dd ago" % (age // 86400)
+        print("%s\t%s%s" % (row["dir"], age_text, "\tcurrent" if row["is_current"] else ""))
+    return OK
 
 
 def cmd_ready(a) -> int:
@@ -3022,6 +3061,10 @@ def _parser() -> argparse.ArgumentParser:
     add("status", cmd_status).add_argument("--json", action="store_true")
     board = add("board", cmd_board)
     board.add_argument("--open", action="store_true")
+    runs = sub.add_parser("runs")
+    runs.set_defaults(fn=cmd_runs)
+    runs.add_argument("--json", action="store_true")
+    runs.add_argument("--runs-dir")
     timeline = add("timeline", cmd_timeline)
     timeline.add_argument("--task")
     timeline.add_argument("--json", action="store_true")
