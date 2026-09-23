@@ -124,3 +124,16 @@ def test_tailer_recovers_after_replacement_and_stable_projection_order(tmp_path)
     snapshot = build_snapshot("/run", {"run": {}, "tasks": {"T2": {}, "T1": {}}},
                               {"T2": _label("T2"), "T1": _label("T1")}, [], {})
     assert list(snapshot["tasks"]) == ["T1", "T2"]
+
+
+def test_projection_records_latest_event_timestamp_and_run_directory():
+    snapshot = build_snapshot("/copied/run", {"run": {}, "tasks": {}}, {},
+                              [{"type": "heartbeat", "ts": 123.5}], {})
+    assert snapshot["run"]["last_event_ts"] == 123.5
+    assert snapshot["run"]["path"] == "/copied/run"
+
+
+def test_stale_idle_verdict_exposes_last_activity():
+    snapshot = {"run": {"finished": False, "last_event_ts": 1000}, "tasks": {"T1": {"state": "ready"}}}
+    verdict = health_verdict(snapshot, now=1000 + 3 * 3600)
+    assert verdict["label"] == "Idle, last activity 3h ago"

@@ -240,6 +240,9 @@ def build_snapshot(run_dir: str, status: dict, labels: dict, events: list, metad
     run["finished"] = bool(run.get("finished", False))
     run["tokens"] = sum(task.get("tokens", 0) for task in projected.values())
     run["token_label"] = "run total"
+    run["last_event_ts"] = max((float(event.get("ts", 0)) for event in (events or [])
+                                if isinstance(event, dict) and event.get("ts") is not None), default=None)
+    run["path"] = os.path.abspath(run_dir)
     return {"run": run, "tasks": projected, "updated_ts": time.time()}
 
 
@@ -257,7 +260,7 @@ def diff_snapshots(previous: dict, current: dict) -> List[dict]:
     return out
 
 
-def health_verdict(snapshot: dict, connected: bool = True) -> dict:
+def health_verdict(snapshot: dict, connected: bool = True, now: Optional[float] = None) -> dict:
     """Return the deterministic header verdict used by the web board."""
     tasks = list((snapshot or {}).get("tasks", {}).values())
     task_map = (snapshot or {}).get("tasks", {})
@@ -282,14 +285,23 @@ def health_verdict(snapshot: dict, connected: bool = True) -> dict:
     if running == 0 and needs > 0:
         return {"label": "Stalled: needs you", "tone": "fail"}
     if running == 0 and ready > 0:
-        return {"label": "Idle", "tone": "needs"}
+        return _idle_verdict(run, now)
     if running == 0 and waiting > 0:
         return {"label": "Stalled", "tone": "fail"}
     if needs > 0:
         return {"label": "Needs you", "tone": "needs"}
     if running == 0:
-        return {"label": "Idle", "tone": "needs"}
+        return _idle_verdict(run, now)
     return {"label": "Running", "tone": "run"}
+
+
+def _idle_verdict(run: dict, now: Optional[float]) -> dict:
+    last_event = run.get("last_event_ts")
+    current = time.time() if now is None else now
+    if last_event is not None and current - float(last_event) > 3600:
+        age = int((current - float(last_event)) // 3600)
+        return {"label": "Idle, last activity {}h ago".format(age), "tone": "needs"}
+    return {"label": "Idle", "tone": "needs"}
 
 
 class EventTailer:
