@@ -1165,8 +1165,13 @@ def _adjudicate_shadow_acceptance(c: Ctx, task_id: str) -> None:
                    choice=final, value=final, by="agreement_then_accepted",
                    authority="lead", additive=True)
         elif choice != final:
-            print("adjudicate %s %s: planner=%s jev=%s -> ale adjudicate --task %s --decision %s --value %s" %
-                  (task_id, decision, final, choice, task_id, decision, final), file=sys.stderr)
+            if final is None:
+                options = DECISIONS.options_for_decision(decision, c.roster, label=label)
+                print("adjudicate %s %s: planner=unset jev=%s -> ale adjudicate --task %s --decision %s --value <one of: %s>" %
+                      (task_id, decision, choice, task_id, decision, "|".join(options)), file=sys.stderr)
+            else:
+                print("adjudicate %s %s: planner=%s jev=%s -> ale adjudicate --task %s --decision %s --value %s (or --value %s to side with Jev)" %
+                      (task_id, decision, final, choice, task_id, decision, final, choice), file=sys.stderr)
 
 
 def cmd_check(a) -> int:

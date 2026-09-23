@@ -73,12 +73,13 @@ def summarize_shadow(votes: list, outcomes, adjudications, bar: dict, accepted_t
     adjudicated_keys = set(adjudications) if isinstance(adjudications, dict) else {
         _key(row) for row in adjudications or []}
     track_pending = accepted_tasks is not None
+    label_decisions = {"role", "sub", "phase", "model_tier", "risk", "effort", "locality"}
     accepted_tasks = set(accepted_tasks or [])
     pending_by_decision = defaultdict(set)
     if track_pending:
         for key in grouped:
             run_id, task_id, decision = key
-            if task_id not in accepted_tasks:
+            if task_id not in accepted_tasks or decision not in label_decisions:
                 continue
             if key not in adjudicated_keys and (task_id, decision) not in adjudicated_keys:
                 pending_by_decision[decision].add(key)
@@ -149,7 +150,7 @@ def summarize_shadow(votes: list, outcomes, adjudications, bar: dict, accepted_t
             "instability": instability,
         })
         pending = len(pending_by_decision.get(decision, ()))
-        if track_pending:
+        if track_pending and decision in label_decisions:
             item["pending_adjudication"] = pending
         item["bar_met"] = (item["adjudicated_count"] >= minimum and agreement is not None
                            and threshold is not None and agreement >= threshold
