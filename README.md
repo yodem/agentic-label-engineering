@@ -42,7 +42,8 @@ ale --help
 uv tool install git+https://github.com/yodem/agentic-label-engineering.git   # alternative
 ```
 
-The package bundles the agent catalog and the `bin/` launchers, so it works outside a checkout.
+The package bundles the whole plugin (agent catalog, hooks, launchers), so it works outside a checkout,
+and workers it starts load the same hooks as the Claude Code plugin.
 To hack on ALE itself, install from a clone with `pip install -e .` (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ### Claude Code plugin

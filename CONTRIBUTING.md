@@ -12,7 +12,7 @@ python3 -m venv .venv && . .venv/bin/activate
 pip install -e .
 ```
 
-The Python package has no runtime dependencies. `setup.py` copies `agents/`, `catalog/` and `bin/`
+The Python package has no runtime dependencies. `setup.py` copies the plugin tree
 into the wheel as `ale/_bundle`; `ale.paths.plugin_root()` prefers the checkout when there is one. The test suite needs `pytest` (run it through
 [`uv`](https://docs.astral.sh/uv/) as below, or `pip install pytest`). The Claude Code Mod under
 `mod/` is TypeScript and is tested with [Bun](https://bun.sh).

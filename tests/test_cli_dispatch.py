@@ -119,6 +119,8 @@ def test_monitor_spawn_captures_child_verdict_event(tmp_path, monkeypatch, capsy
     assert verdict["agent_id_minted"] == "T1-monitor-backend-1"
     request = json.loads((run / "requests" / "T1-monitor-backend-1.json").read_text())
     assert "ALE_TASK" not in request["env"] and request["env"]["ALE_PLUGIN_ROOT"]
+    assert request["env"]["ALE_PYTHON"] == sys.executable
+    assert os.path.isdir(os.path.join(request["env"]["ALE_IMPORT_ROOT"], "ale"))
     assert request["env"]["ALE_READ_ONLY"] == "1"
     prompt = (run / "prompts" / "T1-monitor-backend-1.md").read_text()
     assert '"type": "lease_expired"' in prompt and '"attempt": 2' in prompt

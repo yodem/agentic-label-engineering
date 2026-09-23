@@ -41,7 +41,7 @@ ale_run() {
     if [ -n "${ALE_BIN:-}" ]; then
         eval "$ALE_BIN \"\$@\""
     else
-        python3 -m ale "$@"
+        "${ALE_PYTHON:-python3}" -m ale "$@"
     fi
 }
 

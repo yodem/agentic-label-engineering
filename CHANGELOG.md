@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.12 (2026-09-24)
+
+- Installed packages run workers correctly. The wheel now bundles the whole Claude Code plugin (`hooks/`, `.claude-plugin/`, `skills/`, the Mod, `agents/`, `catalog/`, `bin/`), so `claude-headless` workers started from a pip or `uv tool` install load the ALE hooks (path guard, heartbeats, stop gate). Dispatch passes `ALE_IMPORT_ROOT` and `ALE_PYTHON`, so `ale-spawn`, `ale-exec` and `ale-hook` import ALE with the installing interpreter even when its virtualenv is not activated.
+- `ale.paths.plugin_root()` recognises a checkout by `.claude-plugin/plugin.json` and `bin/ale-spawn`, not by any `agents/` directory, so an unrelated `agents` package in site-packages no longer hijacks it.
+- `ale eval judge` passes the roster's `judge.model` to the judge, like every other judge call.
+- Judge `probabilities` entries outside [0, 1] are dropped instead of recorded; `docs/judge.md` states the exact abstain rules.
+- `scripts/release-check.sh` also watches `catalog/` and `EXECUTOR.md`, which ship in the wheel.
+
 ## 0.2.11 (2026-09-24)
 
 - `pip install` and `uv tool install` from the repository now work outside a checkout: the wheel bundles `agents/`, `catalog/` and `bin/` as `ale/_bundle`, and `ale.paths.plugin_root()` finds them. Before, `ale init-run` failed with "no agent resolved" on a non-editable install.

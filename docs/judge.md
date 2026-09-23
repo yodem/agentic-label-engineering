@@ -52,7 +52,11 @@ The judge can never break a run. ALE records an **abstain** with a reason instea
 
 - the state is empty, or more than 20% of its letters are non-ASCII (the call is skipped);
 - the command is not found, exits non-zero, or runs past `timeout_s`;
-- stdout is not JSON, or a probability or confidence is not a finite number in [0, 1].
+- stdout is not JSON, `noul` or `confidence` is not a finite number in [0, 1], or `choice` names
+  an option that was not offered.
+
+Entries in `probabilities` that are not finite numbers in [0, 1] are dropped from the recorded vote;
+they do not make it abstain.
 
 A Noul in [0.35, 0.65], or a Choice confidence below 0.5, is inside the **uncertain band** and
 never counts as agreement.

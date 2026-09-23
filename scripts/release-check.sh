@@ -23,7 +23,7 @@ get_version() {
 REF_VERSION="$(get_version "$REF")"
 CUR_VERSION="$(get_version HEAD)"
 
-CHANGED_FILES="$(git diff --name-only "$REF" HEAD -- mod skills hooks agents bin .claude-plugin)"
+CHANGED_FILES="$(git diff --name-only "$REF" HEAD -- mod skills hooks agents bin catalog .claude-plugin EXECUTOR.md)"
 
 if [ -n "$CHANGED_FILES" ] && [ "$REF_VERSION" = "$CUR_VERSION" ]; then
     echo "release-check: release-relevant files changed since $REF but the plugin version ($CUR_VERSION) was not bumped:" >&2

@@ -27,6 +27,8 @@ values = {
     "ale_run_dir": env.get("ALE_RUN_DIR", ""),
     "ale_roster": env.get("ALE_ROSTER", ""),
     "ale_plugin_root": env.get("ALE_PLUGIN_ROOT", ""),
+    "ale_import_root": env.get("ALE_IMPORT_ROOT", ""),
+    "ale_python": env.get("ALE_PYTHON", ""),
     "ale_read_only": env.get("ALE_READ_ONLY", ""),
     "ale_deny_tools": ",".join(env.get("ALE_DENY_TOOLS", [])),
     "ale_herdr": "",
@@ -54,11 +56,20 @@ plugin_root=${ALE_PLUGIN_ROOT:-$ale_plugin_root}
 if [ -z "$plugin_root" ]; then plugin_root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd); fi
 ALE_PLUGIN_ROOT=$plugin_root
 export ALE_PLUGIN_ROOT
-ALE_BIN=${ALE_BIN:-python3 -m ale}
+import_root=${ALE_IMPORT_ROOT:-${ale_import_root:-$plugin_root}}
+ALE_IMPORT_ROOT=$import_root
+export ALE_IMPORT_ROOT
+ALE_PYTHON=${ALE_PYTHON:-${ale_python:-python3}}
+export ALE_PYTHON
+if [ "$ALE_PYTHON" = python3 ]; then
+    ALE_BIN=${ALE_BIN:-python3 -m ale}
+else
+    ALE_BIN=${ALE_BIN:-"'$ALE_PYTHON' -m ale"}
+fi
 export ALE_BIN
 case ":${PYTHONPATH:-}:" in
-    *":$plugin_root:"*) ;;
-    *) PYTHONPATH="$plugin_root${PYTHONPATH:+:$PYTHONPATH}" ;;
+    *":$import_root:"*) ;;
+    *) PYTHONPATH="$import_root${PYTHONPATH:+:$PYTHONPATH}" ;;
 esac
 export PYTHONPATH
 

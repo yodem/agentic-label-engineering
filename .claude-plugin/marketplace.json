@@ -1,6 +1,9 @@
 {
   "name": "agentic-label-engineering",
-  "owner": { "name": "yodem" },
+  "description": "Agentic Label Engineering: typed task labels, an append-only board and code-run acceptance for multi-agent coding work.",
+  "owner": {
+    "name": "yodem"
+  },
   "plugins": [
     {
       "name": "ale",

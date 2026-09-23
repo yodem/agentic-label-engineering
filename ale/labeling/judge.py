@@ -179,7 +179,7 @@ class CommandJudge:
         for option, probability in probabilities.items():
             if isinstance(probability, bool) or not isinstance(probability, (int, float)):
                 continue
-            if not math.isfinite(probability):
+            if not math.isfinite(probability) or not (0 <= probability <= 1):
                 continue
             out[key_of(option)] = probability
         return out

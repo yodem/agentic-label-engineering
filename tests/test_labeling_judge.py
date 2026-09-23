@@ -137,3 +137,30 @@ def test_empty_stdout_is_bad_json(roster):
     vote = CommandJudge(["jev-ask"], run=run).ask("role", "q", options_for("role", roster), "Add an endpoint")
     assert vote["value"] is None
     assert vote["detail"]["error"] == "bad_json"
+
+
+def test_out_of_range_probabilities_are_dropped_not_recorded(roster):
+    out = json.dumps({"choice": "backend", "confidence": 0.9,
+                      "probabilities": {"backend": 7.5, "frontend": -0.1, "docs": 0.05}})
+    vote = CommandJudge(["judge"], run=lambda cmd, **kw: Proc(0, out)).ask(
+        "role", "q", options_for("role", roster), "Add an endpoint")
+    assert vote["value"] == "backend" and vote["detail"]["probabilities"] == {"docs": 0.05}
+
+
+def test_eval_judge_passes_the_roster_model(monkeypatch, tmp_path):
+    import ale.cli as cli
+    seen = {}
+    real = cli._make_judge
+
+    def spy(roster):
+        seen["model"] = roster["judge"].get("model")
+        return real(roster)
+    monkeypatch.setattr(cli, "_make_judge", spy)
+    roster_path = tmp_path / "roster.json"
+    roster_doc = json.load(open(cli.os.path.join(cli.os.path.dirname(cli.__file__), "example_roster.json")))
+    roster_doc["judge"]["model"] = "judge-model-x"
+    roster_path.write_text(json.dumps(roster_doc))
+    corpus = tmp_path / "corpus.jsonl"
+    corpus.write_text("")
+    cli.main(["eval", "judge", "--corpus", str(corpus), "--roster", str(roster_path), "--out", str(tmp_path / "out")])
+    assert seen["model"] == "judge-model-x"

@@ -1,4 +1,10 @@
 graft agents
 graft catalog
 graft bin
+graft hooks
+graft skills
+graft .claude-plugin
+graft mod
+prune mod/node_modules
+include EXECUTOR.md
 include setup.py

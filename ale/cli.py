@@ -2613,8 +2613,7 @@ def cmd_eval_judge(a) -> int:
     _refuse_tracked_out_dir(a.out)
     corpus_rows = _read_jsonl(a.corpus)
     roster = R.load_roster(a.roster)
-    jconf = roster.get("judge") or {}
-    judge = CommandJudge(jconf.get("command") or ["jev-ask"], timeout_s=jconf.get("timeout_s", 30))
+    judge = _make_judge(roster)
     os.makedirs(a.out, exist_ok=True)
     path = os.path.join(a.out, "judge.jsonl")
     done = _done_judge_rows(path)

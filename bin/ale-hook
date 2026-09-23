@@ -18,5 +18,5 @@ fi
 if [ -z "$ale_maybe_bound" ]; then
     exit 0
 fi
-PYTHONPATH="${CLAUDE_PLUGIN_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"; export PYTHONPATH
-exec python3 -m ale hook "$@"
+PYTHONPATH="${ALE_IMPORT_ROOT:-${CLAUDE_PLUGIN_ROOT}}${PYTHONPATH:+:${PYTHONPATH}}"; export PYTHONPATH
+exec "${ALE_PYTHON:-python3}" -m ale hook "$@"

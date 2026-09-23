@@ -25,9 +25,12 @@ append-only event log, code-run acceptance and a zero-LLM watchdog. Start with [
 | `docs/` | Reference docs and the `index.html` explainer. |
 | `tests/` | Pytest suite, including end-to-end runs with fake executors in `tests/e2e/fakes/`. |
 
-`setup.py` copies `agents/`, `catalog/` and `bin/` into the wheel as `ale/_bundle`;
-`ale.paths.plugin_root()` resolves them in both a checkout and an installed package. A new
-top-level runtime directory must be added to `BUNDLED` in `setup.py` and to `MANIFEST.in`.
+`setup.py` copies the plugin tree (`agents/`, `catalog/`, `bin/`, `hooks/`, `skills/`,
+`.claude-plugin/`, `mod/`) into the wheel as `ale/_bundle`. `ale.paths.plugin_root()` is the plugin
+directory (checkout or bundle); `ale.paths.import_root()` is what goes on `PYTHONPATH`. Dispatch
+passes both, plus `ALE_PYTHON`, to workers; never use the plugin root as an import path. A new
+runtime directory must be added to `BUNDLED` in `setup.py`, `MANIFEST.in` and
+`scripts/release-check.sh` (tests check all three).
 
 ## Commands
 
