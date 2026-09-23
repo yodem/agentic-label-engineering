@@ -50,7 +50,7 @@ def _key(row):
     return (row.get("run_id") or row.get("plan_id") or "", row.get("task_id"), _decision(row))
 
 
-def summarize_shadow(votes: list, outcomes, adjudications, bar: dict) -> dict:
+def summarize_shadow(votes: list, outcomes, adjudications, bar: dict, accepted_tasks=None) -> dict:
     """Summarize shadow votes per decision.
 
     ``outcomes`` and ``adjudications`` are lists of event rows (or dicts keyed
@@ -72,6 +72,16 @@ def summarize_shadow(votes: list, outcomes, adjudications, bar: dict) -> dict:
 
     adjudicated_keys = set(adjudications) if isinstance(adjudications, dict) else {
         _key(row) for row in adjudications or []}
+    track_pending = accepted_tasks is not None
+    accepted_tasks = set(accepted_tasks or [])
+    pending_by_decision = defaultdict(set)
+    if track_pending:
+        for key in grouped:
+            run_id, task_id, decision = key
+            if task_id not in accepted_tasks:
+                continue
+            if key not in adjudicated_keys and (task_id, decision) not in adjudicated_keys:
+                pending_by_decision[decision].add(key)
 
     by_decision = {}
 
@@ -138,9 +148,12 @@ def summarize_shadow(votes: list, outcomes, adjudications, bar: dict) -> dict:
                          "fraction": min(1.0, item["adjudicated_count"] / float(minimum))},
             "instability": instability,
         })
+        pending = len(pending_by_decision.get(decision, ()))
+        if track_pending:
+            item["pending_adjudication"] = pending
         item["bar_met"] = (item["adjudicated_count"] >= minimum and agreement is not None
                            and threshold is not None and agreement >= threshold
-                           and instability <= max_instability)
+                           and instability <= max_instability and pending == 0)
         result[decision] = item
     return {"decisions": result,
             "bar": {"min_cases": minimum, "min_agreement": threshold, "max_instability": max_instability},

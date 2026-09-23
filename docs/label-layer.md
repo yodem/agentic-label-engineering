@@ -31,6 +31,8 @@ Binding an in-session subagent before it is spawned remains a deferred design qu
 
 Use `ale timeline [--task TASK] [--json]` for the event stream. Use `ale meta [--json]` for per-task, per-agent, and run usage metadata; add `--csv` for CSV output.
 
+In shadow mode, accepting a task adjudicates each non-null Jev vote that agrees with the accepted label, once per decision. Disagreements stay pending and `ale verify` prints the lead's `ale adjudicate` command; the lead must choose because the planner's accepted label and Jev's vote differ. `ale judge-stats` reports pending adjudications for accepted tasks, and a decision's bar cannot be met while any remain.
+
 The runner's normal loop is:
 
 ```text

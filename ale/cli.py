@@ -1130,8 +1130,43 @@ def cmd_verify(a) -> int:
     if a.signoff:
         evidence["signoff"] = a.signoff
     c.emit("accepted", a.task, None, attempt, evidence=evidence)
+    _adjudicate_shadow_acceptance(c, a.task)
     c.render(a.task, owner)
     return OK
+
+
+def _adjudicate_shadow_acceptance(c: Ctx, task_id: str) -> None:
+    if _judge_mode(c.roster or {}) != "shadow":
+        return
+    fields = ("role", "sub", "phase", "model_tier", "risk", "effort", "locality")
+    votes = {}
+    already = set()
+    for event in E.read_events(c.events_path):
+        if event.get("task_id") != task_id:
+            continue
+        if event.get("type") == "shadow_vote" and event.get("decision") in fields:
+            votes[event["decision"]] = event.get("choice")
+        elif event.get("type") == "adjudicated":
+            decision = event.get("decision") or event.get("field")
+            if decision in fields:
+                already.add(decision)
+    label = c.labels[task_id]
+    labels = label.get("labels") or {}
+    attempt = c.state().get("tasks", {}).get(task_id, {}).get("attempt", 1)
+    for decision in fields:
+        if decision not in votes or decision in already:
+            continue
+        final = labels.get(decision)
+        choice = votes[decision]
+        if choice is None:
+            continue
+        if choice == final and final is not None:
+            c.emit("adjudicated", task_id, None, attempt, field=decision, decision=decision,
+                   choice=final, value=final, by="agreement_then_accepted",
+                   authority="lead", additive=True)
+        elif choice != final:
+            print("adjudicate %s %s: planner=%s jev=%s -> ale adjudicate --task %s --decision %s --value %s" %
+                  (task_id, decision, final, choice, task_id, decision, final), file=sys.stderr)
 
 
 def cmd_check(a) -> int:
@@ -2401,8 +2436,10 @@ def cmd_judge_stats(a) -> int:
                 if event.get("type") == "decision_outcome" and event.get("decision") in judged]
     adjudications = [event for event in events if event.get("type") == "adjudicated"
                      and (event.get("decision") or event.get("field")) in judged]
+    accepted_tasks = {event.get("task_id") for event in events if event.get("type") == "accepted"}
     roster = R.load_roster(_resolve_roster(a))
-    stats = summarize_shadow(votes, outcomes, adjudications, (roster.get("judge") or {}).get("bar", {}))
+    stats = summarize_shadow(votes, outcomes, adjudications, (roster.get("judge") or {}).get("bar", {}),
+                             accepted_tasks)
     print(json.dumps(stats, sort_keys=True, indent=2))
     return OK
 
