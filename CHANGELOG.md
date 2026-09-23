@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.9 (2026-09-23)
+
+- The boards show the run you are working on. `ale board`, `/ale:board` and the `/ale-board` Mod no longer follow `.ale/runs/current` (another session may own it): they take an explicit run, then `$ALE_RUN_DIR`, then the run with the newest event. `/ale-board <run>` switches.
+- `ale runs [--json]` lists the runs under `.ale/runs`, newest event first, and marks `current`.
+- Both board headers name up to three other runs active in the last 24 hours, with the age of their last event.
+
 ## 0.2.8 (2026-09-23)
 
 - `/ale:board` opens the web board from Claude Code: it finds the run (argument, `current`, else the newest), reuses a live board or starts one, and prints the URL or the error. The `/ale-board` Mod points to it.
