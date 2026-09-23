@@ -140,7 +140,7 @@
       "type": "object",
       "required": ["lane_reason"],
       "properties": {
-        "lane_reason": {"type": ["string", "null"], "minLength": 10}
+        "lane_reason": {"type": ["string", "null"], "minLength": 3}
       }
     }
   }

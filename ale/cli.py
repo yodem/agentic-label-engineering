@@ -280,19 +280,50 @@ def _resolve_run_dir(a, plan_path: str = None) -> str:
         raise CliError(USAGE, "no current run; initialize a run with `ale init-run --plan PLAN.md`")
     if not H.is_safe_id(run_id):
         raise CliError(FAIL, "unsafe run_id in %s/current" % os.path.dirname(current))
-    return os.path.join(root, "runs", run_id)
+    candidate = os.path.join(root, "runs", run_id)
+    if os.path.isdir(candidate):
+        return candidate
+    # Older ALE versions stored the run_id rather than the run directory name.
+    runs_dir = os.path.join(root, "runs")
+    try:
+        entries = os.listdir(runs_dir)
+    except OSError:
+        entries = []
+    for name in entries:
+        run_dir = os.path.join(runs_dir, name)
+        if not os.path.isdir(run_dir):
+            continue
+        for event in E.read_events(os.path.join(run_dir, "events.jsonl")):
+            if event.get("type") == "run_started" and event.get("run_id") == run_id:
+                return run_dir
+    return candidate
 
 
-def _write_current_run(run_dir: str, run_id: str) -> None:
+def _write_current_run(run_dir: str, run_id: str, set_current: bool = False) -> None:
     ale_root = _ale_dir()
     if os.path.realpath(os.path.dirname(os.path.dirname(os.path.abspath(run_dir)))) == os.path.realpath(ale_root):
-        os.makedirs(os.path.join(ale_root, "runs"), exist_ok=True)
-        H.write_atomic(os.path.join(ale_root, "runs", "current"), run_id + "\n")
+        runs_dir = os.path.join(ale_root, "runs")
+        os.makedirs(runs_dir, exist_ok=True)
+        current = os.path.join(runs_dir, "current")
+        should_write = set_current or not os.path.isfile(current)
+        if not should_write:
+            try:
+                with open(current, encoding="utf-8") as handle:
+                    pointer = handle.read().strip()
+                should_write = not os.path.isdir(os.path.join(runs_dir, pointer))
+            except OSError:
+                should_write = True
+        if should_write:
+            H.write_atomic(current, os.path.basename(os.path.abspath(run_dir)) + "\n")
 
 
 def _resolve_roster(a) -> str:
-    return (getattr(a, "roster", None) or os.environ.get("ALE_ROSTER")
-            or os.path.join(_ale_dir(), "roster.json"))
+    explicit = getattr(a, "roster", None) or os.environ.get("ALE_ROSTER")
+    if explicit:
+        return explicit
+    run_dir = getattr(a, "run_dir", None)
+    project_root = _git_root(run_dir) if run_dir else _git_root(os.getcwd())
+    return os.path.join(project_root, ".ale", "roster.json")
 
 
 def _agent_roots(project_root: Optional[str] = None) -> List[str]:
@@ -545,7 +576,7 @@ def cmd_init_run(a) -> int:
     decisions = os.path.join(c.run_dir, "decisions.md")
     if not os.path.exists(decisions):
         H.write_atomic(decisions, "# Decisions for run %s\n\n" % c.run_id)
-    _write_current_run(c.run_dir, c.run_id)
+    _write_current_run(c.run_dir, c.run_id, getattr(a, "set_current", False))
     return OK
 
 
@@ -2890,7 +2921,7 @@ def cmd_init_run_plan(a) -> int:
     decisions = os.path.join(c.run_dir, "decisions.md")
     if not os.path.exists(decisions):
         H.write_atomic(decisions, "# Decisions for run %s\n\n" % c.run_id)
-    _write_current_run(c.run_dir, c.run_id)
+    _write_current_run(c.run_dir, c.run_id, getattr(a, "set_current", False))
     return OK
 
 
@@ -2916,6 +2947,7 @@ def _parser() -> argparse.ArgumentParser:
     va.add_argument("--cwd")
     init_run = add("init-run", cmd_init_run)
     init_run.add_argument("--plan")
+    init_run.add_argument("--set-current", action="store_true")
     init_run.add_argument("--agent-variant", action="append")
     init_run.set_defaults(fn=cmd_init_run_plan)
     setup = sub.add_parser("setup")
