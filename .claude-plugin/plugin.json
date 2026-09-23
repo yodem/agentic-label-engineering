@@ -1,6 +1,6 @@
 {
   "name": "ale",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "/ale-board: a live task board for an Agentic Label Engineering (ALE) run above the prompt and in a docked pane. Reads `python3 -m ale status --json` and the run's label files; read-only, LLM-free. An experiment on Claude Code function hooks (Mods).",
   "author": { "name": "ALE" },
   "license": "MIT",

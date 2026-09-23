@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.7 (2026-09-23)
+
+- `ale board`: a local web board (127.0.0.1, random URL token, server-sent events, one static page, no CDN). It answers "is this run OK, what needs me, what is moving" at the top: a verdict headline with a health pill and a per-task ribbon, then Needs you / Running / Waiting / Done strips with an icon and a word for every state, the reason each waiting task is not running, superseded fixes filed under Done, a detail drawer only while a task is selected, dark mode and reduced motion. Readable from 390 px phones to wide screens.
+- The board's data layer fixes six defects seen on real runs: finished tasks no longer show a live step, a failed spawn beats a later automatic heartbeat, board state equals `ale status`, token totals add up, every task not running says why, and "agent unknown" is never printed.
+- The `/ale-board` Mod is rebuilt to the same design for the terminal (80 and 120 columns). It reads state only from `ale status --json` through the plugin's own `ale` package, and logs a refresh error once instead of on every tick.
+- herdr pane labels bind only to the executor's own pane: a lead claiming for an executor, or a dispatcher emitting `spawned`, no longer labels its own pane; finished tasks clear their label after 60 s; `ale claim --pane` binds explicitly; spawned executors get `ALE_AGENT_ID`.
+- `scripts/board-check.mjs`: a headless Chrome gate for the board (text overlap, overflow, icon size, hidden elements shown, console errors, missing tasks) at desktop and phone widths in both themes. It never launches Chrome inside the Codex sandbox.
+
 ## 0.2.6 (2026-09-23)
 
 - Jev shadow decisions (opt-in: roster `judge.default: shadow`). Ten decisions collect a shadow vote where they happen (bake, init-run, dispatch, verify, fix, monitor breach). Votes are recorded as events and never change a label, lane, routing or state.
