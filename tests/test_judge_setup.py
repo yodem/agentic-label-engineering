@@ -95,7 +95,8 @@ def test_shadow_default_collects_without_a_flag(tmp_path, monkeypatch):
     assert calls and (repo / ".ale" / "shadow").exists()
     questions = {call["question"] for call in calls}
     shipped = json.loads(SHIPPED.read_text())["judge"]["questions"]
-    assert shipped["large_change"] in questions and shipped["sub"] in questions
+    # large_change is asked by needs_monitor at init-run, not at bake.
+    assert shipped["sub"] in questions and shipped["large_change"] not in questions
 
 
 def test_legacy_default_keeps_the_old_opt_in_and_asks_no_part_b_question(tmp_path, monkeypatch):

@@ -22,8 +22,8 @@ from typing import Dict, Iterable, List, Optional
 
 
 DECISIONS = {
-    "lane": {"options_source": "labels.lane enum", "fires_at": "bake", "firing_site": "bake",
-             "requires": ["lane_reason"], "kind": "evidence"},
+    "lane": {"options_source": "labels.lane enum", "fires_at": "planner", "firing_site": "planner",
+             "requires": ["lane_reason"], "deterministic": True, "kind": "deterministic"},
     "role": {"options_source": "vocab.role", "fires_at": "bake", "firing_site": "bake", "kind": "choice"},
     "sub": {"options_source": "vocab.sub", "fires_at": "bake", "firing_site": "bake", "kind": "choice"},
     "phase": {"options_source": "vocab.phase", "fires_at": "bake", "firing_site": "bake", "kind": "choice"},
@@ -40,7 +40,7 @@ DECISIONS = {
                          "firing_site": "verify rejection (run loop)", "kind": "evidence"},
     "monitor_verdict": {"options_source": "event.verdict", "fires_at": "monitor breach",
                         "firing_site": "monitor breach", "kind": "evidence"},
-    "needs_monitor": {"options_source": "fixed yes|no", "fires_at": "bake", "firing_site": "bake",
+    "needs_monitor": {"options_source": "fixed yes|no", "fires_at": "init-run", "firing_site": "init-run",
                       "kind": "evidence"},
 }
 

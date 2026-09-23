@@ -36,11 +36,9 @@ def test_judge_stats_reports_judged_decisions_and_skips_executor(tmp_path, capsy
 
     assert main(["judge-stats", "--run-dir", str(run), "--roster", roster]) == 0
     result = json.loads(capsys.readouterr().out)
-    assert set(result["decisions"]) == {"lane", "role"}
-    lane, role = result["decisions"]["lane"], result["decisions"]["role"]
-    assert lane["uncertain_band"] == {"inside": 1, "outside": 0, "missing": 0}
-    assert lane["agreement_inside_band"] == 0.0 and lane["agreement_outside_band"] is None
+    assert set(result["decisions"]) == {"role"}
+    role = result["decisions"]["role"]
     assert role["agreement_outside_band"] == 1.0 and role["adjudicated_count"] == 1
     assert role["latency_ms_median"] == 30 and role["grey_zone"] is False
     assert result["bar"] == {"min_cases": 100, "min_agreement": 0.8, "max_instability": 0.1}
-    assert result["cases"] == 2
+    assert result["cases"] == 1

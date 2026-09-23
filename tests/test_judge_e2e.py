@@ -32,7 +32,9 @@ def test_end_to_end_every_judged_decision_collects_votes(tmp_path, monkeypatch, 
     assert len(list((tmp_path / "repo" / ".ale" / "shadow").glob("plan-*.jsonl"))) == 1
     imported = [event for event in _events_of(run_dir, "shadow_vote") if event["source"] == "bake"]
     assert {event["decision"] for event in imported} == {
-        "role", "model_tier", "risk", "effort", "locality", "sub", "phase", "lane", "needs_monitor"}
+        "role", "model_tier", "risk", "effort", "locality", "sub", "phase"}
+    init_votes = [event for event in _events_of(run_dir, "shadow_vote") if event["source"] == "init_run"]
+    assert len(init_votes) == 2 and {event["decision"] for event in init_votes} == {"needs_monitor"}
     assert [event["verdict"] for event in _events_of(run_dir, "monitor_verdict")] == ["nudge"]
 
     capsys.readouterr()
@@ -43,7 +45,7 @@ def test_end_to_end_every_judged_decision_collects_votes(tmp_path, monkeypatch, 
                       for name, row in stats["decisions"].items()}, sort_keys=True))
 
     judged = set(DECISIONS.judged_decision_ids())
-    assert len(judged) == 11 and "executor" not in judged
+    assert len(judged) == 10 and "executor" not in judged and "lane" not in judged
     assert set(stats["decisions"]) == judged
     assert all(stats["decisions"][name]["vote_count"] > 0 for name in judged)
     assert not [event for event in _events_of(run_dir, "shadow_vote") if event["decision"] == "executor"]
@@ -53,7 +55,7 @@ def test_end_to_end_every_judged_decision_collects_votes(tmp_path, monkeypatch, 
     assert outcomes[("T1", "rejection_action")] == "fix"
     assert outcomes[("T1.fix1", "rejection_action")] == "escalate"
     assert outcomes[("T2", "monitor_verdict")] == "nudge"
-    assert outcomes[("T1", "lane")] == "inline" and outcomes[("T2", "needs_monitor")] == "yes"
+    assert outcomes[("T2", "needs_monitor")] == "yes"
     assert outcomes[("T1", "needs_monitor")] == "no"
     assert all(choice is not None for choice in outcomes.values())
     assert not [key for key in outcomes if key[1] == "executor"]
@@ -68,12 +70,11 @@ def test_end_to_end_every_judged_decision_collects_votes(tmp_path, monkeypatch, 
     # Evidence votes carry their answers, the rule that fired, and the model.
     votes = _events_of(run_dir, "shadow_vote")
     labels = L.load_labels(run_dir)
-    lane_votes = [event for event in votes if event["decision"] == "lane"]
-    assert lane_votes
-    assert all(event["answers"] == {} and event["confidence"] == 1.0
-               and event["uncertain"] is False for event in lane_votes)
-    assert all(event["facts"]["effort"] == labels[event["task_id"]]["labels"]["effort"]
-               for event in lane_votes)
+    monitor_votes = [event for event in votes if event["decision"] == "needs_monitor"]
+    assert len(monitor_votes) == 2
+    assert all(event["facts"]["risk"] == labels[event["task_id"]]["labels"]["risk"]
+               and set(event["answers"]) == set(DECISIONS.EVIDENCE_QUESTIONS["needs_monitor"])
+               for event in monitor_votes)
     rejection = next(event for event in votes
                      if event["decision"] == "rejection_action" and event["task_id"] == "T1")
     assert set(rejection["answers"]) == set(DECISIONS.EVIDENCE_QUESTIONS["rejection_action"])
@@ -83,9 +84,8 @@ def test_end_to_end_every_judged_decision_collects_votes(tmp_path, monkeypatch, 
     assert fix_of_fix["rule"] == "fixes_exhausted"
     monitor = next(event for event in votes if event["decision"] == "monitor_verdict")
     assert set(monitor["answers"]) == set(DECISIONS.EVIDENCE_QUESTIONS["monitor_verdict"])
-    assert all(event["model"] == "fake-jev" for event in votes if event["decision"] != "lane")
-    assert all(isinstance(event["latency_ms"], int) for event in votes if event["decision"] != "lane")
-    assert all(event["model"] is None and event["latency_ms"] is None for event in lane_votes)
+    assert all(event["model"] == "fake-jev" for event in votes)
+    assert all(isinstance(event["latency_ms"], int) for event in votes)
     # The monitor's own verdict line never reaches the judge's state.
     monitor_states = [call["state"] for call in calls if "monitor_report" in call["state"]]
     assert monitor_states and not [state for state in monitor_states if "Verdict" in state]
@@ -107,6 +107,6 @@ def test_repeated_bake_imports_only_the_latest_bake(tmp_path, monkeypatch):
             for line in path.read_text(encoding="utf-8").splitlines()]
     assert len({row["bake_id"] for row in rows}) == 2
     assert main(["init-run", "--plan", plan, "--run-dir", run_dir, "--roster", roster, "--now", "1"]) == 0
-    imported = _events_of(run_dir, "shadow_vote")
+    imported = [event for event in _events_of(run_dir, "shadow_vote") if event["source"] == "bake"]
     assert len({event["bake_id"] for event in imported}) == 1
     assert len(imported) == len(rows) // 2

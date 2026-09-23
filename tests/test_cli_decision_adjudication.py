@@ -37,7 +37,7 @@ def test_deterministic_executor_cannot_be_adjudicated(run_dir, capsys):
 
 def test_every_judged_decision_accepts_a_valid_value_and_rejects_an_unknown_one(run_dir, capsys):
     from ale.decisions import judged_decision_ids
-    valid = {"lane": "pane", "role": "backend", "sub": "api", "phase": "implement", "model_tier": "cheap",
+    valid = {"role": "backend", "sub": "api", "phase": "implement", "model_tier": "cheap",
              "risk": "low", "effort": "M", "locality": "local", "rejection_action": "reopen",
              "monitor_verdict": "nudge", "needs_monitor": "yes"}
     assert set(valid) == set(judged_decision_ids())

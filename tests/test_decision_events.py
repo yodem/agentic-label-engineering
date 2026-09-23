@@ -45,6 +45,11 @@ def _setup(tmp_path, judge_default):
     (run / "labels" / "T1.json").write_text(json.dumps(_label("T1")))
     common = ["--run-dir", str(run), "--roster", str(roster_path)]
     assert main(["init-run", "--now", "1"] + common) == 0
+    # Keep downstream firing-site tests isolated from init-run's monitor vote.
+    events_path = run / "events.jsonl"
+    events_path.write_text("\n".join(line for line in events_path.read_text().splitlines()
+                                     if '"decision":"needs_monitor"' not in line) + "\n")
+    open(log_path, "w", encoding="utf-8").close()
     return run, common, log_path
 
 
@@ -65,6 +70,42 @@ def test_dispatch_asks_no_executor_question(tmp_path, monkeypatch):
     assert main(["dispatch", "--spawn", "--now", "2"] + common) == 0
     assert [event["type"] for event in _events(run)][-1] == "spawned"
     assert _events(run, "shadow_vote") == [] and read_calls(log_path) == []
+
+
+@pytest.mark.parametrize("risk,mode,expected", [("low", "agree", "no"), ("high", "conflict", "yes")])
+def test_init_run_votes_needs_monitor_from_final_risk_and_evidence(tmp_path, monkeypatch, risk, mode, expected):
+    run, common, _log = _setup(tmp_path, "off")
+    roster_path = common[common.index("--roster") + 1]
+    roster = json.loads(open(roster_path, encoding="utf-8").read())
+    command, log_path = write_fake_judge(tmp_path, mode)
+    roster["judge"].update({"default": "shadow", "command": command})
+    open(roster_path, "w", encoding="utf-8").write(json.dumps(roster))
+    label_path = run / "labels" / "T1.json"
+    label = json.loads(label_path.read_text())
+    label["labels"]["risk"] = risk
+    label_path.write_text(json.dumps(label))
+    # Reinitialize in a fresh run so init-run observes the planner's final label.
+    run2 = tmp_path / ("run-" + risk)
+    (run2 / "labels").mkdir(parents=True)
+    (run2 / "labels" / "T1.json").write_text(json.dumps(label))
+    args = ["--run-dir", str(run2), "--roster", roster_path]
+    assert main(["init-run", "--now", "1"] + args) == 0
+    votes = _events(run2, "shadow_vote")
+    vote = next(event for event in votes if event["decision"] == "needs_monitor")
+    assert vote["choice"] == expected
+    assert set(vote["answers"]) == {"large_change", "needs_person", "external_side_effects"}
+    assert len(read_calls(log_path)) == 3
+
+
+def test_bake_init_votes_exclude_lane_and_needs_monitor():
+    from ale import decisions as D
+    assert not D.is_judged("lane")
+
+
+def test_lane_cannot_be_adjudicated(tmp_path):
+    run, common, _log = _setup(tmp_path, "off")
+    assert main(["adjudicate", "--decision", "lane", "--task", "T1", "--value", "inline"] + common) == 2
+    assert not _events(run, "adjudicated")
 
 
 def test_verify_rejection_casts_an_evidence_vote_and_waits_for_the_outcome(tmp_path):

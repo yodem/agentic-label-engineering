@@ -1,6 +1,6 @@
 # Labeling
 
-ALE labels tasks with a fixed roster. The typed fields are `role`, `model_tier`, `risk`, and `effort`. `lane` is not voted on by rules, judges, or evaluation.
+ALE labels tasks with a fixed roster. The typed fields are `role`, `model_tier`, `risk`, and `effort`. `lane` is selected by the planner as the flow lane and is deterministic; it is not judged, shadow-voted, shown in judge stats, or adjudicated.
 
 ## Cascade
 
@@ -32,19 +32,19 @@ Twelve decision IDs are registered in `ale/decisions.py`. `executor` is determin
 | `sub` | Choice (`judge.questions.sub`) | none | the role's subs plus cross subs |
 | `phase` | Choice (`judge.questions.phase`) | none | `vocab.phase` |
 | `locality` | Noul `locality` | yes -> `local`, else `any` | `any`, `local` |
-| `lane` | Facts `effort` (task label), `unattended` (run property, default false), `role`, `independent_tasks` | largest effort in the roster vocabulary (`L`, or `XL` if present) -> `pane`; unattended run -> `pane`; role test or review -> `workflow`; two or more independent tasks -> `workflow`; else `inline` (the `flow lane` table) | `inline`, `workflow`, `pane` |
-| `needs_monitor` | Nouls `large_change`, `needs_person`, `external_side_effects`; fact `risk` | risk high -> `yes`; large and unattended (`needs_person` is no) -> `yes`; external side effects -> `yes`; else `no` | `yes`, `no` |
+| `lane` | Planner's final lane label and `lane_reason` | The planner selects the flow lane; the documented flow lane table remains guidance only | `inline`, `workflow`, `pane` |
+| `needs_monitor` | Nouls `large_change`, `needs_person`, `external_side_effects`; final label facts `risk`, `effort`, `role` | risk high -> `yes`; large and unattended (`needs_person` is no) -> `yes`; external side effects -> `yes`; else `no` | `yes`, `no` |
 | `rejection_action` | Nouls `rejection_environment`, `rejection_spec_conflict`, `rejection_needs_human`; facts `fix_count`, `is_fix_task` | fix of a fix or two fixes -> `escalate`; needs a human -> `escalate`; environment problem -> `reopen`; check contradicts the task -> `reopen`; else `fix` | `fix`, `reopen`, `escalate` |
 | `monitor_verdict` | Nouls `monitor_reports_specific_failure`, `monitor_agent_blocked`, `monitor_unsafe`; facts `monitor_wrote_files`, `attempts_exhausted`, `breach` | monitor wrote files -> `escalate`; attempts exhausted -> `escalate`; unsafe -> `escalate`; defect -> `fix`; agent blocked -> `nudge`; liveness breach -> `nudge`; else `continue` | `continue`, `nudge`, `fix`, `escalate` |
 | `executor` | not judged | deterministic routing | roster routing |
 
-A Noul is yes at 0.5 or above. A consulted Noul in 0.35 to 0.65, or a Choice confidence below 0.5, is inside the uncertain band. A missing or invalid answer that the rule table needs makes the vote abstain (`rule: missing_evidence`); the table never fails open. `lane` stays planner-decided with a written `lane_reason` (WRK-46); Jev's lane vote is observation only.
+A Noul is yes at 0.5 or above. A consulted Noul in 0.35 to 0.65, or a Choice confidence below 0.5, is inside the uncertain band. A missing or invalid answer that the rule table needs makes the vote abstain (`rule: missing_evidence`); the table never fails open. `lane` stays planner-decided with a written `lane_reason` (WRK-46), and is absent from the judged decision set. `needs_monitor` is collected once at `ale init-run`, after planner labels and monitor assignments are final. Its evidence questions are asked about the task text and its outcome records the label's actual monitor assignment (`yes` when present, otherwise `no`).
 
 ### Firing sites and outcomes
 
 | Site | Votes | Outcome recorded |
 | --- | --- | --- |
-| `ale plan bake` | role, model_tier, risk, effort, locality, sub, phase, lane, needs_monitor, written to the git-ignored `.ale/shadow/<plan>-<hash>.jsonl` with a `bake_id` | at `init-run` |
+| `ale plan bake` | role, model_tier, risk, effort, locality, sub, phase, written to the git-ignored `.ale/shadow/<plan>-<hash>.jsonl` with a `bake_id` | at `init-run`; `needs_monitor` is voted separately at init-run against final labels and task text |
 | `ale init-run --plan` | imports the latest bake's votes into the run's `events.jsonl` | each bake decision's value from the compiled label |
 | `ale label` | the same bake decisions, straight into the run | from the written label |
 | `ale verify` (rejection) | rejection_action | `ale fix` -> `fix`; fix of a fix or two fixes -> `escalate`; `ale reopen` -> `reopen`. The `ale run` exhausted branch also records `escalate` (wired, no test yet). |
@@ -54,7 +54,7 @@ An outcome is written only when it is known and only after a vote for the same t
 
 ### Statistics
 
-`ale judge-stats --run-dir RUN --roster ROSTER` reads only the run's `events.jsonl`; bake votes are there because `init-run` imported them. It returns `{"decisions": {DECISION: {"vote_count", "adjudicated_count", "uncertain_band": {"inside", "outside", "missing"}, "agreement", "agreement_inside_band", "agreement_outside_band", "latency_ms_median", "grey_zone", "progress", "instability", "bar_met"}}, "bar": {"min_cases", "min_agreement", "max_instability"}, "band": {"noul_uncertain", "choice_uncertain_below"}, "cases": N}`. Agreement compares each vote with the recorded outcome. `latency_ms_median` is the median over individual Jev calls. `grey_zone` is true for `effort`, whose honest answer is often mid-confidence (Jev book chapter 8). Decisions without votes are omitted, not padded. The preregistered bar is 100 adjudicated cases, a lead-selected minimum agreement of 0.8, and maximum instability of 0.10. Meeting it is evidence only: statistics never promote a judge or change an authoritative decision. `ale adjudicate --decision D --task T --value V` records one lead adjudication per task and decision; a second one is refused, and `executor` cannot be adjudicated.
+`ale judge-stats --run-dir RUN --roster ROSTER` reads only the run's `events.jsonl`; bake votes are there because `init-run` imported them. It returns `{"decisions": {DECISION: {"vote_count", "adjudicated_count", "uncertain_band": {"inside", "outside", "missing"}, "agreement", "agreement_inside_band", "agreement_outside_band", "latency_ms_median", "grey_zone", "progress", "instability", "bar_met"}}, "bar": {"min_cases", "min_agreement", "max_instability"}, "band": {"noul_uncertain", "choice_uncertain_below"}, "cases": N}`. Agreement compares each vote with the recorded outcome. `latency_ms_median` is the median over individual Jev calls. `grey_zone` is true for `effort`, whose honest answer is often mid-confidence (Jev book chapter 8). Decisions without votes are omitted, not padded. The preregistered bar is 100 adjudicated cases, a lead-selected minimum agreement of 0.8, and maximum instability of 0.10. Meeting it is evidence only: statistics never promote a judge or change an authoritative decision. `ale adjudicate --decision D --task T --value V` records one lead adjudication per task and decision; a second one is refused, and deterministic decisions such as `lane` and `executor` cannot be adjudicated.
 
 ## LLM Labelers
 

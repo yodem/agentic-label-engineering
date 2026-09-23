@@ -125,27 +125,32 @@ def _needs_monitor_outcome(label: dict) -> str:
 def _bake_outcomes(label: dict) -> dict:
     """Authoritative values for the bake-time decisions, read from the final label."""
     labels = label.get("labels") or {}
-    values = {field: labels.get(field) for field in ("role", "model_tier", "risk", "effort", "sub", "phase", "lane")}
+    values = {field: labels.get(field) for field in ("role", "model_tier", "risk", "effort", "sub", "phase")}
     values["locality"] = labels.get("locality") or "any"
-    values["needs_monitor"] = _needs_monitor_outcome(label)
     return {decision: value for decision, value in values.items() if value is not None}
 
 
-def _bake_extra_votes(judge, roster: dict, label: dict, task_text: str, all_labels: dict) -> List[dict]:
+def _bake_extra_votes(judge, roster: dict, label: dict, task_text: str) -> List[dict]:
     """Shadow votes for the bake decisions the label cascade does not ask."""
     labels = label.get("labels") or {}
     state = EV.state_json(task_title=label.get("title", ""), task_text=task_text)
     votes = [EV.choice_vote(judge, "sub", roster, state, role=labels.get("role")),
              EV.choice_vote(judge, "phase", roster, state)]
     cache = {}
-    votes.append(EV.evidence_vote(judge, "lane", roster, state, {
-        "effort": labels.get("effort"),
-        "role": labels.get("role"),
-        "independent_tasks": DECISIONS.independent_task_count(label["task_id"], all_labels),
-        "unattended": False}, cache))
-    votes.append(EV.evidence_vote(judge, "needs_monitor", roster, state,
-                                  {"risk": labels.get("risk")}, cache))
     return votes
+
+
+def _init_run_monitor_votes(c: "Ctx", judge, task_texts: dict = None) -> None:
+    """Vote needs_monitor once at run initialization using final planner labels."""
+    task_texts = task_texts or {}
+    for task_id, label in c.labels.items():
+        labels = label.get("labels") or {}
+        body = task_texts.get(task_id, label.get("task_text", label.get("description", "")))
+        state = EV.state_json(task_title=label.get("title", ""), task_text=body)
+        vote = EV.evidence_vote(judge, "needs_monitor", c.roster, state,
+                                {field: labels.get(field) for field in ("risk", "effort", "role")}, {})
+        _emit_vote(c, task_id, vote, "init_run", attempt=1)
+        _emit_outcome(c, task_id, "needs_monitor", _needs_monitor_outcome(label), "planner")
 
 
 def _cascade_votes(roster: dict, votes: List[dict]) -> List[dict]:
@@ -514,6 +519,9 @@ def cmd_init_run(a) -> int:
     rhash = R.roster_hash(c.roster)
     for tid, label in c.labels.items():
         c.emit("labeled", tid, None, 1, labels=label["labels"], roster_hash=rhash)
+    judge = _shadow_judge(c.roster)
+    if judge is not None:
+        _init_run_monitor_votes(c, judge)
     decisions = os.path.join(c.run_dir, "decisions.md")
     if not os.path.exists(decisions):
         H.write_atomic(decisions, "# Decisions for run %s\n\n" % c.run_id)
@@ -1990,8 +1998,7 @@ def cmd_label(a) -> int:
             if final["provenance"][field]["conflict"]:
                 conflicts += 1
         if collect:
-            shadow_votes = _cascade_votes(roster, votes) + _bake_extra_votes(
-                judge, roster, final, text, drafts)
+            shadow_votes = _cascade_votes(roster, votes) + _bake_extra_votes(judge, roster, final, text)
             for vote in shadow_votes:
                 _emit_vote(label_ctx, tid, vote, "label", attempt=1)
             outcomes = _bake_outcomes(final)
@@ -2568,7 +2575,7 @@ def _plan_labels(text: str, path: str, run_id: str, roster: dict, no_judge: bool
     if collect:
         # Second pass: lane needs the whole plan graph (independent tasks).
         for task_id, label in labels.items():
-            for vote in _bake_extra_votes(judge, roster, label, task_text[task_id], labels):
+            for vote in _bake_extra_votes(judge, roster, label, task_text[task_id]):
                 shadow.append(dict(_vote_fields(vote), type="shadow_vote", run_id=run_id, task_id=task_id,
                                    bake_id=bake_id, source="bake"))
     return labels, shadow
@@ -2808,6 +2815,12 @@ def cmd_init_run_plan(a) -> int:
         c.emit("labeled", task_id, None, 1, labels=label["labels"], roster_hash=rhash)
     if _judge_mode(c.roster) == "shadow":
         _import_bake_votes(c, a.plan)
+        judge = _shadow_judge(c.roster)
+        if judge is not None:
+            from .planparse import parse_plan
+            with open(a.plan, encoding="utf-8") as handle:
+                tasks = parse_plan(handle.read())
+            _init_run_monitor_votes(c, judge, {task["task_id"]: task.get("body", "") for task in tasks})
     decisions = os.path.join(c.run_dir, "decisions.md")
     if not os.path.exists(decisions):
         H.write_atomic(decisions, "# Decisions for run %s\n\n" % c.run_id)

@@ -22,12 +22,19 @@ def test_registry_has_all_stable_decisions(roster):
     assert options_for_decision("rejection_action", roster) == ["fix", "reopen", "escalate"]
 
 
-def test_executor_is_deterministic_and_excluded_from_the_judged_eleven():
+def test_executor_is_deterministic_and_excluded_from_the_judged_ten():
     assert DECISIONS["executor"]["deterministic"] is True
     assert not D.is_judged("executor")
-    assert len(D.judged_decision_ids()) == 11
+    assert len(D.judged_decision_ids()) == 10
     assert "executor" not in D.judged_decision_ids()
     assert "executor" not in D.required_question_keys()
+
+
+def test_lane_is_deterministic_and_excluded_from_judged_decisions():
+    assert DECISIONS["lane"]["deterministic"] is True
+    assert not D.is_judged("lane")
+    assert len(D.judged_decision_ids()) == 10
+    assert "lane" not in D.judged_decision_ids()
 
 
 def test_locality_options_are_the_label_field_values(roster):

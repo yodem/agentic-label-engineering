@@ -44,11 +44,12 @@ def test_label_in_shadow_mode_votes_every_bake_decision_with_known_outcomes(tmp_
     events = read_events(str(run / "events.jsonl"))
     votes = [event for event in events if event["type"] == "shadow_vote"]
     assert {event["decision"] for event in votes if event["task_id"] == "T1"} == {
-        "role", "model_tier", "risk", "effort", "locality", "sub", "phase", "lane", "needs_monitor"}
+        "role", "model_tier", "risk", "effort", "locality", "sub", "phase"}
+    # lane is deterministic (flow lane); needs_monitor votes at init-run on the final label.
     assert all(event["source"] == "label" for event in votes)
     outcomes = {(event["task_id"], event["decision"]): event["choice"]
                 for event in events if event["type"] == "decision_outcome"}
-    assert outcomes[("T1", "lane")] == "inline" and outcomes[("T1", "needs_monitor")] == "no"
+    assert ("T1", "lane") not in outcomes and ("T1", "needs_monitor") not in outcomes
     assert outcomes[("T1", "locality")] == "any" and outcomes[("T1", "role")] == "backend"
     assert not {decision for _task, decision in outcomes} & {"executor", "rejection_action", "monitor_verdict"}
     assert None not in outcomes.values()

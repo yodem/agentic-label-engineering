@@ -88,9 +88,9 @@ def test_conflicting_votes_were_really_cast_in_the_shadow_run(both_runs):
                      if (vote["task_id"], vote["decision"]) in outcomes
                      and vote["choice"] != outcomes[(vote["task_id"], vote["decision"])]]
     assert len(disagreements) >= 8
-    # WRK-46: Jev's lane vote conflicts, the planner's lane and lane_reason stand.
+    # Lane is the planner's deterministic flow choice and has no shadow vote.
     lane_votes = [vote for vote in votes if vote["decision"] == "lane"]
-    assert lane_votes and all(vote["choice"] == "pane" for vote in lane_votes)
+    assert not lane_votes
     for task_id in ("T1", "T2"):
         assert shadow["labels"][task_id]["labels"]["lane"] == "inline"
         assert shadow["labels"][task_id]["provenance"]["lane_reason"] == LANE_REASON
