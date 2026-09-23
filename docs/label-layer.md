@@ -23,6 +23,12 @@ Dispatch creates the default per-task worktree for a write task. Executors claim
 
 Executors never commit. `ale integrate` checks and commits the executor's allowed changes before merging them. `ale dispatch --json` prints one JSON object per line, one spawn request per line.
 
+`ale dispatch --no-exec` is for a lead who will execute the task manually. It creates the task worktree and branch and records the worktree on the task without launching an executor. `ale verify --reject "reason"` records a lead's manual rejection of a submitted task, including the reason, without running the acceptance commands. The verifier can ignore ALE's `.ale-setup-done` setup marker when checking changed paths.
+
+After `ale init-run`, `context.allowed_paths` is frozen for that run. If the scope must change, use a focused fix task rather than editing the initialized label. `ale reopen` returns a rejected task to verification after the lead addresses the failure; `ale fix` creates a work task for failed acceptance checks. A parent can have at most two fix tasks, and a fix task cannot create another fix task. After that, escalate the decision to the lead.
+
+Binding an in-session subagent before it is spawned remains a deferred design question. Dispatch currently creates the configured per-task worktree for `claude-subagent` assignments, but does not bind a live in-session subagent as part of dispatch.
+
 Use `ale timeline [--task TASK] [--json]` for the event stream. Use `ale meta [--json]` for per-task, per-agent, and run usage metadata; add `--csv` for CSV output.
 
 The runner's normal loop is:

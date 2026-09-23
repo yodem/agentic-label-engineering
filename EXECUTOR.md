@@ -11,6 +11,7 @@ version of this protocol.
    under `$ALE_RUN_DIR/handoff/`, read it and continue from its Completed list. Do not redo finished steps.
 2. Claim: `python3 -m ale claim --task <task> --agent <agent>`. Exit 3 means someone else owns it. Stop.
 3. Work only inside `context.allowed_paths`. Editing anything else gets your work rejected.
+   After `init-run`, the run's allowed paths are frozen; request a focused fix task if the scope needs to change.
 4. After each completed step: `python3 -m ale heartbeat --task <task> --agent <agent> --step "<what you just finished>" --files a,b`.
    Heartbeat at least every 10 minutes. No heartbeat means your claim expires and the task is given away.
 5. Exit 4 from any command means you lost the lease. Stop immediately. Do not write more files.
@@ -24,3 +25,7 @@ version of this protocol.
 9. You cannot mark a task accepted. The verifier runs the acceptance commands itself. If it rejects, the next
    attempt receives the failure output.
 10. Do not record token usage yourself. The orchestrator or an adapter records usage for the task.
+
+Lead-side verification can use `ale verify --reject "reason"` to record a manual rejection without running acceptance commands. `ale reopen` returns a rejected task to verification; `ale fix` returns it to implementation work. A parent gets at most two fix tasks, and fix tasks cannot be fixed again; escalate further repair to the lead.
+
+`ale dispatch --no-exec` creates and records the task worktree and branch without launching an executor, for work the lead will execute manually.

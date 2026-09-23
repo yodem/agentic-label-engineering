@@ -1037,6 +1037,16 @@ def cmd_verify(a) -> int:
         raise CliError(FAIL, "task %s is %s, not submitted" % (a.task, st["state"]))
     label, owner, attempt = c.labels[a.task], st["owner"], st["attempt"]
     cwd = _task_project_root(c, a.task, a.cwd)
+    if a.reject is not None:
+        reason = a.reject[:TEXT_MAX]
+        evidence = {"passed": False, "manual": [], "results": [], "required": [],
+                    "required_failures": [], "files": [], "manual_rejection": reason}
+        _fit(evidence)
+        c.emit("verified", a.task, None, attempt, evidence=evidence)
+        c.emit("rejected", a.task, None, attempt, evidence=evidence, reason=reason)
+        c.render(a.task, owner)
+        print(reason, file=sys.stderr)
+        return FAIL
     required = V.run_required((label.get("effective_rules") or {}).get("require_before_submit", []), cwd)
     evidence = V.run_acceptance(label, cwd)
     evidence["required"] = required
@@ -1046,7 +1056,7 @@ def cmd_verify(a) -> int:
     evidence.setdefault("files", [])
     reason = None
     if a.base:
-        changed = _changed_files(cwd, a.base)
+        changed = [path for path in _changed_files(cwd, a.base) if path != ".ale-setup-done"]
         evidence["files"] = changed
         bad = V.paths_within(changed, label["context"]["allowed_paths"],
                              (label.get("effective_rules") or {}).get("deny_paths", []))
@@ -1579,9 +1589,18 @@ def cmd_dispatch(a) -> int:
                 requests.append(request)
                 if a.json or a.dry_run:
                     continue
-                if not a.spawn:
+                if not a.spawn and not a.no_exec:
                     continue
-                if item["executor"] == "claude-subagent":
+                if item["executor"] == "claude-subagent" and not a.no_exec:
+                    label = c.labels[item["task_id"]]
+                    plan = worktree_plan(label, c.run_dir, c.run_id)
+                    if plan:
+                        plan["base"] = (label.get("context", {}).get("worktree") or {}).get("base") or "HEAD"
+                        parent_spawn = _latest_spawn(c, item["task_id"])
+                        reuses_parent = bool(label.get("fixes") and parent_spawn and parent_spawn.get("worktree"))
+                        if not reuses_parent:
+                            _create_worktree(plan, project_cwd)
+                        _run_worktree_setup(c, label, plan["path"], project_cwd)
                     continue
                 label = c.labels[item["task_id"]]
                 plan = worktree_plan(label, c.run_dir, c.run_id)
@@ -1592,6 +1611,9 @@ def cmd_dispatch(a) -> int:
                     if not reuses_parent:
                         _create_worktree(plan, project_cwd)
                     _run_worktree_setup(c, label, plan["path"], project_cwd)
+                if a.no_exec:
+                    _append_spawned(c, item, request, plan)
+                    continue
                 _append_spawned(c, item, request, plan)
                 request_path = _write_spawn_request(c, request)
                 spawned_requests.append((item, request, request_path))
@@ -2985,6 +3007,7 @@ def _parser() -> argparse.ArgumentParser:
     dispatch.add_argument("--json", action="store_true")
     dispatch.add_argument("--dry-run", action="store_true")
     dispatch.add_argument("--spawn", action="store_true")
+    dispatch.add_argument("--no-exec", action="store_true")
     dispatch.add_argument("--cwd")
     integrate = add("integrate", cmd_integrate, task=True)
     integrate.add_argument("--cwd")
@@ -3019,6 +3042,7 @@ def _parser() -> argparse.ArgumentParser:
     vf.add_argument("--cwd")
     vf.add_argument("--base")
     vf.add_argument("--signoff")
+    vf.add_argument("--reject", help="record a lead rejection after manual verification")
     ch = add("check", cmd_check, task=True)
     ch.add_argument("--cwd")
     ch.add_argument("--json", action="store_true")
