@@ -53,8 +53,10 @@ def _candidates(lines: List[str], fenced: List[bool], kind: str) -> List[Tuple[i
         if match:
             if kind == "heading":
                 candidates.append((index, match.group(2).strip(), match.group(1)))
-            else:
+            elif kind == "numbered":
                 candidates.append((index, match.group(2).strip(), None))
+            else:
+                candidates.append((index, match.group(1).strip(), None))
     return candidates
 
 
@@ -115,15 +117,33 @@ def parse_plan(text: str) -> List[Dict[str, object]]:
     """Return task skeletons parsed from a plan."""
     lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     fenced = _fenced_lines(lines)
-    candidates = []
-    for kind in ("heading", "numbered", "checkbox"):
-        found = _candidates(lines, fenced, kind)
-        if len(found) >= 2:
-            candidates = found
-            selected_kind = kind
-            break
+    headings = _candidates(lines, fenced, "heading")
+    has_label_block = any(not fenced[index] and line.strip() == "```ale-label"
+                          for index, line in enumerate(lines))
+    if headings:
+        candidates = headings
+        selected_kind = "heading"
+        # A bare heading with no body remains an incomplete plan. A one-task
+        # task with content or a label block is a valid plan.
+        if len(candidates) == 1:
+            start = candidates[0][0]
+            end = next((i for i in range(start + 1, len(lines))
+                        if _HEADING.match(lines[i]) and not fenced[i]), len(lines))
+            if not "\n".join(lines[start + 1:end]).strip():
+                raise PlanParseError("need at least 2 tasks")
+    elif has_label_block:
+        raise PlanParseError("no task headings found; expected the ## Task N: form")
     else:
-        raise PlanParseError("need at least 2 tasks")
+        candidates = []
+        selected_kind = ""
+        for kind in ("numbered", "checkbox"):
+            found = _candidates(lines, fenced, kind)
+            if len(found) >= 2:
+                candidates = found
+                selected_kind = kind
+                break
+        if not candidates:
+            raise PlanParseError("need at least 2 tasks")
 
     ids = []
     for position, (_, _, number) in enumerate(candidates, 1):
