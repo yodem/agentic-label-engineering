@@ -1,5 +1,5 @@
 {
-  "run": {"id": "2026-09-22-work-entry-point-orchestration", "finished": false},
+  "run": {"id": "2026-09-22-auth-refresh-demo", "finished": false},
   "tasks": {
     "T3": {"task_id": "T3", "state": "accepted", "tokens": 939355},
     "T4": {"task_id": "T4", "state": "fixing", "fixed_by": ["T4.fix1"], "depends_on": []},

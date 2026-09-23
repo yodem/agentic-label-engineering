@@ -12,9 +12,13 @@ python3 -m venv .venv && . .venv/bin/activate
 pip install -e .
 ```
 
-The Python package has no runtime dependencies. The test suite needs `pytest` (run it through
+The Python package has no runtime dependencies. `setup.py` copies `agents/`, `catalog/` and `bin/`
+into the wheel as `ale/_bundle`; `ale.paths.plugin_root()` prefers the checkout when there is one. The test suite needs `pytest` (run it through
 [`uv`](https://docs.astral.sh/uv/) as below, or `pip install pytest`). The Claude Code Mod under
 `mod/` is TypeScript and is tested with [Bun](https://bun.sh).
+
+Working with a coding agent? [AGENTS.md](AGENTS.md) holds the layout, commands and rules it needs;
+[CLAUDE.md](CLAUDE.md) imports it for Claude Code.
 
 ## Test
 
@@ -41,7 +45,8 @@ Both must pass before a pull request is merged. A few rules the suite enforces:
 
 ## Releases
 
-A release bumps `version` in `.claude-plugin/plugin.json` and `pyproject.toml` together, adds a
+A release bumps the version in `.claude-plugin/plugin.json`, `pyproject.toml`, `ale/__init__.py` and
+`tests/test_release_metadata.py` together, adds a
 `CHANGELOG.md` section, and is tagged `vX.Y.Z`. `scripts/release-check.sh` fails when plugin files
 changed since the last tag without a version bump.
 

@@ -330,7 +330,7 @@ ale integrate --task T1            <span class="c"># commits allowed changes, me
 
 <section id="install"><div class="wrap">
   <h2>Install</h2>
-  <p>Needs Python 3.9+, git, and macOS or Linux. Install the CLI from a clone, <strong>editable</strong>, because the agent catalog is read from the checkout.</p>
+  <p>Needs Python 3.9+, git, and macOS or Linux. The package bundles the agent catalog and launchers.</p>
   <div class="tabs" role="tablist" aria-label="Install target">
     <button role="tab" aria-selected="true" aria-controls="p-cli" id="t-cli">CLI</button>
     <button role="tab" aria-selected="false" aria-controls="p-cc" id="t-cc">Claude Code</button>
@@ -338,11 +338,10 @@ ale integrate --task T1            <span class="c"># commits allowed changes, me
     <button role="tab" aria-selected="false" aria-controls="p-cx" id="t-cx">Codex</button>
   </div>
   <div class="panel" id="p-cli" role="tabpanel" aria-labelledby="t-cli">
-<pre>git clone https://github.com/yodem/agentic-label-engineering.git
-cd agentic-label-engineering
-python3 -m venv .venv &amp;&amp; . .venv/bin/activate
-pip install -e .
-ale --help</pre>
+<pre>python3 -m venv ~/.venvs/ale &amp;&amp; . ~/.venvs/ale/bin/activate
+pip install git+https://github.com/yodem/agentic-label-engineering.git
+ale --help
+<span class="c"># or: uv tool install git+https://github.com/yodem/agentic-label-engineering.git</span></pre>
   </div>
   <div class="panel" id="p-cc" role="tabpanel" aria-labelledby="t-cc" hidden>
 <pre>/plugin marketplace add yodem/agentic-label-engineering

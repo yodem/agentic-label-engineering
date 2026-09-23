@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Set, Tuple
 from .handoff import is_safe_id
 from .agentcat import HARNESS_MARKER, split_body
 from .labelset import globs_overlap
+from .paths import plugin_root
 from .roster import resolve
 
 
@@ -283,7 +284,7 @@ def spawn_request(label: dict, assignment: dict, run_dir: str, run_id: str, n: i
                "env": {"ALE_TASK": task_id, "ALE_AGENT": agent_id, "ALE_AGENT_ID": agent_id,
                        "ALE_RUN_DIR": run_dir,
                        "ALE_ROSTER": assignment.get("roster", "roster.json"),
-                       "ALE_PLUGIN_ROOT": os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                       "ALE_PLUGIN_ROOT": plugin_root(),
                        "ALE_DENY_TOOLS": (agent or {}).get("rules", {}).get("deny_tools", [])},
                "prompt_file": render_prompt(label, dict(assignment, cwd=cwd or run_dir), agent)}
     return request

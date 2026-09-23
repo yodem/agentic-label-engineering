@@ -7,16 +7,16 @@ const tasks: Record<string, any> = {
   T21: { state: 'planned', depends_on: ['T20'], tokens: 0 },
 }
 const labels: Record<string, any> = {
-  T20: { title: 'Cleanup (w-sonnet, human-gated deletions)' },
+  T20: { title: 'Remove legacy session store (needs review)' },
   T21: { title: 'Version 0.4.0, CHANGELOG entry, update release notes' },
 }
 for (let n = 1; n <= 14; n++) {
   const id = `T${15 - n}`
   tasks[id] = { state: 'accepted', tokens: n === 1 ? 8100 : n === 2 ? 9800 : n === 3 ? 11000 : n * 1000, submitted_ts: nowS - (n === 1 ? 7080 : n === 2 ? 8400 : n === 3 ? 10260 : 3600 * n) }
-  labels[id] = { title: n === 1 ? 'Explore brainstorm hook (w-sonnet)' : n === 2 ? 'Intake acceptance criteria (w-sonnet)' : n === 3 ? 'Observe ledger rows (w-sonnet)' : `Task ${id} completed` }
+  labels[id] = { title: n === 1 ? 'Add token refresh endpoint' : n === 2 ? 'Write auth integration tests' : n === 3 ? 'Document the session API' : `Task ${id} completed` }
 }
 const REALRUN = {
-  runId: '2026-09-22-work-entry-point-orchestration', tasks,
+  runId: '2026-09-22-auth-refresh-demo', tasks,
   run: { tokens: 1_200_000, cost_usd: 0 }, labels, nowS,
 }
 const fixture = REALRUN
@@ -121,19 +121,19 @@ const REAL_STATUS = {
             "exit": 0,
             "id": "A1",
             "ok": true,
-            "tail": "\n> orchestration@0.3.5 typecheck\n> npx tsc --noEmit\n\n"
+            "tail": ""
           },
           {
             "exit": 0,
             "id": "A2",
             "ok": true,
-            "tail": "ok   gated run has null tokens_spent\n  ok   gated run carries lane inline\n  ok   writer refuses a row missing --execution-provider\n\n110 passed, 0 failed\n  ok   mutation detected: retry cap forced to 1\n  ok   mutation detected: majority lowered to 1-of-3\n  ok   mutation detected: family gate removed\n"
+            "tail": ""
           },
           {
             "exit": 0,
             "id": "A3",
             "ok": true,
-            "tail": ":// meta must stay a pure literal: no Date.now(), no Math.random(), no I/O.\n50:// backoff plus jitter is mandatory. `Math.random()` and `Date.now()` are\n383:// NO TIMESTAMP AND NO DURATION IS RECORDED HERE, deliberately. `Date.now()`\n602:    // for why this cannot be Math.random()/Date.now()-based.\n"
+            "tail": ""
           }
         ]
       },
@@ -193,10 +193,10 @@ const REAL_STATUS = {
             "exit": 0,
             "id": "A2",
             "ok": true,
-            "tail": "ke\n  ok   work references ensure-repo\n  ok   work records governance note\n  ok   work pipes flow report to ledger\n== lens panel resilience ==\n  ok   lens failure is contained (per-lens catch)\n  ok   a failed lens counts as NOT confirmed\n  ok   delta gate precedes the early return\n\nALL CHECKS PASSED\n"
+            "tail": ""
           }
         ],
-        "signoff": "lead 2026-09-22: A3 live with real ALE: ale-run.sh start -> enabled:true; ale status I01 ready, I02 ready. Root cause in src/scripts/ale-labels.mjs (T9) fixed here (Codex, lead-reviewed); ale-run-test 0, ale-labels-test 21 passed, verify.sh ALL CHECKS PASSED"
+        "signoff": "lead: verified"
       },
       "files_modified": [],
       "fixed_by": [],
@@ -246,13 +246,13 @@ const REAL_STATUS = {
             "exit": 0,
             "id": "A1",
             "ok": true,
-            "tail": " preserve normal success\n  ok   unset ALE variables make no ALE calls\n== argument validation ==\n  ok   rejects danger-full-access\n  ok   rejects a missing --mode\n  ok   rejects a missing prompt file\n\n33 passed, 0 failed\ncodex-courier.sh: codex exited 0 (reported exit 3); event log follows on stderr\n"
+            "tail": ""
           },
           {
             "exit": 0,
             "id": "A2",
             "ok": true,
-            "tail": "ke\n  ok   work references ensure-repo\n  ok   work records governance note\n  ok   work pipes flow report to ledger\n== lens panel resilience ==\n  ok   lens failure is contained (per-lens catch)\n  ok   a failed lens counts as NOT confirmed\n  ok   delta gate precedes the early return\n\nALL CHECKS PASSED\n"
+            "tail": ""
           }
         ]
       },
@@ -304,19 +304,19 @@ const REAL_STATUS = {
             "exit": 0,
             "id": "A1",
             "ok": true,
-            "tail": "xpected error\n  ok   --flow preserves schema_version 2\n== --ale-run-dir / --ale-summary ==\n  ok   --ale-run-dir lands in the row\n  ok   --ale-summary becomes ALE counts\n  ok   absent ALE flags leave ALE fields absent\n  ok   --ale-summary non-object fails with the expected error\n\n27 passed, 0 failed\n"
+            "tail": ""
           },
           {
             "exit": 0,
             "id": "A2",
             "ok": true,
-            "tail": "ke\n  ok   work references ensure-repo\n  ok   work records governance note\n  ok   work pipes flow report to ledger\n== lens panel resilience ==\n  ok   lens failure is contained (per-lens catch)\n  ok   a failed lens counts as NOT confirmed\n  ok   delta gate precedes the early return\n\nALL CHECKS PASSED\n"
+            "tail": ""
           },
           {
             "exit": 0,
             "id": "A3",
             "ok": true,
-            "tail": "174:- `ale_run_dir` (optional, 2026-09-22): the ALE run directory supplied by\n175:  `--ale-run-dir`. When the flag is absent, the `ale_run_dir` key is absent.\n180:  `ale_summary` names that input summary document; it is not emitted as a\n"
+            "tail": ""
           }
         ]
       },
@@ -370,16 +370,16 @@ const REAL_STATUS = {
             "exit": 0,
             "id": "A1",
             "ok": true,
-            "tail": "re plan refuses missing origin\n  ok   ensure plan refuses local-only origin\n  ok   ensure plan refuses dirty allowed overlap\n  ok   ensure plan allows dirty unrelated paths\n  ok   ensure dry-run prints a plan without SSH\n  notice ALE_HOME unset; skipping ale plan bake\nflow-test: 68 passed, 0 failed\n"
+            "tail": ""
           },
           {
             "exit": 0,
             "id": "A3",
             "ok": true,
-            "tail": "ke\n  ok   work references ensure-repo\n  ok   work records governance note\n  ok   work pipes flow report to ledger\n== lens panel resilience ==\n  ok   lens failure is contained (per-lens catch)\n  ok   a failed lens counts as NOT confirmed\n  ok   delta gate precedes the early return\n\nALL CHECKS PASSED\n"
+            "tail": ""
           }
         ],
-        "signoff": "lead: A2 verified live, worktree created and removed"
+        "signoff": "lead: verified"
       },
       "files_modified": [],
       "fixed_by": [],
@@ -448,10 +448,10 @@ const REAL_STATUS = {
             "exit": 0,
             "id": "A3",
             "ok": true,
-            "tail": "ke\n  ok   work references ensure-repo\n  ok   work records governance note\n  ok   work pipes flow report to ledger\n== lens panel resilience ==\n  ok   lens failure is contained (per-lens catch)\n  ok   a failed lens counts as NOT confirmed\n  ok   delta gate precedes the early return\n\nALL CHECKS PASSED\n"
+            "tail": ""
           }
         ],
-        "signoff": "lead 2026-09-22: A1-A3 ok. Over budget (174675 > 150000) caused by three re-dispatches around a non-portable A1 grep (lead relabeled), not by the work; accepting."
+        "signoff": "lead: verified"
       },
       "files_modified": [],
       "fixed_by": [],
@@ -504,16 +504,16 @@ const REAL_STATUS = {
             "exit": 0,
             "id": "A1",
             "ok": true,
-            "tail": "  ok   a failed lens counts as NOT confirmed\n  ok   delta gate precedes the early return\n\nALL CHECKS PASSED\n== installed plugin ==\n  ok   orchestration appears in plugin list\n  ok   plugin details resolves\n  ok   details reports all three skills\n  ok   details reports eight agents\n\nINSTALL VERIFIED\n"
+            "tail": ""
           },
           {
             "exit": 0,
             "id": "A3",
             "ok": true,
-            "tail": "work-entry-point-orchestration/wt/T21/plugins/orchestration/agents/shared/status-protocol.md\n\n⚠ Found 1 warning:\n\n  ❯ frontmatter: No frontmatter block found. Add YAML frontmatter between --- delimiters at the top of the file to set description and other metadata.\n\n✔ Validation passed with warnings\n"
+            "tail": ""
           }
         ],
-        "signoff": "lead 2026-09-22: A1 ok, A3 ok (ale check). A2 is post-integrate by construction (marketplace = this checkout): pre-merge evidence built plugin.json 0.4.0 + marketplace.json 0.4.0; installed-cache check follows Yotam's plugin update right after integrate; T21 is reopened if it is not 0.4.0."
+        "signoff": "lead: verified"
       },
       "files_modified": [],
       "fixed_by": [],
@@ -537,7 +537,7 @@ const REAL_STATUS = {
         "process alive"
       ],
       "submitted_ts": 1790102553.963341,
-      "summary": "lead submit after relabel (executor work unchanged): 0.4.0 bump, CHANGELOG, pipeline SKILL line; A1 ok, A3 ok",
+      "summary": "lead submitted after review",
       "tokens": 74125,
       "waiting_on": null
     },
@@ -561,19 +561,19 @@ const REAL_STATUS = {
             "exit": 0,
             "id": "A1",
             "ok": true,
-            "tail": "flow-test: 12 passed, 0 failed\n"
+            "tail": ""
           },
           {
             "exit": 0,
             "id": "A2",
             "ok": true,
-            "tail": "in-plugin path resolution ==\n  ok   every CLAUDE_PLUGIN_ROOT path in agents/ and skills/ exists in the built tree\n== lens panel resilience ==\n  ok   lens failure is contained (per-lens catch)\n  ok   a failed lens counts as NOT confirmed\n  ok   delta gate precedes the early return\n\nALL CHECKS PASSED\n"
+            "tail": ""
           },
           {
             "exit": 0,
             "id": "A3",
             "ok": true,
-            "tail": ":// meta must stay a pure literal: no Date.now(), no Math.random(), no I/O.\n50:// backoff plus jitter is mandatory. `Math.random()` and `Date.now()` are\n382:// NO TIMESTAMP AND NO DURATION IS RECORDED HERE, deliberately. `Date.now()`\n577:    // for why this cannot be Math.random()/Date.now()-based.\n"
+            "tail": ""
           }
         ]
       },
@@ -637,19 +637,19 @@ const REAL_STATUS = {
             "exit": 0,
             "id": "A1",
             "ok": true,
-            "tail": "mac\nok writeLane updates only the selected block\nok check-dispatch rejects before isolate/build\nok check-dispatch accepts isolate with a baked lane\nok relative CLI path executes the lane command\nok --write=false does not modify the plan\nnotice ALE_HOME unset; skipping ale plan bake\n41 checks passed\n"
+            "tail": ""
           },
           {
             "exit": 0,
             "id": "A2",
             "ok": true,
-            "tail": "vant on mac\nok writeLane updates only the selected block\nok check-dispatch rejects before isolate/build\nok check-dispatch accepts isolate with a baked lane\nok relative CLI path executes the lane command\nok --write=false does not modify the plan\nok ALE_HOME bake accepts written plan\n42 checks passed\n"
+            "tail": ""
           },
           {
             "exit": 0,
             "id": "A3",
             "ok": true,
-            "tail": "in-plugin path resolution ==\n  ok   every CLAUDE_PLUGIN_ROOT path in agents/ and skills/ exists in the built tree\n== lens panel resilience ==\n  ok   lens failure is contained (per-lens catch)\n  ok   a failed lens counts as NOT confirmed\n  ok   delta gate precedes the early return\n\nALL CHECKS PASSED\n"
+            "tail": ""
           }
         ]
       },
@@ -678,7 +678,7 @@ const REAL_STATUS = {
         "process alive"
       ],
       "submitted_ts": 1790075978.748873,
-      "summary": "Reopened: lead added --roster to the ALE_HOME test leg; bake needs a roster and wt/T4 has none",
+      "summary": "lead submitted after review",
       "tokens": 155498,
       "waiting_on": null
     },
@@ -702,13 +702,13 @@ const REAL_STATUS = {
             "exit": 1,
             "id": "A2",
             "ok": false,
-            "tail": "k-entry-point-orchestration/wt/T4/scripts/flow-test.mjs:118:3\n    at ModuleJob.run (node:internal/modules/esm/module_job:343:25)\n    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:681:26)\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)\n"
+            "tail": ""
           },
           {
             "exit": 0,
             "id": "A1",
             "ok": true,
-            "tail": " row 10 negative: three GB does not add low-memory reason\nok low memory is irrelevant on mac\nok writeLane updates only the selected block\nok check-dispatch rejects before isolate/build\nok check-dispatch accepts isolate with a baked lane\nnotice ALE_HOME unset; skipping ale plan bake\n39 checks passed\n"
+            "tail": ""
           }
         ]
       },
@@ -760,13 +760,13 @@ const REAL_STATUS = {
             "exit": 1,
             "id": "A2",
             "ok": false,
-            "tail": "k-entry-point-orchestration/wt/T4/scripts/flow-test.mjs:136:3\n    at ModuleJob.run (node:internal/modules/esm/module_job:343:25)\n    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:681:26)\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)\n"
+            "tail": ""
           },
           {
             "exit": 0,
             "id": "A1",
             "ok": true,
-            "tail": "mac\nok writeLane updates only the selected block\nok check-dispatch rejects before isolate/build\nok check-dispatch accepts isolate with a baked lane\nok relative CLI path executes the lane command\nok --write=false does not modify the plan\nnotice ALE_HOME unset; skipping ale plan bake\n41 checks passed\n"
+            "tail": ""
           }
         ]
       },
@@ -781,7 +781,7 @@ const REAL_STATUS = {
       "lease_expires_ts": 1790075270.9785368,
       "next_steps": [],
       "notes": [
-        "Lead hint for A2 (ALE_HOME=~/dev/agentic-label-engineering node scripts/flow-test.mjs): the ALE leg throws at flow-test.mjs:118 top level. Two usual causes: (1) python3 -m ale is spawned without PYTHONPATH=$ALE_HOME so the module is not importable (set env: {...process.env, PYTHONPATH: process.env.ALE_HOME} on the spawn); (2) execFileSync throws because ale plan bake exits 1 when the written fixture plan still has gaps (lane/lane_reason filled but acceptance/allowed_paths missing) so wrap it, capture status, and assert on stdout/exit explicitly; if the fixture needs no gaps, give every fixture block 2 acceptance entries and allowed_paths. Also run the leg with --no-judge so it never touches the network. Keep the skip-with-notice path when ALE_HOME is unset."
+        "lead hint: rerun the failing check with the roster set"
       ],
       "owner": null,
       "pending": [],
@@ -820,25 +820,25 @@ const REAL_STATUS = {
             "exit": 0,
             "id": "A1",
             "ok": true,
-            "tail": "flow-hook-test: 4 cases passed\nflow-hook: no task id, not gating\n"
+            "tail": ""
           },
           {
             "exit": 0,
             "id": "A3",
             "ok": true,
-            "tail": "in-plugin path resolution ==\n  ok   every CLAUDE_PLUGIN_ROOT path in agents/ and skills/ exists in the built tree\n== lens panel resilience ==\n  ok   lens failure is contained (per-lens catch)\n  ok   a failed lens counts as NOT confirmed\n  ok   delta gate precedes the early return\n\nALL CHECKS PASSED\n"
+            "tail": ""
           },
           {
             "exit": 0,
             "id": "A2",
             "ok": true,
-            "tail": "present\n"
+            "tail": ""
           },
           {
             "exit": 0,
             "id": "A4",
             "ok": true,
-            "tail": "-work-entry-point-orchestration/wt/T5/plugins/orchestration/agents/shared/status-protocol.md\n\n⚠ Found 1 warning:\n\n  ❯ frontmatter: No frontmatter block found. Add YAML frontmatter between --- delimiters at the top of the file to set description and other metadata.\n\n✔ Validation passed with warnings\n"
+            "tail": ""
           }
         ]
       },
@@ -890,19 +890,19 @@ const REAL_STATUS = {
             "exit": 0,
             "id": "A1",
             "ok": true,
-            "tail": "ane workflow (not inline) fails\n  ok   --gated with --lane inline succeeds\n== --flow ==\n  ok   --flow fixture writes run_id and ten stages\n  ok   absent --flow leaves flow key absent\n  ok   --flow non-object fails with the expected error\n  ok   --flow preserves schema_version 2\n\n23 passed, 0 failed\n"
+            "tail": ""
           },
           {
             "exit": 0,
             "id": "A2",
             "ok": true,
-            "tail": "61:  used — `inline` (no orchestration), `workflow` (this pipeline, in-process),\n168:- `flow` (optional, 2026-09-22): the stage-machine report from\n169:  `scripts/flow.mjs report`, supplied with `--flow <file|->`. It is a JSON\n172:  or final stage. When `--flow` is absent, the `flow` key is absent.\n"
+            "tail": ""
           },
           {
             "exit": 0,
             "id": "A3",
             "ok": true,
-            "tail": "in-plugin path resolution ==\n  ok   every CLAUDE_PLUGIN_ROOT path in agents/ and skills/ exists in the built tree\n== lens panel resilience ==\n  ok   lens failure is contained (per-lens catch)\n  ok   a failed lens counts as NOT confirmed\n  ok   delta gate precedes the early return\n\nALL CHECKS PASSED\n"
+            "tail": ""
           }
         ]
       },
@@ -966,13 +966,13 @@ const REAL_STATUS = {
             "exit": 0,
             "id": "A1",
             "ok": true,
-            "tail": "learn-gate: 6 cases passed\n"
+            "tail": ""
           },
           {
             "exit": 0,
             "id": "A2",
             "ok": true,
-            "tail": "in-plugin path resolution ==\n  ok   every CLAUDE_PLUGIN_ROOT path in agents/ and skills/ exists in the built tree\n== lens panel resilience ==\n  ok   lens failure is contained (per-lens catch)\n  ok   a failed lens counts as NOT confirmed\n  ok   delta gate precedes the early return\n\nALL CHECKS PASSED\n"
+            "tail": ""
           }
         ]
       },
@@ -1024,13 +1024,13 @@ const REAL_STATUS = {
             "exit": 0,
             "id": "A1",
             "ok": true,
-            "tail": "ke\n  ok   work references ensure-repo\n  ok   work records governance note\n  ok   work pipes flow report to ledger\n== lens panel resilience ==\n  ok   lens failure is contained (per-lens catch)\n  ok   a failed lens counts as NOT confirmed\n  ok   delta gate precedes the early return\n\nALL CHECKS PASSED\n"
+            "tail": ""
           },
           {
             "exit": 0,
             "id": "A2",
             "ok": true,
-            "tail": "-work-entry-point-orchestration/wt/T8/plugins/orchestration/agents/shared/status-protocol.md\n\n⚠ Found 1 warning:\n\n  ❯ frontmatter: No frontmatter block found. Add YAML frontmatter between --- delimiters at the top of the file to set description and other metadata.\n\n✔ Validation passed with warnings\n"
+            "tail": ""
           }
         ]
       },
@@ -1082,19 +1082,19 @@ const REAL_STATUS = {
             "exit": 0,
             "id": "A1",
             "ok": true,
-            "tail": "o two entries\n  ok custom acceptance is retained\n  ok overlapping paths fail\n  ok unknown category fails\n  ok more than twenty items fails\n  ok short lane reason fails\n  ok unsafe run id fails\n  ok roster is copied\n  notice ALE_HOME unset; skipping python3 -m ale validate\nale-labels-test: 18 passed\n"
+            "tail": ""
           },
           {
             "exit": 0,
             "id": "A2",
             "ok": true,
-            "tail": "a are padded to two entries\n  ok custom acceptance is retained\n  ok overlapping paths fail\n  ok unknown category fails\n  ok more than twenty items fails\n  ok short lane reason fails\n  ok unsafe run id fails\n  ok roster is copied\n  ok ALE validator accepts generated labels\nale-labels-test: 19 passed\n"
+            "tail": ""
           },
           {
             "exit": 0,
             "id": "A3",
             "ok": true,
-            "tail": "ke\n  ok   work references ensure-repo\n  ok   work records governance note\n  ok   work pipes flow report to ledger\n== lens panel resilience ==\n  ok   lens failure is contained (per-lens catch)\n  ok   a failed lens counts as NOT confirmed\n  ok   delta gate precedes the early return\n\nALL CHECKS PASSED\n"
+            "tail": ""
           }
         ]
       },

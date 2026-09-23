@@ -25,6 +25,7 @@ from . import lifecycle as LC
 from . import roster as R
 from . import verify as V
 from . import agentcat as AC
+from .paths import plugin_root
 from . import watchdog as W
 from . import binding as B
 from . import hooks as HK
@@ -330,7 +331,7 @@ def _resolve_roster(a) -> str:
 
 def _agent_roots(project_root: Optional[str] = None) -> List[str]:
     root = _git_root(project_root or os.getcwd())
-    return [os.path.join(root, ".ale", "agents"), os.path.dirname(os.path.dirname(__file__)) + "/agents"]
+    return [os.path.join(root, ".ale", "agents"), os.path.join(plugin_root(), "agents")]
 
 
 def effective_rules(label: dict, agent: Optional[dict]) -> dict:
@@ -1714,8 +1715,7 @@ def cmd_dispatch(a) -> int:
             print(_dispatch_request_json(request))
         return OK
     for item, request, request_path in spawned_requests:
-        spawn_bin = os.environ.get("ALE_SPAWN_BIN") or os.path.abspath(
-            os.path.join(os.path.dirname(__file__), os.pardir, "bin", "ale-spawn"))
+        spawn_bin = os.environ.get("ALE_SPAWN_BIN") or os.path.join(plugin_root(), "bin", "ale-spawn")
         before = _monitor_worktree_snapshot(request["cwd"]) if item["kind"] == "monitor" else None
         proc = subprocess.run([spawn_bin, request_path],
                               cwd=request["cwd"], text=True, capture_output=True,

@@ -1,8 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.2.11 (2026-09-24)
 
-- Docs for public use: README install and a verified hand-run quick start, a visual explainer (`docs/index.html`), the judge command contract (`docs/judge.md`) with a model-free example judge, CONTRIBUTING, SECURITY, CODE_OF_CONDUCT and issue templates. Private references removed from comments and docs. No behaviour change.
+- `pip install` and `uv tool install` from the repository now work outside a checkout: the wheel bundles `agents/`, `catalog/` and `bin/` as `ale/_bundle`, and `ale.paths.plugin_root()` finds them. Before, `ale init-run` failed with "no agent resolved" on a non-editable install.
+- Docs for public use: README install and a verified hand-run quick start, a visual explainer (`docs/index.html`), the judge command contract (`docs/judge.md`) with a model-free example judge, AGENTS.md and CLAUDE.md for contributors, CONTRIBUTING, SECURITY, CODE_OF_CONDUCT and issue templates.
+- Private references removed from comments and docs; board mockups, fixtures and the Mod regression test now use neutral demo data.
 
 ## 0.2.10 (2026-09-23)
 

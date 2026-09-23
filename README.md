@@ -30,16 +30,20 @@ Status: pre-1.0. The executor protocol works with Claude Code, Pi and Codex. Int
 
 Requirements: Python 3.9 or newer, git, and a POSIX system (macOS or Linux).
 
-Install the `ale` CLI from a clone. Use an **editable** install: the agent catalog (`agents/`) is
-read from the checkout, so a plain `pip install` of the package cannot find it.
+Install the `ale` CLI from GitHub, into a virtualenv or as a uv tool:
 
 ```sh
-git clone https://github.com/yodem/agentic-label-engineering.git
-cd agentic-label-engineering
-python3 -m venv .venv && . .venv/bin/activate
-pip install -e .
+python3 -m venv ~/.venvs/ale && . ~/.venvs/ale/bin/activate
+pip install git+https://github.com/yodem/agentic-label-engineering.git
 ale --help
 ```
+
+```sh
+uv tool install git+https://github.com/yodem/agentic-label-engineering.git   # alternative
+```
+
+The package bundles the agent catalog and the `bin/` launchers, so it works outside a checkout.
+To hack on ALE itself, install from a clone with `pip install -e .` (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ### Claude Code plugin
 
@@ -62,7 +66,7 @@ plugin works and the Mod stays silent. See [mod/README.md](mod/README.md).
 ## Quick start: one task by hand, no agent
 
 This five-minute walkthrough plays both roles, orchestrator and executor, so you can watch the
-protocol refuse a false "done". Run it with the virtualenv from **Install** active.
+protocol refuse a false "done". Run it with `ale` on your `PATH` (see **Install**).
 
 **1. A throwaway project with a two-task plan.** `.ale/` holds run state and stays out of git.
 
@@ -252,6 +256,7 @@ anywhere, so `ale verify --base` remains the containment backstop.
 | [docs/judge.md](docs/judge.md) | The optional judge command and its contract |
 | [docs/harness-facts.md](docs/harness-facts.md) | Verified hook facts for Claude Code, Pi and Codex |
 | [EXECUTOR.md](EXECUTOR.md) | The protocol an executor agent follows |
+| [AGENTS.md](AGENTS.md), [CLAUDE.md](CLAUDE.md) | Instructions for coding agents that work on this repository |
 | [CHANGELOG.md](CHANGELOG.md) | Release history |
 
 ## Contributing

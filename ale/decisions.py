@@ -281,7 +281,7 @@ def _apply_table(decision: str, yes, facts: Dict[str, object]):
 
 
 def independent_task_count(task_id: str, labels: Dict[str, dict]) -> int:
-    """Tasks neither reachable from nor reaching ``task_id`` (flow.mjs lane rule 4)."""
+    """Tasks neither reachable from nor reaching ``task_id`` (lane rule 4: independent tasks)."""
     def deps(tid: str) -> Iterable[str]:
         return ((labels.get(tid) or {}).get("context") or {}).get("depends_on") or []
 

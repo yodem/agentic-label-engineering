@@ -198,7 +198,7 @@ button,select,input{font:inherit;color:inherit}
 <div class="app" id="app">
   <div class="main"><div class="wrap">
     <header class="hdr" aria-live="polite">
-      <div class="hdr-top"><span class="runid" title="2026-09-22-work-entry-point-orchestration">2026-09-22-work-entry-point-orchestration</span><span class="live"><span class="dot"></span>Live <span class="mono">14:32:05</span></span></div>
+      <div class="hdr-top"><span class="runid" title="2026-09-22-auth-refresh-demo">2026-09-22-auth-refresh-demo</span><span class="live"><span class="dot"></span>Live <span class="mono">14:32:05</span></span></div>
       <div class="verdict"><span class="pill t-fail" id="pill"></span><p class="headline">Nothing is running. 1 needs you; 1 is waiting behind them.</p></div>
       <div class="ribbon-row">
         <div class="ribbon" id="ribbon" role="img" aria-label="14 of 16 done, 1 needs you, 1 waiting"></div>
@@ -235,7 +235,7 @@ const S={
 function ico(id){const n=document.getElementById('ico').content.firstElementChild.cloneNode(true);n.querySelector('use').setAttribute('href','#'+id);return n}
 function E(tag,cls,txt){const e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e}
 function stateEl(k,cls,raw){const s=S[k];const e=E('span',cls);e.appendChild(ico(s[1]));const w=E('span','w',s[0]+(raw||''));e.title=s[0]+(raw||'');e.appendChild(w);return e}
-const doneTitles=[['T3','`flow.mjs` stage machine and reducer (w-sonnet)','939k','6h 30m'],['T4','`flow lane` rule table, `--write`, `check-dispatch` (w-sonnet)','84k','5h 58m'],['T5','PreToolUse hook (w-sonnet)','41k','5h 40m'],['T6','Label bake step and plan schema (w-sonnet)','22k','5h 12m'],['T7','Lane report (w-sonnet)','18k','4h 51m'],['T8','Worktree isolate step (w-sonnet)','16k','4h 30m'],['T9','Verify lenses (w-sonnet)','15k','4h 02m'],['T10','Govern sign-off (w-sonnet)','13k','3h 44m'],['T11','Publish via ale integrate (w-sonnet)','12k','3h 10m'],['T12','Observe ledger rows (w-sonnet)','11k','2h 51m'],['T13','Intake acceptance criteria (w-sonnet)','9.8k','2h 20m'],['T14','Explore brainstorm hook (w-sonnet)','8.1k','1h 58m'],['T4.fix1','Fix `flow lane` rule table, `--write`, `check-dispatch` (w-sonnet)','14k','5h 20m','sup'],['T4.fix2','Fix `flow lane` rule table, `--write`, `check-dispatch` (w-sonnet)','11k','5h 02m','sup']];
+const doneTitles=[['T3','Session store and token model','939k','6h 30m'],['T4','Refresh endpoint, `--rotate` flag and expiry checks','84k','5h 58m'],['T5','Rate limit middleware','41k','5h 40m'],['T6','Login form and validation schema','22k','5h 12m'],['T7','Audit log writer','18k','4h 51m'],['T8','Password reset flow','16k','4h 30m'],['T9','Contract tests','15k','4h 02m'],['T10','Security review sign-off','13k','3h 44m'],['T11','Publish API docs','12k','3h 10m'],['T12','Document the session API','11k','2h 51m'],['T13','Write auth integration tests','9.8k','2h 20m'],['T14','Add token refresh endpoint','8.1k','1h 58m'],['T4.fix1','Fix refresh endpoint, `--rotate` flag and expiry checks','14k','5h 20m','sup'],['T4.fix2','Fix refresh endpoint, `--rotate` flag and expiry checks','11k','5h 02m','sup']];
 const stress=location.hash.includes('stress');
 function strip(k,id,title,reason,meta1,meta2,raw){
   const s=S[k];const r=E('div','strip '+s[2]);r.tabIndex=0;r.setAttribute('role','button');r.dataset.id=id;
@@ -250,14 +250,14 @@ function strip(k,id,title,reason,meta1,meta2,raw){
  const lg=document.getElementById('legend');[['14 of 16 done','i-check','t-done'],['1 needs you','i-question','t-needs'],['1 waiting','i-clock','t-wait']].forEach(([t,i,c])=>{const s=E('span',c);s.appendChild(ico(i));s.appendChild(document.createTextNode(t));lg.appendChild(s)})})();
 // attention card
 (()=>{const c=E('article','card t-needs');const top=E('div','top');top.appendChild(stateEl('needs','chip'));top.appendChild(E('span','id','T20'));c.appendChild(top);
- c.appendChild(E('div','title','Cleanup (w-sonnet, human-gated deletions)'));
+ c.appendChild(E('div','title','Remove legacy session store (needs review)'));
  c.appendChild(E('p','why','Needs your answer: "Acceptance failed: A1 FAIL exit=1 A2 FAIL exit=1"'));
  const cr=E('div','crit');['A1 FAIL exit=1','A2 FAIL exit=1'].forEach(x=>cr.appendChild(E('span',null,x)));c.appendChild(cr);
  const sd=E('div','side');sd.appendChild(E('span','blocks','Blocks 1 task'));const b=E('button','btn primary','Open task');b.onclick=()=>{location.hash='sel=T20';location.reload()};sd.appendChild(b);c.appendChild(sd);
  document.getElementById('cards').appendChild(c)})();
 // waiting
 (()=>{const w=document.getElementById('waiting');const g=E('div','group-h');g.appendChild(ico('i-link'));g.appendChild(E('span','txt','Blocked by T20 (Needs your answer) · 1 task'));w.appendChild(g);
- const l=E('div','strips');l.appendChild(strip('wait','T21','Version 0.4.0, CHANGELOG entry, reinstall (w-sonnet)','Waiting on T20 (blocked by T20, needs you)','',''));
+ const l=E('div','strips');l.appendChild(strip('wait','T21','Version 0.4.0, CHANGELOG entry, release notes','Waiting on T20 (blocked by T20, needs you)','',''));
  if(stress){l.appendChild(strip('fixing','T4.fix12','A very long title that should never collide with anything else in the row even at the narrowest phone width we support','Waiting on fix T4.fix12.fix3 (Rejected), T4.fix13 (Rejected), T4.fix14 (Out of attempts)','2.4M tok','6h 16m ago'));
   l.appendChild(strip('unknown','T-extremely-long-task-id-99','Unknown raw state','Unknown state reported by the executor','',''," paused_for_quota_review_by_operator"));
   ['needs','fail-start','out','rejected','failed','stale','run','verify','ready','retry','cancel','sup'].forEach((k,n)=>l.appendChild(strip(k,'S'+n,'Stress row for '+S[k][0]+' with a long title that has to be cut with an ellipsis','Reason sentence for this state, also long enough to need an ellipsis at narrow widths','540k tok','12m ago')))}
@@ -271,13 +271,13 @@ function strip(k,id,title,reason,meta1,meta2,raw){
  document.querySelectorAll('.strip').forEach(s=>{if(s.dataset.id===id)s.classList.add('sel')});
  const d=document.getElementById('din');d.appendChild(E('div','handle'));const top=E('div','d-top');const bk=E('button','btn quiet back');bk.appendChild(ico('i-back'));bk.appendChild(document.createTextNode('Back to tasks'));top.appendChild(bk);
  top.appendChild(stateEl('needs','chip t-needs'));top.appendChild(E('span','id','T20'));const x=E('button','btn quiet x');x.setAttribute('aria-label','Close detail');x.appendChild(ico('i-close'));top.appendChild(x);d.appendChild(top);
- d.appendChild(E('h2','d-title','Cleanup (w-sonnet, human-gated deletions)'));
+ d.appendChild(E('h2','d-title','Remove legacy session store (needs review)'));
  const why=E('p','d-why t-needs','Needs your answer: "Acceptance failed: A1 FAIL exit=1 A2 FAIL exit=1"');d.appendChild(why);
  d.appendChild(E('h3','d-h','Acceptance'));const ac=E('div','ac');[['A1','FAIL exit=1','ale verify --task T20 --check deletions-gated'],['A2','FAIL exit=1','test ! -e .ale/tmp/cleanup.lock']].forEach(([a,b,c])=>{const r=E('div');r.appendChild(E('span',null,a));r.appendChild(E('b',null,b));r.appendChild(E('span',null,c));ac.appendChild(r)});d.appendChild(ac);
  d.appendChild(E('h3','d-h','Dependencies'));const f0=E('dl','facts');[['Waiting on','nothing'],['Blocked by','nothing, this is a root'],['Unblocks','T21 (Waiting)']].forEach(([a,b])=>{f0.appendChild(E('dt',null,a));f0.appendChild(E('dd',null,b))});d.appendChild(f0);
- d.appendChild(E('h3','d-h','Facts'));const f=E('dl','facts');[['Agent','w-sonnet'],['Attempt','1 of 3'],['Lease','expired 12m ago'],['Started','13:58:40'],['Tokens','96k, task total'],['Cost','cost not reported'],['Worktree','wt/T20'],['Integrated','no']].forEach(([a,b])=>{f.appendChild(E('dt',null,a));f.appendChild(E('dd',null,b))});d.appendChild(f);
+ d.appendChild(E('h3','d-h','Facts'));const f=E('dl','facts');[['Agent','executor'],['Attempt','1 of 3'],['Lease','expired 12m ago'],['Started','13:58:40'],['Tokens','96k, task total'],['Cost','cost not reported'],['Worktree','wt/T20'],['Integrated','no']].forEach(([a,b])=>{f.appendChild(E('dt',null,a));f.appendChild(E('dd',null,b))});d.appendChild(f);
  d.appendChild(E('h3','d-h','Labels'));const tg=E('div','chain');['cleanup','sonnet','risk: high','lane: inline'].forEach(t=>tg.appendChild(E('span','tag',t)));d.appendChild(tg);
- d.appendChild(E('h3','d-h','Timeline'));const tl=E('ul','tl');[['12m ago','Needs your answer: acceptance failed'],['14m ago','Verified: A1 FAIL, A2 FAIL'],['15m ago','Submitted: cleanup done, 4 files removed'],['31m ago','8 heartbeats, step unchanged'],['34m ago','Claimed by w-sonnet, attempt 1']].forEach(([a,b])=>{const li=E('li');li.appendChild(E('span','when',a));li.appendChild(E('span',null,b));tl.appendChild(li)});d.appendChild(tl);
+ d.appendChild(E('h3','d-h','Timeline'));const tl=E('ul','tl');[['12m ago','Needs your answer: acceptance failed'],['14m ago','Verified: A1 FAIL, A2 FAIL'],['15m ago','Submitted: cleanup done, 4 files removed'],['31m ago','8 heartbeats, step unchanged'],['34m ago','Claimed by executor, attempt 1']].forEach(([a,b])=>{const li=E('li');li.appendChild(E('span','when',a));li.appendChild(E('span',null,b));tl.appendChild(li)});d.appendChild(tl);
 })();
 </script>
 </body>

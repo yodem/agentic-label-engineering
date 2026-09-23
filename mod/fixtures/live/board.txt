@@ -1,6 +1,6 @@
  ▐▛███▛█   Claude Code v2.1.278
 ▝▜██████▀  Fable 5.1 with high effort
-  ▝▝ ▝▝    ~/dev/agentic-label-engineering
+  ▝▝ ▝▝    ~/src/my-project
 
 ▎ Debug mode enabled · logging to /tmp/ale-board.log
 
