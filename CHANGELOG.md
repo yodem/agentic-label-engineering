@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.8 (2026-09-23)
+
+- `/ale:board` opens the web board from Claude Code: it finds the run (argument, `current`, else the newest), reuses a live board or starts one, and prints the URL or the error. The `/ale-board` Mod points to it.
+- Both boards say when the data is stale: the header shows "Last event 3h ago", an Idle pill replaces the running verdict when nothing has moved for an hour, and a board started on a copied run dir shows the directory path.
+- `ale board` removes its `board.json` on SIGTERM and SIGINT and replaces the file a dead server left behind.
+- Plan bake: one-task plans bake and init-run; plans with `## Task N` headings or ale-label blocks never fall back silently to list items; the checkbox fallback no longer crashes; `bake --write` merges into an existing hand-written block instead of adding a second one; assignments take role and model tier from the task's labels.
+- Run pointer: `.ale/runs/current` stores the run directory name (old files holding a run id still resolve); `init-run` leaves a live `current` alone unless given `--set-current`; the roster is found from `$ALE_ROSTER`, then the repository that owns the run dir, then the cwd, so commands work inside task worktrees.
+- `provenance.lane_reason` accepts reasons of 3 characters or more (`flow lane` writes "effort L").
+- `ale verify --reject "<reason>"` lets the lead reject a submitted task after a failed manual check; path checks ignore ALE's own `.ale-setup-done` marker.
+- `ale dispatch --no-exec` creates and records the worktree for a lead-executed task without starting anything, so `ale integrate` accepts it; `claude-subagent` executors get their per-task worktree too.
+- Docs: allowed paths are frozen after init-run (use a fix task), `reopen` returns a task to verification while `fix` returns it to work, the fix cap (two per parent, no fix of a fix), and the deferred question of binding an in-session subagent before it spawns.
+
 ## 0.2.7 (2026-09-23)
 
 - `ale board`: a local web board (127.0.0.1, random URL token, server-sent events, one static page, no CDN). It answers "is this run OK, what needs me, what is moving" at the top: a verdict headline with a health pill and a per-task ribbon, then Needs you / Running / Waiting / Done strips with an icon and a word for every state, the reason each waiting task is not running, superseded fixes filed under Done, a detail drawer only while a task is selected, dark mode and reduced motion. Readable from 390 px phones to wide screens.
