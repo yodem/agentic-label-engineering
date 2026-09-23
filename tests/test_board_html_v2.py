@@ -60,6 +60,13 @@ def test_phone_filter_selects_fit_inside_their_fields():
     assert "max-width:100%" in select
 
 
+def test_copied_run_path_header_cell_truncates_without_overflow():
+    rule = re.search(r"#run-path\s*\{([^}]+)\}", HTML).group(1)
+    for declaration in ("min-width:0", "overflow:hidden", "text-overflow:ellipsis", "white-space:nowrap"):
+        assert declaration in rule
+    assert 'id="run-path" title=' in HTML
+
+
 @pytest.mark.parametrize("fixture", ["run-realistic", None])
 def test_gate_passes_on_realistic_and_default_runs(tmp_path, fixture):
     if not shutil.which("node"):
