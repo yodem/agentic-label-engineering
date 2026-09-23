@@ -45,8 +45,8 @@ const logRefreshErrorOnce = createRefreshErrorLogger()
 /** What we display: a resolved run's tasks, or an explanation of why not. */
 type BoardModel =
   | { kind: 'no-run' }
-  | { kind: 'error'; runLabel: string; source: string; message: string }
-  | { kind: 'ok'; runLabel: string; source: string; status: RawStatus; labels: Record<string, LabelInfo>; refreshedAtS: number }
+  | { kind: 'error'; runLabel: string; runPath: string; source: string; message: string }
+  | { kind: 'ok'; runLabel: string; runPath: string; source: string; status: RawStatus; labels: Record<string, LabelInfo>; refreshedAtS: number }
 
 type Timer = { cancel: () => void }
 
@@ -170,6 +170,19 @@ async function loadLabels(engine: Host, runDir: string, taskIds: readonly string
   return out
 }
 
+async function latestEventTs(engine: Host, runDir: string): Promise<number | undefined> {
+  const contents = await engine.fsRead(`${runDir}/events.jsonl`).catch(() => undefined)
+  if (!contents) return undefined
+  let latest: number | undefined
+  for (const line of contents.split(/\r?\n/)) {
+    try {
+      const ts = JSON.parse(line)?.ts
+      if (typeof ts === 'number' && Number.isFinite(ts) && (latest === undefined || ts > latest)) latest = ts
+    } catch { /* Ignore incomplete or malformed event lines. */ }
+  }
+  return latest
+}
+
 /** Reads ALE's authoritative status and the labels used for display names. */
 async function refresh(engine: Host): Promise<BoardModel> {
   if (refreshing) return refreshing
@@ -191,14 +204,16 @@ async function refresh(engine: Host): Promise<BoardModel> {
     const result = await engine.processRun(bundledAleArgv(engine.pluginRoot, args), { cwd, timeoutMs: STATUS_TIMEOUT_MS })
     const parsed = parseStatusOutput(result.exitCode, result.stdout, result.stderr)
     if (!parsed.ok) {
-      const next: BoardModel = { kind: 'error', runLabel, source: resolved.source, message: parsed.error }
+      const next: BoardModel = { kind: 'error', runLabel, runPath: runDir, source: resolved.source, message: parsed.error }
       model = next
       logRefreshErrorOnce(message => engine.uiLog(`${PLUGIN}: ${message}`), next.message)
       engine.invalidate()
       return next
     }
     const labels = await loadLabels(engine, runDir, Object.keys(parsed.status.tasks))
-    const next: BoardModel = { kind: 'ok', runLabel, source: resolved.source, status: parsed.status, labels, refreshedAtS: Date.now() / 1000 }
+    const lastEventTs = await latestEventTs(engine, runDir)
+    if (lastEventTs !== undefined) parsed.status.run.last_event_ts = lastEventTs
+    const next: BoardModel = { kind: 'ok', runLabel, runPath: runDir, source: resolved.source, status: parsed.status, labels, refreshedAtS: Date.now() / 1000 }
     model = next
     engine.invalidate()
     return next
@@ -206,6 +221,7 @@ async function refresh(engine: Host): Promise<BoardModel> {
     const next: BoardModel = {
       kind: 'error',
       runLabel: selectedRun ? runLabelOf(selectedRun.runDir) : 'unknown run',
+      runPath: selectedRun?.runDir ?? '',
       source: selectedRun?.source ?? 'launch',
       message: err instanceof Error ? err.message : String(err),
     }
@@ -409,13 +425,13 @@ export const register: Register = (on: On) => {
     if (model.kind === 'error') {
       return (
         <Box flexDirection="column">
-          <Text bold>{truncateTo(`ale-board · ${model.runLabel} · source:${model.source}`, columns)}</Text>
+          <Text bold>{truncateTo(`ale-board · ${model.runLabel} · ${model.runPath} · source:${model.source}`, columns)}</Text>
           <Text>{truncateTo(`error: ${model.message}`, columns)}</Text>
         </Box>
       )
     }
 
-    const lines = renderBoard({ runId: model.runLabel, tasks: model.status.tasks, run: model.status.run, labels: model.labels, boardUrl: typeof (model.status.run as any).board_url === 'string' ? (model.status.run as any).board_url : undefined, nowS: Date.now() / 1000, columns })
+    const lines = renderBoard({ runId: model.runLabel, runPath: model.runPath, tasks: model.status.tasks, run: model.status.run, labels: model.labels, boardUrl: typeof (model.status.run as any).board_url === 'string' ? (model.status.run as any).board_url : undefined, nowS: Date.now() / 1000, columns })
 
     return (
       <Box flexDirection="column">

@@ -32,6 +32,7 @@ export type RawRun = {
   started_ts?: unknown
   finished?: unknown
   breaches_seen?: unknown
+  last_event_ts?: unknown
 }
 
 export type LabelData = Record<string, any>
@@ -237,6 +238,13 @@ export function formatTokens(value: unknown): string {
   return `${Math.round(n / 1000000)}M`
 }
 
+function formatAge(seconds: number): string {
+  if (seconds < 60) return `${Math.floor(seconds)}s`
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`
+  return `${Math.floor(seconds / 86400)}d`
+}
+
 export function attentionOrder(tasks: Record<string, RawTask>): string[] {
   const need = Object.entries(tasks).filter(([, task]) => displayState(task).section === 'Needs you')
   return need.sort(([a, left], [b, right]) => {
@@ -407,7 +415,7 @@ export function glyphFor(state: string): string {
 }
 
 export type BoardSegment = { text: string; color?: string; bold?: boolean; dimColor?: boolean }
-export type RenderBoardInput = { runId: string; tasks: Record<string, RawTask>; run: RawRun; labels: Record<string, LabelInfo>; boardUrl?: string; nowS: number; columns: number }
+export type RenderBoardInput = { runId: string; runPath?: string; tasks: Record<string, RawTask>; run: RawRun; labels: Record<string, LabelInfo>; boardUrl?: string; nowS: number; columns: number }
 
 const toneColor: Record<string, string> = { needs: 'yellow', fail: 'red', run: 'blue', verify: 'magenta', ready: 'cyan', done: 'green' }
 const sectionOrder = ['Needs you', 'Running', 'Waiting', 'Done'] as const
@@ -449,12 +457,17 @@ export function renderBoard(input: RenderBoardInput): BoardSegment[][] {
   const ribbon = total > 40
     ? `✓ ${done.length}  ● ${running.length}  ? ${needs.length}  · ${waiting.length}`
     : [...done.map(() => '✓'), ...running.map(r => r.state.glyph), ...needs.map(r => r.state.glyph), ...waiting.map(r => r.state.glyph)].join('')
-  const doneLabel = input.run.finished === true ? 'Finished' : needs.length ? 'Stalled: needs you' : running.length ? 'Running' : 'Idle'
+  const lastEvent = asNumber(input.run.last_event_ts)
+  const idleAgeHours = lastEvent > 0 ? Math.floor((input.nowS - lastEvent) / 3600) : 0
+  const idleLabel = running.length === 0 && idleAgeHours > 1 ? `Idle, last activity ${idleAgeHours}h ago` : 'Idle'
+  const doneLabel = input.run.finished === true ? 'Finished' : needs.length ? 'Stalled: needs you' : running.length ? 'Running' : idleLabel
   const doneColor = needs.length && !running.length ? 'red' : running.length ? 'blue' : 'green'
   const runTokens = asNumber(input.run.tokens)
   const cost = asNumber(input.run.cost_usd)
   const rows: BoardSegment[][] = [
     [{ text: `ALE ${runId}  ` }, { text: `■ ${doneLabel}`, color: doneColor, ...(doneColor === 'red' ? { bold: true } : {}) }],
+    ...(input.runPath ? [boardLine(`Run directory: ${input.runPath}`, columns)] : []),
+    ...(lastEvent > 0 ? [boardLine(`Last event ${formatAge(Math.max(0, input.nowS - lastEvent))} ago`, columns)] : []),
     boardLine(headline, columns),
     boardLine(`${ribbon}  ${completed.length} of ${total} done   ${formatTokens(runTokens)} tok, run total   ${cost ? `$${cost.toFixed(2)}` : runTokens ? 'cost not reported' : '$0.00'}`, columns),
   ]
