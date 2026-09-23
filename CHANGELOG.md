@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Docs for public use: README install and a verified hand-run quick start, a visual explainer (`docs/index.html`), the judge command contract (`docs/judge.md`) with a model-free example judge, CONTRIBUTING, SECURITY, CODE_OF_CONDUCT and issue templates. Private references removed from comments and docs. No behaviour change.
+
 ## 0.2.10 (2026-09-23)
 
 - Jev shadow cases now accumulate on real runs. When `ale verify` accepts a task in shadow mode, each label field (role, sub, phase, model_tier, risk, effort, locality) where Jev's vote equals the accepted label is recorded as an adjudicated case (`agreement_then_accepted`). Disagreements are never scored automatically: verify prints the `ale adjudicate --task --decision --value` command for each, listing the valid values when the planner left the field unset.

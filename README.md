@@ -14,7 +14,8 @@ noticing. ALE moves those judgments out of the agents and into code:
   itself. **No agent can mark its own work done.**
 - A **watchdog** with no model in it flags stale claims, stuck tasks and overruns.
 
-A visual explainer lives in [`docs/index.html`](docs/index.html). Open it in a browser.
+A visual explainer lives in [`docs/index.html`](docs/index.html): open it in a browser from a clone
+(GitHub shows the file as source).
 
 ```text
 PLAN.md ──bake──▶ labels ──init-run──▶ board (events.jsonl)
@@ -243,7 +244,7 @@ anywhere, so `ale verify --base` remains the containment backstop.
 
 | Read | For |
 | --- | --- |
-| [docs/index.html](docs/index.html) | A visual walkthrough of the whole idea |
+| [docs/index.html](docs/index.html) | A visual walkthrough of the whole idea (open from a clone) |
 | [docs/label-layer.md](docs/label-layer.md) | Plan format, label fields, worktrees, fix tasks, the run loop |
 | [docs/agents.md](docs/agents.md) | Agent taxonomy, catalog lookup, rule enforcement |
 | [docs/hooks.md](docs/hooks.md) | What the hooks enforce, per harness |

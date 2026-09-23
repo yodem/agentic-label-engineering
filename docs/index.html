@@ -124,7 +124,7 @@ footer { padding: 32px 0 56px; color: var(--muted); font-size: 14px; }
     <div class="links">
       <a class="btn primary" href="#start">Try it in 5 minutes</a>
       <a class="btn" href="https://github.com/yodem/agentic-label-engineering">GitHub</a>
-      <a class="btn" href="label-layer.md">Reference docs</a>
+      <a class="btn" href="https://github.com/yodem/agentic-label-engineering/blob/main/docs/label-layer.md">Reference docs</a>
     </div>
   </div>
 </header>
@@ -229,7 +229,7 @@ footer { padding: 32px 0 56px; color: var(--muted); font-size: 14px; }
 <section id="label"><div class="wrap">
   <h2>Anatomy of a label</h2>
   <p>A label is a small JSON document. It is the contract between the orchestrator, the executor and
-    the verifier. This one comes from <a href="../examples/run/labels/T01.json"><code>examples/run/labels/T01.json</code></a>.</p>
+    the verifier. This is an abridged copy of <a href="https://github.com/yodem/agentic-label-engineering/blob/main/examples/run/labels/T01.json"><code>examples/run/labels/T01.json</code></a>.</p>
   <div class="anno">
 <pre>{
   "task_id": "T01",
@@ -352,10 +352,10 @@ ale --help</pre>
   <div class="panel" id="p-pi" role="tabpanel" aria-labelledby="t-pi" hidden>
 <pre>pi -e adapters/pi/ale.ts            <span class="c"># one run</span>
 cp adapters/pi/ale.ts ~/.pi/agent/extensions/   <span class="c"># every run</span></pre>
-    <p>The extension is active only when <code>ALE_TASK</code> is set. See <a href="../adapters/pi/README.md">adapters/pi</a>.</p>
+    <p>The extension is active only when <code>ALE_TASK</code> is set. See <a href="https://github.com/yodem/agentic-label-engineering/blob/main/adapters/pi/README.md">adapters/pi</a>.</p>
   </div>
   <div class="panel" id="p-cx" role="tabpanel" aria-labelledby="t-cx" hidden>
-    <p>Copy <a href="../adapters/codex/hooks.json"><code>adapters/codex/hooks.json</code></a> into your Codex hook configuration and set <code>ALE_PLUGIN_ROOT</code> to your clone. The <code>codex-exec</code> executor wraps <code>codex exec --json</code> with <code>bin/ale-exec</code> for heartbeats, the exit gate and usage.</p>
+    <p>Copy <a href="https://github.com/yodem/agentic-label-engineering/blob/main/adapters/codex/hooks.json"><code>adapters/codex/hooks.json</code></a> into your Codex hook configuration and set <code>ALE_PLUGIN_ROOT</code> to your clone. The <code>codex-exec</code> executor wraps <code>codex exec --json</code> with <code>bin/ale-exec</code> for heartbeats, the exit gate and usage.</p>
   </div>
   <h3>What each harness enforces</h3>
   <div class="scroll"><table>
@@ -377,19 +377,19 @@ cp adapters/pi/ale.ts ~/.pi/agent/extensions/   <span class="c"># every run</spa
     <li><strong>Agent ids are self-asserted.</strong> The log stops accidents and honest mistakes, not a malicious local process forging events.</li>
     <li><strong>Shells can write anywhere.</strong> Hooks guard edit tools. <code>ale verify --base</code> checks the final diff and is the backstop.</li>
     <li><strong>Local filesystems only.</strong> The append guarantee does not hold on network mounts.</li>
-    <li><strong>The judge is optional and off.</strong> ALE can collect shadow votes from an external judge command. They never change a decision, and nothing leaves your machine unless you turn it on. See <a href="judge.md">judge.md</a>.</li>
+    <li><strong>The judge is optional and off.</strong> ALE can collect shadow votes from an external judge command. They never change a decision, and nothing leaves your machine unless you turn it on. See <a href="https://github.com/yodem/agentic-label-engineering/blob/main/docs/judge.md">judge.md</a>.</li>
   </ul>
 </div></section>
 
 <section id="docs"><div class="wrap">
   <h2>Where to go next</h2>
   <div class="grid">
-    <a class="card" href="label-layer.md" style="text-decoration:none;color:inherit"><h3>Label layer</h3><p>Plan format, every label field, worktrees, fix tasks and the run loop.</p></a>
-    <a class="card" href="../EXECUTOR.md" style="text-decoration:none;color:inherit"><h3>Executor protocol</h3><p>The ten rules an executing agent follows.</p></a>
-    <a class="card" href="agents.md" style="text-decoration:none;color:inherit"><h3>Agents</h3><p>The role taxonomy and how a label resolves to an agent definition.</p></a>
-    <a class="card" href="hooks.md" style="text-decoration:none;color:inherit"><h3>Hooks</h3><p>What is enforced where, and what hooks cannot do.</p></a>
-    <a class="card" href="judge.md" style="text-decoration:none;color:inherit"><h3>Judge</h3><p>The optional shadow judge and its JSON contract.</p></a>
-    <a class="card" href="harness-facts.md" style="text-decoration:none;color:inherit"><h3>Harness facts</h3><p>Hook behaviour verified against Claude Code, Pi and Codex.</p></a>
+    <a class="card" href="https://github.com/yodem/agentic-label-engineering/blob/main/docs/label-layer.md" style="text-decoration:none;color:inherit"><h3>Label layer</h3><p>Plan format, every label field, worktrees, fix tasks and the run loop.</p></a>
+    <a class="card" href="https://github.com/yodem/agentic-label-engineering/blob/main/EXECUTOR.md" style="text-decoration:none;color:inherit"><h3>Executor protocol</h3><p>The ten rules an executing agent follows.</p></a>
+    <a class="card" href="https://github.com/yodem/agentic-label-engineering/blob/main/docs/agents.md" style="text-decoration:none;color:inherit"><h3>Agents</h3><p>The role taxonomy and how a label resolves to an agent definition.</p></a>
+    <a class="card" href="https://github.com/yodem/agentic-label-engineering/blob/main/docs/hooks.md" style="text-decoration:none;color:inherit"><h3>Hooks</h3><p>What is enforced where, and what hooks cannot do.</p></a>
+    <a class="card" href="https://github.com/yodem/agentic-label-engineering/blob/main/docs/judge.md" style="text-decoration:none;color:inherit"><h3>Judge</h3><p>The optional shadow judge and its JSON contract.</p></a>
+    <a class="card" href="https://github.com/yodem/agentic-label-engineering/blob/main/docs/harness-facts.md" style="text-decoration:none;color:inherit"><h3>Harness facts</h3><p>Hook behaviour verified against Claude Code, Pi and Codex.</p></a>
   </div>
 </div></section>
 </main>
@@ -398,7 +398,7 @@ cp adapters/pi/ale.ts ~/.pi/agent/extensions/   <span class="c"># every run</spa
   ALE is MIT licensed. Parts of <code>agents/</code> and <code>catalog/refs/</code> derive from
   <a href="https://github.com/yonatangross/orchestkit">OrchestKit</a> (MIT).
   <a href="https://github.com/yodem/agentic-label-engineering">Source on GitHub</a> ·
-  <a href="../CONTRIBUTING.md">Contributing</a> · <a href="../SECURITY.md">Security</a>
+  <a href="https://github.com/yodem/agentic-label-engineering/blob/main/CONTRIBUTING.md">Contributing</a> · <a href="https://github.com/yodem/agentic-label-engineering/blob/main/SECURITY.md">Security</a>
 </div></footer>
 
 <script>
