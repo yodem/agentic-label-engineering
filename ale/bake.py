@@ -128,6 +128,10 @@ def skeleton_label(task: dict, run_id: str, votes: dict) -> dict:
     risk, risk_vote = _vote(votes, "risk")
     model_tier, tier_vote = _vote(votes, "model_tier")
 
+    task_labels = votes.get("labels") if isinstance(votes.get("labels"), dict) else {}
+    role = task_labels.get("role", role)
+    model_tier = task_labels.get("model_tier", model_tier)
+
     if model_tier is None:
         for row in roster.get("routing", []):
             if row.get("role") in (role, "*"):
@@ -267,6 +271,17 @@ def _label_map(labels) -> Dict[str, dict]:
     return {label["task_id"]: label for label in labels}
 
 
+def _merge_missing(existing: dict, generated: dict) -> dict:
+    """Keep every hand-authored value and fill only absent keys from the draft."""
+    result = copy.deepcopy(existing)
+    for key, value in generated.items():
+        if key not in result:
+            result[key] = copy.deepcopy(value)
+        elif isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _merge_missing(result[key], value)
+    return result
+
+
 def bake(text: str, labels) -> str:
     label_map = _label_map(labels)
     tasks = parse_plan(text)
@@ -275,23 +290,65 @@ def bake(text: str, labels) -> str:
     crlf = text.count("\r\n") > text.count("\n") - text.count("\r\n")
     newline = "\r\n" if crlf else "\n"
     starts = [task["line"] - 1 for task in tasks]
+    existing_blocks = extract_blocks(text)
     for position in range(len(tasks) - 1, -1, -1):
         task = tasks[position]
         label = label_map.get(task["task_id"])
         if label is None:
             continue
+        label = copy.deepcopy(label)
+        label_labels = label.get("labels") or {}
+        hand_block = next((block for _, block in existing_blocks
+                           if block.get("task_id") == task["task_id"]), {})
+        hand_assignments = hand_block.get("assignments")
+        if not isinstance(hand_assignments, list) or not hand_assignments:
+            assignments = label.get("assignments")
+            if not isinstance(assignments, list):
+                assignments = []
+            if not assignments:
+                assignments.append({"kind": "executor", "role": label_labels.get("role"),
+                                    "model_tier": label_labels.get("model_tier"),
+                                    "executor": None, "trigger": "ready"})
+            elif isinstance(assignments[0], dict):
+                assignments[0]["role"] = label_labels.get("role")
+                assignments[0]["model_tier"] = label_labels.get("model_tier")
+            label["assignments"] = assignments
         start = starts[position]
-        replacement = render_block(label).replace("\n", newline).splitlines(keepends=True)
+        generated_blocks = extract_blocks(render_block(label))
+        generated = generated_blocks[0][1]
+        end = starts[position + 1] if position + 1 < len(starts) else len(lines)
+        owned = [(line_number - 1, block) for line_number, block in existing_blocks
+                 if block.get("task_id") == task["task_id"]
+                 and start < line_number - 1 < end]
+        existing = owned[0][1] if owned else None
+        complete_fields = {"task_id", "title", "labels", "lane_reason", "acceptance",
+                           "allowed_paths", "depends_on", "worktree", "assignments"}
+        if existing == generated:
+            replacement_text = None  # Preserve byte-for-byte hand-edited blocks.
+        elif existing and not complete_fields.issubset(existing):
+            replacement_block = _merge_missing(existing, generated)
+            replacement_text = "```ale-label" + newline + json.dumps(
+                replacement_block, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+            ) + newline + "```" + newline
+        else:
+            replacement_text = render_block(label).replace("\n", newline)
+        replacement = replacement_text.splitlines(keepends=True) if replacement_text else None
+        if owned:
+            ranges = []
+            for block_start, _block in owned:
+                block_end = block_start + 1
+                while block_end < len(lines) and not _line_close(lines[block_end].rstrip("\r\n")):
+                    block_end += 1
+                if block_end < len(lines):
+                    ranges.append((block_start, block_end + 1))
+            for block_start, block_end in reversed(ranges):
+                if block_start == owned[0][0]:
+                    if replacement is not None:
+                        lines[block_start:block_end] = replacement
+                else:
+                    del lines[block_start:block_end]
+            continue
         block_start = start + 1
-        if (block_start < len(lines) and states[block_start] is None
-                and _line_open(lines[block_start].rstrip("\r\n"))):
-            block_end = block_start + 1
-            while block_end < len(lines) and not _line_close(lines[block_end].rstrip("\r\n")):
-                block_end += 1
-            if block_end < len(lines):
-                block_end += 1
-                lines[block_start:block_end] = replacement
-                continue
         if lines[start].endswith(("\n", "\r")):
             lines[block_start:block_start] = replacement
         else:
