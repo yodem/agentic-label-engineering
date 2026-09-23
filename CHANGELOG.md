@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.10 (2026-09-23)
+
+- Jev shadow cases now accumulate on real runs. When `ale verify` accepts a task in shadow mode, each label field (role, sub, phase, model_tier, risk, effort, locality) where Jev's vote equals the accepted label is recorded as an adjudicated case (`agreement_then_accepted`). Disagreements are never scored automatically: verify prints the `ale adjudicate --task --decision --value` command for each, listing the valid values when the planner left the field unset.
+- `ale judge-stats` reports `pending_adjudication` per label field, and a field never shows `bar_met` while cases are pending, so skipped disagreements cannot inflate agreement.
+- Turning it on: set `judge.default: shadow` and a `judge.bar` in the roster (the shipped roster stays `off`). Bake then asks Jev on every label field, also when the plan's blocks already set it; the block still wins.
+
 ## 0.2.9 (2026-09-23)
 
 - The boards show the run you are working on. `ale board`, `/ale:board` and the `/ale-board` Mod no longer follow `.ale/runs/current` (another session may own it): they take an explicit run, then `$ALE_RUN_DIR`, then the run with the newest event. `/ale-board <run>` switches.
