@@ -15,6 +15,8 @@ ale setup
 /label-layer PLAN.md
 ```
 
+In Claude Code, open the live task board with `/ale:board [run-dir]`. It starts or reuses the web board and returns its URL.
+
 For a manual run, use `ale plan bake PLAN.md --write` followed by `ale run PLAN.md`.
 Plan baking does not call an external judge by default. Add `--judge` to opt in; this sends task text to the configured external API. `--no-judge` remains available for compatibility.
 

@@ -11,6 +11,7 @@ import re
 import subprocess
 import sys
 import secrets
+import signal
 import tempfile
 import time
 import webbrowser
@@ -876,6 +877,13 @@ def cmd_board(a) -> int:
         server.start()
     except OSError as exc:
         raise CliError(FAIL, "cannot bind board listener: %s" % exc)
+
+    def stop_board(_signum, _frame):
+        server.close()
+        raise SystemExit(OK)
+
+    signal.signal(signal.SIGTERM, stop_board)
+    signal.signal(signal.SIGINT, stop_board)
     print(server.url, flush=True)
     if a.open:
         webbrowser.open(server.url)
