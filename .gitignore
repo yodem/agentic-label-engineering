@@ -7,3 +7,7 @@ __pycache__/
 node_modules/
 mod/.claude/types/
 .team/
+build/
+/.claude/
+/.playwright-mcp/
+.venv/

@@ -17,13 +17,12 @@ Mockups in this folder (all show the real run: 16 tasks, 14 done, T20 needs your
 | `board-v2-mobile-dark-sheet.png` | self-rendered, bottom sheet open | 390 @2x, dark |
 | `stitch-desktop-light.png` | Google Stitch export (project thumbnail, 512x410) | desktop, light |
 
-Stitch: project "ALE run board", id `13771253832386113832`, design system asset `8257d2267c0c4fbf93dab2db158fc716`
-(created from `stitch-DESIGN.md`, the token contract uploaded to Stitch). Two desktop generations and one mobile dark
+Stitch: a project named "ALE run board" with a design system created from `stitch-DESIGN.md`, the token contract
+uploaded to Stitch. Two desktop generations and one mobile dark
 generation ran. The first and third timed out. The second said it finished. `list_screens` and `get_project` never listed
-a generated screen, only the uploaded DESIGN.md screen `11798766729527050600`, so `edit_screens` and `generate_variants`
+a generated screen, only the uploaded DESIGN.md screen, so `edit_screens` and `generate_variants`
 had no screen id to act on. The one Stitch image I could export is the project thumbnail of the desktop light screen.
-Following the book's rule that Stitch output is a visual spec, not token truth (CandleKeep `cmn65gqw504bllc0znf83oq6k` ch 5.3,
-5.5, 15.1), the self-rendered PNGs are the reference. They use the exact tokens below, system fonts and the real SVG sprite.
+Stitch output is treated as a visual spec, not token truth, so the self-rendered PNGs are the reference. They use the exact tokens below, system fonts and the real SVG sprite.
 Stitch changed the fonts: it switched the system stack to Inter, a web font we cannot ship. Its layout matches ours:
 a verdict sentence first, a cell ribbon, a full-width attention strip, and rows with a coloured edge.
 

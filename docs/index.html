@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agentic Label Engineering</title>
+<meta name="description" content="How ALE keeps multi-agent coding honest: typed task labels, an append-only board, code-run acceptance and a zero-LLM watchdog.">
+<style>
+:root {
+  --bg: #f6f7f9; --surface: #ffffff; --surface-2: #eef1f4; --ink: #15191e; --muted: #5a6470;
+  --line: #d9dee4; --accent: #1f6feb; --ok: #1a7f37; --ok-bg: #e6f4ea; --warn: #b35900;
+  --warn-bg: #fff4e0; --bad: #c62828; --bad-bg: #fdecec; --code-bg: #f0f2f5;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1216; --surface: #171b21; --surface-2: #1e242c; --ink: #e8ecf0; --muted: #9aa5b1;
+    --line: #2c343e; --accent: #5b9dff; --ok: #4ac26b; --ok-bg: #12301c; --warn: #f0a33a;
+    --warn-bg: #33250f; --bad: #ff6b6b; --bad-bg: #3a1618; --code-bg: #12161b;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1216; --surface: #171b21; --surface-2: #1e242c; --ink: #e8ecf0; --muted: #9aa5b1;
+  --line: #2c343e; --accent: #5b9dff; --ok: #4ac26b; --ok-bg: #12301c; --warn: #f0a33a;
+  --warn-bg: #33250f; --bad: #ff6b6b; --bad-bg: #3a1618; --code-bg: #12161b;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 var(--sans); }
+a { color: var(--accent); }
+.wrap { max-width: 880px; margin: 0 auto; padding: 0 16px; }
+header.hero { padding: 56px 0 32px; border-bottom: 1px solid var(--line); }
+.eyebrow { font: 600 13px/1 var(--mono); letter-spacing: .04em; color: var(--muted); text-transform: uppercase; }
+h1 { font-size: clamp(30px, 6vw, 44px); line-height: 1.15; margin: 12px 0 16px; letter-spacing: -0.02em; }
+h2 { font-size: 24px; line-height: 1.25; margin: 0 0 12px; letter-spacing: -0.01em; }
+h3 { font-size: 17px; margin: 24px 0 8px; }
+.lede { font-size: 19px; color: var(--muted); max-width: 680px; margin: 0; }
+.links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+.btn { display: inline-block; padding: 9px 16px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--ink); text-decoration: none; font-weight: 600; font-size: 15px; }
+.btn.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+nav.toc { position: sticky; top: 0; z-index: 2; background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(6px); border-bottom: 1px solid var(--line); }
+nav.toc ul { display: flex; gap: 18px; list-style: none; margin: 0; padding: 10px 0; overflow-x: auto;
+  scrollbar-width: none; font-size: 14px; white-space: nowrap; }
+nav.toc ul::-webkit-scrollbar { display: none; }
+nav.toc a { color: var(--muted); text-decoration: none; }
+nav.toc a:hover { color: var(--ink); }
+section { padding: 44px 0; border-bottom: 1px solid var(--line); }
+section:last-of-type { border-bottom: 0; }
+p { margin: 0 0 14px; }
+.muted { color: var(--muted); }
+code, pre { font-family: var(--mono); font-size: 13.5px; }
+:not(pre) > code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; border: 1px solid var(--line); }
+pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px;
+  overflow-x: auto; line-height: 1.55; margin: 0 0 16px; }
+pre .c { color: var(--muted); }
+.grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin-top: 18px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+.card h3 { margin: 0 0 6px; font-size: 16px; }
+.card p { margin: 0; color: var(--muted); font-size: 15px; }
+.claim { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; margin-top: 18px; }
+.claim > div { border-radius: 12px; padding: 16px 18px; border: 1px solid var(--line); }
+.claim .said { background: var(--warn-bg); }
+.claim .true { background: var(--ok-bg); }
+.claim b { display: block; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
+.flow { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin: 20px 0 8px; }
+.flow svg { width: 100%; height: auto; display: block; }
+.flow text { font-family: var(--sans); font-size: 13px; fill: var(--ink); }
+.flow .lbl { font-size: 11.5px; fill: var(--muted); }
+.flow .box { fill: var(--surface-2); stroke: var(--line); }
+.flow .gate { fill: var(--ink); }
+.flow .gate-t { fill: var(--bg); font-weight: 700; }
+.flow .okb { fill: var(--ok-bg); stroke: var(--ok); }
+.flow .badb { fill: var(--bad-bg); stroke: var(--bad); }
+.flow .arrow { stroke: var(--muted); stroke-width: 1.5; fill: none; }
+.flow .who { font-size: 11px; font-weight: 700; letter-spacing: .05em; fill: var(--muted); }
+.flow-v { display: none; }
+ol.steps { padding-left: 22px; margin: 0; }
+ol.steps li { margin-bottom: 10px; }
+table { width: 100%; border-collapse: collapse; font-size: 15px; margin: 8px 0 16px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 13px; color: var(--muted); font-weight: 600; }
+td code { white-space: nowrap; }
+.scroll { overflow-x: auto; }
+.anno { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.anno dl { margin: 0; }
+.anno dt { font: 600 14px var(--mono); margin-top: 12px; }
+.anno dt:first-child { margin-top: 0; }
+.anno dd { margin: 2px 0 0; color: var(--muted); font-size: 15px; }
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 16px 0 12px; }
+.tabs button { font: 600 14px var(--sans); padding: 7px 12px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--ink); cursor: pointer; }
+.tabs button[aria-selected="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.panel[hidden] { display: none; }
+.note { border-left: 3px solid var(--warn); background: var(--warn-bg); padding: 12px 16px; border-radius: 0 10px 10px 0; margin: 16px 0; }
+.pill { display: inline-block; font: 600 12px var(--mono); padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); background: var(--surface); }
+.pill.ok { color: var(--ok); border-color: var(--ok); background: var(--ok-bg); }
+.pill.bad { color: var(--bad); border-color: var(--bad); background: var(--bad-bg); }
+footer { padding: 32px 0 56px; color: var(--muted); font-size: 14px; }
+.theme { position: absolute; top: 16px; right: 16px; }
+.theme button { font: 13px var(--sans); background: var(--surface); color: var(--ink); border: 1px solid var(--line);
+  border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+@media (max-width: 640px) {
+  header.hero { padding-top: 64px; }
+  .claim, .anno { grid-template-columns: 1fr; }
+  .flow-h { display: none; }
+  .flow-v { display: block; }
+  .lede { font-size: 17px; }
+}
+</style>
+</head>
+<body>
+<div class="theme"><button type="button" id="theme" aria-label="Toggle colour theme">Theme</button></div>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="eyebrow">Agentic Label Engineering · ALE</div>
+    <h1>No agent gets to mark its own work done.</h1>
+    <p class="lede">ALE coordinates coding agents working from one plan. Every task carries a typed label
+      that says who does it, which files it may touch, and which commands prove it is finished.
+      Code decides the rest: claims, leases, acceptance and alarms.</p>
+    <div class="links">
+      <a class="btn primary" href="#start">Try it in 5 minutes</a>
+      <a class="btn" href="https://github.com/yodem/agentic-label-engineering">GitHub</a>
+      <a class="btn" href="label-layer.md">Reference docs</a>
+    </div>
+  </div>
+</header>
+
+<nav class="toc" aria-label="Sections">
+  <div class="wrap"><ul>
+    <li><a href="#problem">Problem</a></li>
+    <li><a href="#flow">How it works</a></li>
+    <li><a href="#label">The label</a></li>
+    <li><a href="#board">Board &amp; watchdog</a></li>
+    <li><a href="#start">Quick start</a></li>
+    <li><a href="#install">Install</a></li>
+    <li><a href="#trust">Trust boundary</a></li>
+    <li><a href="#docs">Docs</a></li>
+  </ul></div>
+</nav>
+
+<main>
+<section id="problem"><div class="wrap">
+  <h2>The problem: "done" is a claim, not a fact</h2>
+  <p>Give several agents a plan and they report progress in prose. Prose is cheap. An agent can say it
+    finished while the tests fail, quietly edit files outside its task, or stall with a claim nobody
+    releases. Asking another model to check the first one just moves the problem.</p>
+  <div class="claim">
+    <div class="said"><b>What the agent says</b>"Implemented the refresh endpoint, all good."</div>
+    <div class="true"><b>What ALE checks</b>Did <code>pytest tests/auth</code> exit 0 in the task's worktree, and did only
+      <code>src/auth/**</code> change?</div>
+  </div>
+  <p style="margin-top:18px">ALE's rule: <strong>anything code can decide, code decides.</strong> Models plan and do the work.
+    Deciding whether that work is accepted is left to code: exit codes, file paths and timestamps.</p>
+</div></section>
+
+<section id="flow"><div class="wrap">
+  <h2>How it works</h2>
+  <p>A plan becomes labels, labels become a run, and every step of the run is an event in an append-only log.</p>
+
+  <div class="flow flow-h" role="img" aria-label="Flow: plan is baked into labels, init-run starts the board, dispatch hands a task to an executor who claims, heartbeats and submits; ale verify runs acceptance and either accepts and integrates the task or rejects it and opens a fix task.">
+    <svg viewBox="0 0 840 250">
+      <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor" style="color:var(--muted)"/></marker></defs>
+      <text class="who" x="10" y="20">ORCHESTRATOR</text>
+      <rect class="box" x="10" y="32" width="110" height="46" rx="8"/><text x="65" y="60" text-anchor="middle">PLAN.md</text>
+      <path class="arrow" d="M120 55 H160" marker-end="url(#ah)"/><text class="lbl" x="140" y="26" text-anchor="middle">bake</text>
+      <rect class="box" x="162" y="32" width="120" height="46" rx="8"/><text x="222" y="54" text-anchor="middle">labels</text><text class="lbl" x="222" y="70" text-anchor="middle">one per task</text>
+      <path class="arrow" d="M282 55 H322" marker-end="url(#ah)"/><text class="lbl" x="302" y="26" text-anchor="middle">init-run</text>
+      <rect class="box" x="324" y="32" width="150" height="46" rx="8"/><text x="399" y="54" text-anchor="middle">board</text><text class="lbl" x="399" y="70" text-anchor="middle">events.jsonl</text>
+      <path class="arrow" d="M474 55 H514" marker-end="url(#ah)"/><text class="lbl" x="494" y="26" text-anchor="middle">dispatch</text>
+      <rect class="box" x="516" y="32" width="150" height="46" rx="8"/><text x="591" y="54" text-anchor="middle">worktree</text><text class="lbl" x="591" y="70" text-anchor="middle">branch per task</text>
+
+      <text class="who" x="10" y="124">EXECUTOR (an agent)</text>
+      <path class="arrow" d="M591 78 V100 H130 V134" marker-end="url(#ah)"/>
+      <rect class="box" x="60" y="136" width="140" height="46" rx="8"/><text x="130" y="164" text-anchor="middle">claim</text>
+      <path class="arrow" d="M200 159 H240" marker-end="url(#ah)"/>
+      <rect class="box" x="242" y="136" width="150" height="46" rx="8"/><text x="317" y="158" text-anchor="middle">heartbeat</text><text class="lbl" x="317" y="174" text-anchor="middle">keeps the lease alive</text>
+      <path class="arrow" d="M392 159 H432" marker-end="url(#ah)"/>
+      <rect class="box" x="434" y="136" width="120" height="46" rx="8"/><text x="494" y="164" text-anchor="middle">submit</text>
+
+      <path class="arrow" d="M554 159 H594" marker-end="url(#ah)"/>
+      <rect class="gate" x="596" y="130" width="112" height="58" rx="10"/><text class="gate-t" x="652" y="156" text-anchor="middle">ale verify</text><text class="gate-t lbl" x="652" y="173" text-anchor="middle" style="fill:var(--bg);opacity:.8">runs acceptance</text>
+      <path class="arrow" d="M708 148 H740 V60 H760" marker-end="url(#ah)"/>
+      <rect class="okb" x="762" y="36" width="70" height="40" rx="8"/><text x="797" y="61" text-anchor="middle">accepted</text>
+      <text class="lbl" x="797" y="96" text-anchor="middle">→ integrate</text>
+      <path class="arrow" d="M708 172 H740 V214 H760" marker-end="url(#ah)"/>
+      <rect class="badb" x="762" y="194" width="70" height="40" rx="8"/><text x="797" y="219" text-anchor="middle">rejected</text>
+      <text class="lbl" x="700" y="244" text-anchor="middle">→ fix task (max 2), then the lead decides</text>
+    </svg>
+  </div>
+
+  <div class="flow flow-v" role="img" aria-label="Flow: plan, bake, labels, init-run, board, dispatch, claim, heartbeat, submit, ale verify, then accepted and integrated, or rejected with a fix task.">
+    <svg viewBox="0 0 320 590">
+      <defs><marker id="av" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor" style="color:var(--muted)"/></marker></defs>
+      <text class="who" x="20" y="16">ORCHESTRATOR</text>
+      <rect class="box" x="60" y="26" width="200" height="40" rx="8"/><text x="160" y="51" text-anchor="middle">PLAN.md</text>
+      <path class="arrow" d="M160 66 V88" marker-end="url(#av)"/><text class="lbl" x="170" y="82">bake</text>
+      <rect class="box" x="60" y="90" width="200" height="40" rx="8"/><text x="160" y="115" text-anchor="middle">labels · one per task</text>
+      <path class="arrow" d="M160 130 V152" marker-end="url(#av)"/><text class="lbl" x="170" y="146">init-run</text>
+      <rect class="box" x="60" y="154" width="200" height="40" rx="8"/><text x="160" y="179" text-anchor="middle">board · events.jsonl</text>
+      <path class="arrow" d="M160 194 V216" marker-end="url(#av)"/><text class="lbl" x="170" y="210">dispatch → worktree</text>
+      <text class="who" x="20" y="236">EXECUTOR</text>
+      <rect class="box" x="60" y="244" width="200" height="40" rx="8"/><text x="160" y="269" text-anchor="middle">claim</text>
+      <path class="arrow" d="M160 284 V302" marker-end="url(#av)"/>
+      <rect class="box" x="60" y="304" width="200" height="40" rx="8"/><text x="160" y="329" text-anchor="middle">heartbeat · keeps lease</text>
+      <path class="arrow" d="M160 344 V362" marker-end="url(#av)"/>
+      <rect class="box" x="60" y="364" width="200" height="40" rx="8"/><text x="160" y="389" text-anchor="middle">submit</text>
+      <path class="arrow" d="M160 404 V422" marker-end="url(#av)"/>
+      <rect class="gate" x="60" y="424" width="200" height="46" rx="10"/><text class="gate-t" x="160" y="452" text-anchor="middle">ale verify · runs acceptance</text>
+      <path class="arrow" d="M110 470 V500" marker-end="url(#av)"/><path class="arrow" d="M210 470 V500" marker-end="url(#av)"/>
+      <rect class="okb" x="30" y="502" width="120" height="40" rx="8"/><text x="90" y="527" text-anchor="middle">accepted</text>
+      <rect class="badb" x="170" y="502" width="120" height="40" rx="8"/><text x="230" y="527" text-anchor="middle">rejected</text>
+      <text class="lbl" x="90" y="562" text-anchor="middle">→ integrate</text>
+      <text class="lbl" x="230" y="562" text-anchor="middle">→ fix task (max 2)</text>
+    </svg>
+  </div>
+
+  <div class="grid">
+    <div class="card"><h3>Bake</h3><p>A literal parser turns <code>Files:</code>, <code>Run:</code> and <code>Depends on Task N</code> lines into labels. It never guesses; gaps are listed for the planner to fill.</p></div>
+    <div class="card"><h3>Dispatch</h3><p>Ready tasks get a git worktree and branch each, and the executor your roster picks for the label's role and tier.</p></div>
+    <div class="card"><h3>Verify</h3><p>The only path to <span class="pill ok">accepted</span>. It runs the label's acceptance commands itself and checks changed paths against the label.</p></div>
+    <div class="card"><h3>Integrate</h3><p>Executors never commit. <code>ale integrate</code> commits only the allowed changes and merges the task branch.</p></div>
+  </div>
+</div></section>
+
+<section id="label"><div class="wrap">
+  <h2>Anatomy of a label</h2>
+  <p>A label is a small JSON document. It is the contract between the orchestrator, the executor and
+    the verifier. This one comes from <a href="../examples/run/labels/T01.json"><code>examples/run/labels/T01.json</code></a>.</p>
+  <div class="anno">
+<pre>{
+  "task_id": "T01",
+  "title": "Add token refresh endpoint",
+  "labels": {
+    "role": "backend", "model_tier": "standard",
+    "lane": "pane", "risk": "low",
+    "effort": "M", "locality": "any"
+  },
+  "context": {
+    "spec_path": "specs/T01.md",
+    "pointers": ["src/auth/session.py"],
+    "allowed_paths": ["src/auth/**", "tests/auth/**"],
+    "depends_on": []
+  },
+  "acceptance": [
+    {"id": "A1", "cmd": "true", "expect": "exit0"},
+    {"id": "A2", "cmd": "test -d .", "expect": "exit0"}
+  ],
+  "provenance": {
+    "lane_reason": "Runs about 40 minutes
+                    unattended, so pane."
+  }
+}</pre>
+    <dl>
+      <dt>labels</dt><dd>A closed vocabulary from your roster. <code>role</code> + <code>model_tier</code> pick the executor and model; changing models is a one-line roster edit.</dd>
+      <dt>lane</dt><dd><code>inline</code>, <code>workflow</code> or <code>pane</code>. Always the planner's call, with a written <code>lane_reason</code>. No classifier chooses it.</dd>
+      <dt>allowed_paths</dt><dd>The files the task may change. Hooks deny edits outside them; <code>ale verify --base</code> checks the final diff.</dd>
+      <dt>depends_on</dt><dd>Tasks that must be accepted first. <code>ale ready</code> only offers tasks whose dependencies are done.</dd>
+      <dt>acceptance</dt><dd>2 to 5 shell commands. <code>expect</code> is an exit code and nothing else: <code>exit0</code> or <code>exit:N</code>.</dd>
+    </dl>
+  </div>
+</div></section>
+
+<section id="board"><div class="wrap">
+  <h2>The board and the watchdog</h2>
+  <p>The board is one file per run, <code>events.jsonl</code>, append only. Status is computed by replaying it,
+    so there is no state to corrupt and every decision has a line you can point at. Executors may only
+    write their own events (claim, heartbeat, submit, input-required, note) on tasks they own. Only the
+    system writes <code>accepted</code>, <code>rejected</code> and <code>lease_expired</code>.</p>
+  <p>A claim is a <strong>lease</strong>: it lives while heartbeats arrive. <code>ale watchdog</code> has no model in it. It reads the log and reports:</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Breach</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td><code>lease_expired</code></td><td>No heartbeat within <code>heartbeat_timeout_s</code>. The claim is released for someone else.</td></tr>
+      <tr><td><code>stuck</code></td><td>Claimed, but no progress past <code>stuck_after_s</code>.</td></tr>
+      <tr><td><code>overrun</code></td><td>Running past <code>max_duration_s</code>.</td></tr>
+      <tr><td><code>unverified</code></td><td>Submitted, but nobody ran <code>ale verify</code> in time.</td></tr>
+      <tr><td>attempts</td><td>More attempts than <code>max_attempts</code>.</td></tr>
+    </tbody>
+  </table></div>
+  <p>Every command reports through its exit code, so scripts and hooks can branch on it:</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Exit</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td><code>0</code></td><td>ok</td></tr><tr><td><code>1</code></td><td>check failed (for example, acceptance)</td></tr>
+      <tr><td><code>2</code></td><td>usage error</td></tr><tr><td><code>3</code></td><td>claim lost: someone else owns the task</td></tr>
+      <tr><td><code>4</code></td><td>lease lost: stop writing immediately</td></tr><tr><td><code>5</code></td><td>needs human sign-off</td></tr>
+      <tr><td><code>6</code></td><td>watchdog found breaches</td></tr>
+    </tbody>
+  </table></div>
+  <p class="muted">To watch a run live: <code>ale status</code>, <code>ale timeline</code>, <code>ale meta</code> for token usage, or the web board with <code>ale board --open</code>.</p>
+</div></section>
+
+<section id="start"><div class="wrap">
+  <h2>Quick start: watch it refuse a false "done"</h2>
+  <p>No agent needed. You play both roles in a throwaway repo. Install the CLI first (<a href="#install">below</a>), then:</p>
+  <ol class="steps">
+    <li><strong>Write a two-task plan and bake it.</strong>
+<pre>mkdir /tmp/ale-demo &amp;&amp; cd /tmp/ale-demo
+git init -q &amp;&amp; printf '.ale/\n' &gt; .gitignore &amp;&amp; git add .gitignore &amp;&amp; git commit -qm init
+ale setup
+<span class="c"># write PLAN.md: copy it from the README's quick start</span>
+ale plan bake PLAN.md --write      <span class="c"># exit 1: lists lane / lane_reason gaps</span></pre></li>
+    <li><strong>Fill the planner-only fields and commit.</strong>
+<pre>sed -i.bak 's/"lane":null/"lane":"inline"/; s/"lane_reason": null/"lane_reason": "Small and watched, so inline."/' PLAN.md &amp;&amp; rm PLAN.md.bak
+ale plan bake PLAN.md &amp;&amp; git add -A &amp;&amp; git commit -qm plan</pre></li>
+    <li><strong>Start the run and give T1 a worktree.</strong>
+<pre>ale init-run --plan PLAN.md --set-current
+ale dispatch --no-exec &gt; .ale/dispatch.jsonl
+AGENT=$(python3 -c "import json; print(json.loads(open('.ale/dispatch.jsonl').readline())['agent_id'])")
+WT=.ale/runs/PLAN/wt/T1</pre></li>
+    <li><strong>Claim done without doing anything.</strong>
+<pre>ale claim  --task T1 --agent "$AGENT"
+ale submit --task T1 --agent "$AGENT" --summary "done"
+ale verify --task T1 --cwd "$WT"   <span class="c"># acceptance failed: A1, A2</span></pre>
+      The task is now <span class="pill bad">rejected</span>. The agent's word counted for nothing.</li>
+    <li><strong>Do the work and verify again.</strong>
+<pre>mkdir -p "$WT/src" &amp;&amp; printf 'def greet(name):\n    return "Hello, %%s!" %% name\n' &gt; "$WT/src/greet.py"
+ale reopen --task T1 --reason "greet.py written"
+ale verify --task T1 --cwd "$WT"   <span class="c"># exit 0</span>
+ale integrate --task T1            <span class="c"># commits allowed changes, merges the branch</span></pre>
+      Now it is <span class="pill ok">accepted</span>, and T2, which depended on it, is ready.</li>
+  </ol>
+  <p>With real agents, <code>ale run PLAN.md</code> (or <code>/label-layer PLAN.md</code> in Claude Code) does steps 3 to 5
+    for every task, opens focused fix tasks for rejections, and stops for you when it needs a decision.</p>
+</div></section>
+
+<section id="install"><div class="wrap">
+  <h2>Install</h2>
+  <p>Needs Python 3.9+, git, and macOS or Linux. Install the CLI from a clone, <strong>editable</strong>, because the agent catalog is read from the checkout.</p>
+  <div class="tabs" role="tablist" aria-label="Install target">
+    <button role="tab" aria-selected="true" aria-controls="p-cli" id="t-cli">CLI</button>
+    <button role="tab" aria-selected="false" aria-controls="p-cc" id="t-cc">Claude Code</button>
+    <button role="tab" aria-selected="false" aria-controls="p-pi" id="t-pi">Pi</button>
+    <button role="tab" aria-selected="false" aria-controls="p-cx" id="t-cx">Codex</button>
+  </div>
+  <div class="panel" id="p-cli" role="tabpanel" aria-labelledby="t-cli">
+<pre>git clone https://github.com/yodem/agentic-label-engineering.git
+cd agentic-label-engineering
+python3 -m venv .venv &amp;&amp; . .venv/bin/activate
+pip install -e .
+ale --help</pre>
+  </div>
+  <div class="panel" id="p-cc" role="tabpanel" aria-labelledby="t-cc" hidden>
+<pre>/plugin marketplace add yodem/agentic-label-engineering
+/plugin install ale@agentic-label-engineering</pre>
+    <p>Adds the executor hooks (path guard, auto heartbeat, stop gate), the <code>/label-layer</code> and <code>/ale:board</code> skills, and the <code>/ale-board</code> Mod, which also needs <code>CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1</code>. Install the CLI too.</p>
+  </div>
+  <div class="panel" id="p-pi" role="tabpanel" aria-labelledby="t-pi" hidden>
+<pre>pi -e adapters/pi/ale.ts            <span class="c"># one run</span>
+cp adapters/pi/ale.ts ~/.pi/agent/extensions/   <span class="c"># every run</span></pre>
+    <p>The extension is active only when <code>ALE_TASK</code> is set. See <a href="../adapters/pi/README.md">adapters/pi</a>.</p>
+  </div>
+  <div class="panel" id="p-cx" role="tabpanel" aria-labelledby="t-cx" hidden>
+    <p>Copy <a href="../adapters/codex/hooks.json"><code>adapters/codex/hooks.json</code></a> into your Codex hook configuration and set <code>ALE_PLUGIN_ROOT</code> to your clone. The <code>codex-exec</code> executor wraps <code>codex exec --json</code> with <code>bin/ale-exec</code> for heartbeats, the exit gate and usage.</p>
+  </div>
+  <h3>What each harness enforces</h3>
+  <div class="scroll"><table>
+    <thead><tr><th>Rule</th><th>Claude Code</th><th>Codex</th><th>Pi</th><th>ale-exec wrapper</th></tr></thead>
+    <tbody>
+      <tr><td>Path guard</td><td>enforced</td><td>enforced</td><td>enforced</td><td>verify only</td></tr>
+      <tr><td>Auto heartbeat</td><td>enforced</td><td>no</td><td>enforced</td><td>enforced</td></tr>
+      <tr><td>Stop / submit gate</td><td>enforced</td><td>no</td><td>advisory</td><td>enforced</td></tr>
+      <tr><td>Usage capture</td><td>enforced</td><td>advisory</td><td>enforced</td><td>enforced</td></tr>
+      <tr><td>Session context</td><td>enforced</td><td>no</td><td>enforced</td><td>no</td></tr>
+    </tbody>
+  </table></div>
+</div></section>
+
+<section id="trust"><div class="wrap">
+  <h2>Trust boundary</h2>
+  <div class="note"><strong>Labels are code.</strong> Acceptance commands run through the shell with your permissions. Only run labels you or your orchestrator wrote.</div>
+  <ul>
+    <li><strong>Agent ids are self-asserted.</strong> The log stops accidents and honest mistakes, not a malicious local process forging events.</li>
+    <li><strong>Shells can write anywhere.</strong> Hooks guard edit tools. <code>ale verify --base</code> checks the final diff and is the backstop.</li>
+    <li><strong>Local filesystems only.</strong> The append guarantee does not hold on network mounts.</li>
+    <li><strong>The judge is optional and off.</strong> ALE can collect shadow votes from an external judge command. They never change a decision, and nothing leaves your machine unless you turn it on. See <a href="judge.md">judge.md</a>.</li>
+  </ul>
+</div></section>
+
+<section id="docs"><div class="wrap">
+  <h2>Where to go next</h2>
+  <div class="grid">
+    <a class="card" href="label-layer.md" style="text-decoration:none;color:inherit"><h3>Label layer</h3><p>Plan format, every label field, worktrees, fix tasks and the run loop.</p></a>
+    <a class="card" href="../EXECUTOR.md" style="text-decoration:none;color:inherit"><h3>Executor protocol</h3><p>The ten rules an executing agent follows.</p></a>
+    <a class="card" href="agents.md" style="text-decoration:none;color:inherit"><h3>Agents</h3><p>The role taxonomy and how a label resolves to an agent definition.</p></a>
+    <a class="card" href="hooks.md" style="text-decoration:none;color:inherit"><h3>Hooks</h3><p>What is enforced where, and what hooks cannot do.</p></a>
+    <a class="card" href="judge.md" style="text-decoration:none;color:inherit"><h3>Judge</h3><p>The optional shadow judge and its JSON contract.</p></a>
+    <a class="card" href="harness-facts.md" style="text-decoration:none;color:inherit"><h3>Harness facts</h3><p>Hook behaviour verified against Claude Code, Pi and Codex.</p></a>
+  </div>
+</div></section>
+</main>
+
+<footer><div class="wrap">
+  ALE is MIT licensed. Parts of <code>agents/</code> and <code>catalog/refs/</code> derive from
+  <a href="https://github.com/yonatangross/orchestkit">OrchestKit</a> (MIT).
+  <a href="https://github.com/yodem/agentic-label-engineering">Source on GitHub</a> ·
+  <a href="../CONTRIBUTING.md">Contributing</a> · <a href="../SECURITY.md">Security</a>
+</div></footer>
+
+<script>
+(function () {
+  var root = document.documentElement, btn = document.getElementById('theme');
+  function get() { try { return localStorage.getItem('ale-theme'); } catch (e) { return null; } }
+  function set(v) { try { localStorage.setItem('ale-theme', v); } catch (e) {} }
+  var saved = get(); if (saved) root.setAttribute('data-theme', saved);
+  btn.addEventListener('click', function () {
+    var dark = root.getAttribute('data-theme') ? root.getAttribute('data-theme') === 'dark'
+      : window.matchMedia('(prefers-color-scheme: dark)').matches;
+    var next = dark ? 'light' : 'dark'; root.setAttribute('data-theme', next); set(next);
+  });
+  var tabs = document.querySelectorAll('[role="tab"]');
+  tabs.forEach(function (tab, i) {
+    tab.addEventListener('click', function () { select(tab); });
+    tab.addEventListener('keydown', function (e) {
+      var d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+      if (d) { var t = tabs[(i + d + tabs.length) % tabs.length]; select(t); t.focus(); }
+    });
+  });
+  function select(tab) {
+    tabs.forEach(function (t) {
+      var on = t === tab; t.setAttribute('aria-selected', on);
+      t.tabIndex = on ? 0 : -1; document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+    });
+  }
+})();
+</script>
+</body>
+</html>

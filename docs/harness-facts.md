@@ -8,7 +8,7 @@ Verified on 2026-09-20 from primary sources: official docs, shipped type declara
 
 # Claude Code hook facts  -  verified
 
-Installed version (this machine, `command claude --version`): **2.1.278 (Claude Code)**.
+Installed version (verifying machine, `command claude --version`): **2.1.278 (Claude Code)**.
 Verified 2026-09-20. Primary source pages fetched fresh from `code.claude.com/docs/en/...`
 via `tvly extract` on this date; experiments run against the same installed binary. All
 temp directories were deleted after the experiments (see "Experiments run" at the end).
@@ -129,7 +129,7 @@ control", §"UserPromptSubmit decision control", §"Add context for Claude". Ver
 
 ## Item 5  -  Plugin `hooks/hooks.json`: classic entries beside `modules`; `${CLAUDE_PLUGIN_ROOT}`; matcher syntax; per-hook `timeout`
 
-- **Real file inspected**: `~/dev/agentic-label-engineering/hooks/hooks.json`:
+- **Real file inspected**: `<repo>/hooks/hooks.json`:
   ```json
   {
     "description": "ale-board: the /ale-board task board pane and status band above the prompt. Needs CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1; builds without function hooks ignore the modules key.",
@@ -170,7 +170,7 @@ control", §"UserPromptSubmit decision control", §"Add context for Claude". Ver
   `UserPromptSubmit`/`PreModelSwitch`/`PostModelSwitch`, 10s on `MessageDisplay`. Example from
   docs: `{"type": "command", "command": "...", "timeout": 30}` in a plugin's `hooks.json`.
 
-Source: `~/dev/agentic-label-engineering/hooks/hooks.json` (read directly, not modified);
+Source: `<repo>/hooks/hooks.json` (read directly, not modified);
 https://code.claude.com/docs/en/plugins-reference §"Hooks", §"Reference scripts by path" table
 (implicit via plugin.json fields); https://code.claude.com/docs/en/hooks §"Matcher patterns",
 §"Match MCP tools", §"Reference scripts by path", §"Common fields" (`timeout` row). Verified on
@@ -196,15 +196,15 @@ one from the parent and one from the subagent, redacting nothing:
 **Parent's `PreToolUse` for `Write`:**
 ```json
 {
-  "session_id": "c670f163-d9ab-44b9-973a-f54ac1c24ce2",
-  "transcript_path": "~/.claude/projects/-private-tmp-ale-hooks-exp-DArY/c670f163-d9ab-44b9-973a-f54ac1c24ce2.jsonl",
-  "cwd": "/private/tmp/ale-hooks-exp-DArY",
+  "session_id": "00000000-0000-0000-0000-000000000000",
+  "transcript_path": "~/.claude/projects/-private-tmp-ale-hooks-exp-XXXX/00000000-0000-0000-0000-000000000000.jsonl",
+  "cwd": "/private/tmp/ale-hooks-exp-XXXX",
   "prompt_id": "aa644b25-9336-4eeb-a9e9-14673da46184",
   "permission_mode": "acceptEdits",
   "effort": { "level": "high" },
   "hook_event_name": "PreToolUse",
   "tool_name": "Write",
-  "tool_input": { "file_path": "/private/tmp/ale-hooks-exp-DArY/a.txt", "content": "hi\n" },
+  "tool_input": { "file_path": "/private/tmp/ale-hooks-exp-XXXX/a.txt", "content": "hi\n" },
   "tool_use_id": "toolu_01Ae8LwJjDnrjHX8dVLq5yuF"
 }
 ```
@@ -212,9 +212,9 @@ one from the parent and one from the subagent, redacting nothing:
 **Subagent's `PreToolUse` for `Write`** (same session, same prompt, different tool call):
 ```json
 {
-  "session_id": "c670f163-d9ab-44b9-973a-f54ac1c24ce2",
-  "transcript_path": "~/.claude/projects/-private-tmp-ale-hooks-exp-DArY/c670f163-d9ab-44b9-973a-f54ac1c24ce2.jsonl",
-  "cwd": "/private/tmp/ale-hooks-exp-DArY",
+  "session_id": "00000000-0000-0000-0000-000000000000",
+  "transcript_path": "~/.claude/projects/-private-tmp-ale-hooks-exp-XXXX/00000000-0000-0000-0000-000000000000.jsonl",
+  "cwd": "/private/tmp/ale-hooks-exp-XXXX",
   "prompt_id": "aa644b25-9336-4eeb-a9e9-14673da46184",
   "permission_mode": "acceptEdits",
   "agent_id": "a97c5bb6077993a17",
@@ -222,7 +222,7 @@ one from the parent and one from the subagent, redacting nothing:
   "effort": { "level": "high" },
   "hook_event_name": "PreToolUse",
   "tool_name": "Write",
-  "tool_input": { "file_path": "/private/tmp/ale-hooks-exp-DArY/b.txt", "content": "yo\n" },
+  "tool_input": { "file_path": "/private/tmp/ale-hooks-exp-XXXX/b.txt", "content": "yo\n" },
   "tool_use_id": "toolu_01JCFdjjzdRMKgajhFPbYRac"
 }
 ```
@@ -248,9 +248,9 @@ deleted after use  -  see "Experiments run"); https://code.claude.com/docs/en/ho
 ## Item 7  -  Transcript JSONL: usage location, subagent messages, dedup key
 
 Inspected the real transcript from Experiment 1, whose path came from `transcript_path` in the
-hook input: `~/.claude/projects/-private-tmp-ale-hooks-exp-DArY/c670f163-d9ab-...jsonl` (52
+hook input: `~/.claude/projects/-private-tmp-ale-hooks-exp-XXXX/00000000-...jsonl` (52
 lines), plus the subagent's separate transcript at
-`.../c670f163-.../subagents/agent-a97c5bb6077993a17.jsonl` (26 lines, path taken from
+`.../00000000-.../subagents/agent-<id>.jsonl` (26 lines, path taken from
 `agent_transcript_path` on the logged `SubagentStop` event).
 
 - **Where per-message usage lives**: on `assistant`-type transcript entries, at
@@ -406,15 +406,14 @@ transcript excerpts above).
 
 # Harness facts: Pi and Codex (items 9–15)
 
-Scope: this file answers items 9–15 of `task-0-brief.md` only (the "Pi" and "Codex" blocks). Items 1–8 (Claude Code) are out of scope for this file.
+Scope: items 9–15 cover Pi and Codex. Items 1–8 (Claude Code) are in Part 1 above.
 
 Versions verified on:
-- Pi: `pi --version` → `0.86.0`. Package: `@earendil-works/pi-coding-agent`, installed at
-  `~/.nvm/versions/node/v22.23.2/lib/node_modules/@earendil-works/pi-coding-agent`
-  (found via `npm root -g` then the scoped package dir; `readlink -f $(which pi)` resolves to
-  `.../dist/bundle/cli.js` inside the same package).
-- Codex: `codex --version` → `codex-cli 0.155.1`. Binary at
-  `~/.codex/packages/standalone/releases/0.155.1-aarch64-apple-darwin/bin/codex`.
+- Pi: `pi --version` → `0.86.0`. Package: `@earendil-works/pi-coding-agent`, a global npm
+  install (`$(npm root -g)/@earendil-works/pi-coding-agent`; `readlink -f $(which pi)` resolves
+  to `.../dist/bundle/cli.js` inside the same package).
+- Codex: `codex --version` → `codex-cli 0.155.1`. Standalone release
+  binary (`0.155.1-aarch64-apple-darwin`).
 
 No files under `~/.pi`, `~/.codex`, or `~/.claude` were modified. `~/.codex/config.toml` was read only for hook-related key names (`hooks`, `hooks.state.*`); no values were printed except the non-secret `hooks = <redacted-in-this-doc>` presence flag. `~/.codex/hooks.json` was read for its schema (event names, matcher, command)  -  see item 14; nothing in it is a secret. No login was performed, nothing was pushed.
 
@@ -633,7 +632,7 @@ Registration mechanism (from official docs, `https://developers.openai.com/codex
   | When a session or subagent starts | SessionStart, SubagentStart |
   | When the main thread ends | SessionEnd (doesn't run for subagents) |
   ```
-- This machine's actual `~/.codex/hooks.json` (read for schema/key-names only, no secrets  -  content is not sensitive, it's just hook wiring) currently registers:
+- The verifying machine's `~/.codex/hooks.json` (read for schema/key-names only, no secrets  -  content is not sensitive, it's just hook wiring) currently registers:
   ```json
   {
     "hooks": {

@@ -20,7 +20,7 @@ def question(roster: dict, key: str) -> Optional[str]:
 
 
 def state_json(**fields) -> str:
-    """Structured, filtered state (Jev book Rule 9.5): named fields only."""
+    """Structured, filtered state for the judge: named fields only, empty ones dropped."""
     return json.dumps({key: value for key, value in fields.items() if value not in (None, "", [])},
                       sort_keys=True)
 

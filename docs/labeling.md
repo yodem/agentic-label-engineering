@@ -10,9 +10,9 @@ Vote precedence is handled by the merge step. Planner, rule, and judge votes are
 
 Judge modes are shadow by default. A shadow judge records evidence and disagreements, but the planner label remains authoritative unless the roster explicitly changes the mode.
 
-## Jev shadow decisions
+## Judge shadow decisions
 
-Jev records additive shadow votes on ALE decisions. A vote is never applied: labels, lane, `lane_reason`, routing, the monitor requirement, the rejection action and the monitor verdict stay exactly what the planner, dispatcher, run loop or monitor decided. Collection depends on `judge.default` in the roster:
+The judge command ([judge.md](judge.md); Jev is one implementation) records additive shadow votes on ALE decisions. A vote is never applied: labels, lane, `lane_reason`, routing, the monitor requirement, the rejection action and the monitor verdict stay exactly what the planner, dispatcher, run loop or monitor decided. Collection depends on `judge.default` in the roster:
 
 | `judge.default` | Behavior |
 | --- | --- |
@@ -24,7 +24,7 @@ The absent case deliberately differs from `off`: it keeps older rosters and scri
 
 ### Registry
 
-Twelve decision IDs are registered in `ale/decisions.py`. `executor` is deterministic (routing from role and tier) and is never judged, so eleven decisions are judged. Classification decisions are one Choice with an escape option. Verdict-like decisions are never asked as one question: Jev answers two to four narrow yes/no evidence questions (Noul) and code computes the decision with a fixed rule table (Jev book Rule 9.9). Facts that events or labels already hold, such as fix counts, breach kinds and plan dependencies, are computed in code and never asked. Every question text comes from `judge.questions` in the roster; a missing question makes the decision abstain, never a generic question.
+Twelve decision IDs are registered in `ale/decisions.py`. `executor` is deterministic (routing from role and tier) and is never judged, so eleven decisions are judged. Classification decisions are one Choice with an escape option. Verdict-like decisions are never asked as one question: the judge answers two to four narrow yes/no evidence questions (Noul) and code computes the decision with a fixed rule table. Facts that events or labels already hold, such as fix counts, breach kinds and plan dependencies, are computed in code and never asked. Every question text comes from `judge.questions` in the roster; a missing question makes the decision abstain, never a generic question.
 
 | Decision | Asked as | Rule computed in code | Options |
 | --- | --- | --- | --- |
@@ -54,7 +54,7 @@ An outcome is written only when it is known and only after a vote for the same t
 
 ### Statistics
 
-`ale judge-stats --run-dir RUN --roster ROSTER` reads only the run's `events.jsonl`; bake votes are there because `init-run` imported them. It returns `{"decisions": {DECISION: {"vote_count", "adjudicated_count", "uncertain_band": {"inside", "outside", "missing"}, "agreement", "agreement_inside_band", "agreement_outside_band", "latency_ms_median", "grey_zone", "progress", "instability", "bar_met"}}, "bar": {"min_cases", "min_agreement", "max_instability"}, "band": {"noul_uncertain", "choice_uncertain_below"}, "cases": N}`. Agreement compares each vote with the recorded outcome. `latency_ms_median` is the median over individual Jev calls. `grey_zone` is true for `effort`, whose honest answer is often mid-confidence (Jev book chapter 8). Decisions without votes are omitted, not padded. The preregistered bar is 100 adjudicated cases, a lead-selected minimum agreement of 0.8, and maximum instability of 0.10. Meeting it is evidence only: statistics never promote a judge or change an authoritative decision. `ale adjudicate --decision D --task T --value V` records one lead adjudication per task and decision; a second one is refused, and deterministic decisions such as `lane` and `executor` cannot be adjudicated.
+`ale judge-stats --run-dir RUN --roster ROSTER` reads only the run's `events.jsonl`; bake votes are there because `init-run` imported them. It returns `{"decisions": {DECISION: {"vote_count", "adjudicated_count", "uncertain_band": {"inside", "outside", "missing"}, "agreement", "agreement_inside_band", "agreement_outside_band", "latency_ms_median", "grey_zone", "progress", "instability", "bar_met"}}, "bar": {"min_cases", "min_agreement", "max_instability"}, "band": {"noul_uncertain", "choice_uncertain_below"}, "cases": N}`. Agreement compares each vote with the recorded outcome. `latency_ms_median` is the median over individual Jev calls. `grey_zone` is true for `effort`, whose honest answer is often mid-confidence. Decisions without votes are omitted, not padded. The preregistered bar is 100 adjudicated cases, a lead-selected minimum agreement of 0.8, and maximum instability of 0.10. Meeting it is evidence only: statistics never promote a judge or change an authoritative decision. `ale adjudicate --decision D --task T --value V` records one lead adjudication per task and decision; a second one is refused, and deterministic decisions such as `lane` and `executor` cannot be adjudicated.
 
 ## LLM Labelers
 

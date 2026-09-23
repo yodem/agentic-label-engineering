@@ -21,12 +21,12 @@ def test_agent_bundle_and_routing_fixtures():
     for path in sorted(REFS.rglob("*.md")):
         source = path.read_text(encoding="utf-8")
         assert "<<<<<<<" not in source and ">>>>>>>" not in source
-        assert not re.search(r"—|/Users/|@gmail|yonaigross", source)
+        assert not re.search(r"—|/Users/|/home/|@gmail", source)
 
     for path in sorted(AGENTS.rglob("*.md")):
         source = path.read_text(encoding="utf-8")
         assert "<<<<<<<" not in source and ">>>>>>>" not in source
-        assert not re.search(r"—|/Users/|@gmail|yonaigross", source)
+        assert not re.search(r"—|/Users/|/home/|@gmail", source)
         if "_refs" in path.relative_to(AGENTS).parts:
             continue
 

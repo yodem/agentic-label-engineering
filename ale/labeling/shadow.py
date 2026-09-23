@@ -19,7 +19,7 @@ def _choice(row):
 
 
 def band_of(vote: dict) -> str:
-    """Place a vote relative to the Jev book's uncertain band (Rule 9.9).
+    """Place a vote relative to the uncertain band (see ``ale.decisions``).
 
     Evidence votes carry an explicit ``uncertain`` flag (a consulted Noul in
     [0.35, 0.65]); Choice votes are inside the band when confidence < 0.5.

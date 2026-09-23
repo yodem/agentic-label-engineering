@@ -109,14 +109,14 @@ cd mod && bunx tsc --noEmit -p tsconfig.json
 ```sh
 cd mod && bun test                              # pure lib.ts, no early-access types needed
 cd mod && bunx tsc --noEmit -p tsconfig.json     # type-checks register.tsx + lib.ts
-command claude plugin validate ~/dev/agentic-label-engineering   # lists hooked events and every $ call
+command claude plugin validate /path/to/agentic-label-engineering   # lists hooked events and every $ call
 ```
 
-Live test, per the mod book's Chapter 9 tmux recipe:
+Live test in tmux:
 
 ```sh
 env -u CLAUDECODE CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 \
-  command claude --plugin-dir ~/dev/agentic-label-engineering --debug-file /tmp/ale-board.log
+  command claude --plugin-dir /path/to/agentic-label-engineering --debug-file /tmp/ale-board.log
 # in another pane/terminal:
 tmux load-buffer -b ale-board-cmd <(printf '/ale-board\n')
 tmux paste-buffer -b ale-board-cmd -t <session>

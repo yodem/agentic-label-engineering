@@ -5,8 +5,8 @@ This module is pure: no I/O, no subprocesses, no clock. It declares
 * the decision registry (twelve stable IDs; ``executor`` is deterministic and
   therefore never judged, leaving eleven judged decisions),
 * which judged decisions are asked as one Choice and which are computed in code
-  from narrow evidence questions (Jev book Rule 9.9: ask for evidence, compute
-  the verdict in code),
+  from narrow evidence questions (ask the judge for evidence, compute the
+  verdict in code),
 * the rule tables that turn evidence answers plus code-computed facts into a
   decision, and
 * the uncertain band used for routing and statistics.
@@ -116,8 +116,8 @@ RULE_TABLES = {
     ],
 }
 
-# Jev book (CandleKeep cmu8rrf5k3y4dln0ie7g8qwtk) Rule 9.9: a Noul in
-# [0.35, 0.65] or a Choice/Score confidence below 0.5 is uncertain.
+# Uncertain band: a Noul (yes/no probability) in [0.35, 0.65] or a Choice
+# confidence below 0.5 is too close to call and is never treated as agreement.
 NOUL_UNCERTAIN_LOW = 0.35
 NOUL_UNCERTAIN_HIGH = 0.65
 CHOICE_UNCERTAIN_BELOW = 0.5

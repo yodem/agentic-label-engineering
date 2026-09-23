@@ -68,7 +68,7 @@ def test_no_generic_fallback_question_exists_in_the_code():
 
 
 def test_verdict_questions_are_evidence_not_verdicts():
-    """Rule 9.9: no question may start with should / decide whether, or offer actions."""
+    """Questions ask for evidence: none may start with should / decide whether, or offer actions."""
     with open(SHIPPED, encoding="utf-8") as handle:
         questions = json.load(handle)["judge"]["questions"]
     for key in ("large_change", "needs_person", "external_side_effects", "locality",
