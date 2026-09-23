@@ -49,6 +49,10 @@ describe('renderBoard', () => {
     const lines = renderBoard({ ...fixture, boardUrl: 'http://127.0.0.1:1/t/', columns: 80 })
     expect(lines.at(-1)!.map(s => s.text).join('')).toStartWith('board: http://127.0.0.1:1/t/')
   })
+  test('shows the web command in the header when no validated board URL exists', () => {
+    const header = joined(80)[0]
+    expect(header).toContain('web: /ale:board')
+  })
   test('shows last event age and copied run directory in header', () => {
     const lines = renderBoard({ ...fixture, tasks: { T1: { state: 'ready' } }, labels: {}, run: { ...fixture.run, last_event_ts: fixture.nowS - 3 * 3600 }, runPath: '/tmp/copied-run', columns: 100 })
     const header = lines.slice(0, 3).map(l => l.map(s => s.text).join('')).join('\n')

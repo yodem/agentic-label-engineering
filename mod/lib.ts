@@ -465,7 +465,7 @@ export function renderBoard(input: RenderBoardInput): BoardSegment[][] {
   const runTokens = asNumber(input.run.tokens)
   const cost = asNumber(input.run.cost_usd)
   const rows: BoardSegment[][] = [
-    [{ text: `ALE ${runId}  ` }, { text: `■ ${doneLabel}`, color: doneColor, ...(doneColor === 'red' ? { bold: true } : {}) }],
+    [{ text: 'ALE ' }, ...(!input.boardUrl ? [{ text: 'web: /ale:board  ' }] : []), { text: `${runId}  ` }, { text: `■ ${doneLabel}`, color: doneColor, ...(doneColor === 'red' ? { bold: true } : {}) }],
     ...(input.runPath ? [boardLine(`Run directory: ${input.runPath}`, columns)] : []),
     ...(lastEvent > 0 ? [boardLine(`Last event ${formatAge(Math.max(0, input.nowS - lastEvent))} ago`, columns)] : []),
     boardLine(headline, columns),
