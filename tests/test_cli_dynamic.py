@@ -242,7 +242,7 @@ def test_reopen_accepts_allowed_states(tmp_path, initial_state):
     assert "lead repair" in (run / "decisions.md").read_text()
 
 
-@pytest.mark.parametrize("initial_state", ["accepted", "integrated", "planned", "ready", "claimed",
+@pytest.mark.parametrize("initial_state", ["integrated", "planned", "ready", "claimed",
                                             "working", "submitted", "input-required"])
 def test_reopen_refuses_other_states(tmp_path, capsys, initial_state):
     run, roster = _run(tmp_path)

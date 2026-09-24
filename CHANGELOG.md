@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `ale dispatch --spawn` starts executor processes concurrently up to the roster's existing parallel cap while preserving request-ordered output and failure events; monitor spawns remain sequential.
+- `ale reopen` accepts an unintegrated accepted task and returns it to verification, while integrated tasks remain final.
+- `ale verify` run in a task's own worktree records the verified tree, and `ale integrate` refuses (before staging or committing) when the allowed changes differ, until the lead reopens and verifies again. `verify --base` still checks paths against the base ref.
 - Shadow adjudication measures agreement instead of assuming it. Accepting a task now also records a disagreeing Jev vote (`by: disagreement_then_accepted`, `jev_choice`), so `adjudicated_count` counts every accepted case and disagreements no longer sit pending forever. An explicit `ale adjudicate` replaces the automatic record once. A vote on a field left unset still records nothing.
 - `ale judge-stats` adds `disagreement_count` per decision, uses the latest adjudication as a case's truth, and takes `--all-runs [--runs-dir DIR]` to sum every run.
 

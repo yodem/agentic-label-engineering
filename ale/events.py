@@ -169,7 +169,7 @@ def _apply(st: dict, ev: dict, tasks: Dict[str, dict], labels: Dict[str, dict]) 
         if st["state"] not in TERMINAL:
             st.update(state=kind, owner=None)
     elif kind == "reopened":
-        if st["state"] in ("rejected", "failed", "fixing"):
+        if st["state"] in ("rejected", "failed", "fixing", "accepted") and not st.get("integrated"):
             st.update(state="submitted", owner=None, attempt=st["attempt"] + 1, submitted_ts=ts,
                       summary="Reopened: %s" % ev["reason"], evidence=None, waiting_on=None)
             st["breaches_seen"] = [breach for breach in st["breaches_seen"]

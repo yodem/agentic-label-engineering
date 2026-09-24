@@ -1057,6 +1057,41 @@ def _changed_files(cwd: str, base: str) -> List[str]:
     return sorted(set(out))
 
 
+def _task_changed_paths(cwd: str, setup_outputs: List[str]) -> Optional[List[str]]:
+    inside = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], cwd=cwd,
+                            capture_output=True, text=True)
+    if inside.returncode != 0 or inside.stdout.strip() != "true":
+        return None
+    head = subprocess.run(["git", "rev-parse", "--verify", "HEAD"], cwd=cwd,
+                          capture_output=True, text=True)
+    if head.returncode != 0:
+        return None
+    changed = _changed_files(cwd, "HEAD")
+    return [path for path in changed
+            if "__pycache__" not in path and not path.endswith(".pyc")
+            and path != ".ale-setup-done"
+            and not any(fnmatch.fnmatch(path, pattern)
+                        or path.startswith(pattern.rstrip("/") + "/")
+                        for pattern in setup_outputs)]
+
+
+def _task_git_tree(cwd: str, paths: List[str]) -> str:
+    with tempfile.TemporaryDirectory(prefix="ale-index-") as temp_dir:
+        env = os.environ.copy()
+        env["GIT_INDEX_FILE"] = os.path.join(temp_dir, "index")
+        commands = [["git", "read-tree", "HEAD"]]
+        if paths:
+            commands.append(["git", "add", "-A", "--"] +
+                            [":(literal)%s" % path for path in paths])
+        commands.append(["git", "write-tree"])
+        for command in commands:
+            proc = subprocess.run(command, cwd=cwd, env=env, capture_output=True, text=True)
+            if proc.returncode != 0:
+                raise CliError(FAIL, "%s failed: %s" %
+                               (" ".join(command[:2]), proc.stderr.strip()))
+        return proc.stdout.strip()
+
+
 def _fit(evidence: dict) -> None:
     while len(json.dumps(evidence)) > 3000 and any(r["tail"] for r in evidence["results"]):
         for r in evidence["results"]:
@@ -1130,6 +1165,15 @@ def cmd_verify(a) -> int:
         return SIGNOFF
     if a.signoff:
         evidence["signoff"] = a.signoff
+    # Pin what was verified, so integrate can refuse later changes. Only the task's
+    # own recorded worktree is pinned: that is the tree integrate commits from.
+    spawn = _latest_spawn(c, a.task) or {}
+    if spawn.get("worktree") and os.path.realpath(cwd) == os.path.realpath(spawn["worktree"]):
+        worktree_config = label.get("context", {}).get("worktree") or {}
+        task_changed = _task_changed_paths(cwd, worktree_config.get("setup_outputs", []))
+        if task_changed is not None:
+            evidence["tree"] = _task_git_tree(cwd, task_changed)
+            _fit(evidence)
     c.emit("accepted", a.task, None, attempt, evidence=evidence)
     _adjudicate_shadow_acceptance(c, a.task)
     c.render(a.task, owner)
@@ -1457,11 +1501,11 @@ def cmd_reopen(a) -> int:
     c = Ctx(a)
     st = c.task(a.task)
     state = "integrated" if st.get("integrated") else st["state"]
-    if state not in ("rejected", "failed", "fixing"):
+    if state not in ("rejected", "failed", "fixing", "accepted"):
         raise CliError(FAIL, "task %s is %s and cannot be reopened" % (a.task, state))
     reason = a.reason[:TEXT_MAX]
     _emit_outcome(c, a.task, "rejection_action", "reopen", "lead")
-    c.emit("reopened", a.task, None, st["attempt"], reason=reason)
+    c.emit("reopened", a.task, None, st["attempt"], reason=reason, from_state=state)
     _record_decision(c, "Reopened %s: %s" % (a.task, reason))
     return OK
 
@@ -1723,32 +1767,43 @@ def cmd_dispatch(a) -> int:
         for request in requests:
             print(_dispatch_request_json(request))
         return OK
-    for item, request, request_path in spawned_requests:
+    running = {}
+    for index, (item, request, request_path) in enumerate(spawned_requests):
+        if item["kind"] != "monitor":
+            spawn_bin = os.environ.get("ALE_SPAWN_BIN") or os.path.join(plugin_root(), "bin", "ale-spawn")
+            running[index] = subprocess.Popen([spawn_bin, request_path], cwd=request["cwd"],
+                                              text=True, stdout=subprocess.PIPE,
+                                              stderr=subprocess.PIPE, env=os.environ.copy())
+    for index, (item, request, request_path) in enumerate(spawned_requests):
         spawn_bin = os.environ.get("ALE_SPAWN_BIN") or os.path.join(plugin_root(), "bin", "ale-spawn")
         before = _monitor_worktree_snapshot(request["cwd"]) if item["kind"] == "monitor" else None
-        proc = subprocess.run([spawn_bin, request_path],
-                              cwd=request["cwd"], text=True, capture_output=True,
-                              env=os.environ.copy())
-        if proc.stdout:
-            sys.stdout.write(proc.stdout)
-        if proc.stderr:
-            sys.stderr.write(proc.stderr)
-        if proc.returncode != 0:
+        if item["kind"] == "monitor":
+            result = subprocess.run([spawn_bin, request_path], cwd=request["cwd"], text=True,
+                                    capture_output=True, env=os.environ.copy())
+            stdout, stderr, returncode = result.stdout, result.stderr, result.returncode
+        else:
+            stdout, stderr = running[index].communicate()
+            returncode = running[index].returncode
+        if stdout:
+            sys.stdout.write(stdout)
+        if stderr:
+            sys.stderr.write(stderr)
+        if returncode != 0:
             c.emit("released", item["task_id"], None,
                    c.state()["tasks"][item["task_id"]]["attempt"],
-                   reason="spawn failed: %s" % (proc.stderr.strip() or proc.returncode),
+                   reason="spawn failed: %s" % (stderr.strip() or returncode),
                    spawn_key=[item["task_id"], item["kind"], item["trigger_instance"]])
         if item["kind"] == "monitor":
             after = _monitor_worktree_snapshot(request["cwd"])
             wrote_files = _monitor_worktree_changes(before, after)
             if wrote_files:
                 _revert_monitor_worktree_changes(request["cwd"], wrote_files, after)
-            verdict = _extract_monitor_verdict(proc.stdout or "")
+            verdict = _extract_monitor_verdict(stdout or "")
             if wrote_files:
                 verdict = "escalate"
                 verdict_text = "monitor wrote files: %s" % ", ".join(wrote_files)
             else:
-                verdict_text = (proc.stdout or "")[:1500]
+                verdict_text = (stdout or "")[:1500]
             if verdict:
                 c.emit("monitor_verdict", item["task_id"], None,
                        c.state()["tasks"][item["task_id"]]["attempt"],
@@ -1756,7 +1811,7 @@ def cmd_dispatch(a) -> int:
                        text=verdict_text, **({"wrote_files": wrote_files} if wrote_files else {}))
                 if shadow_judge is not None:
                     _emit_vote(c, item["task_id"], _monitor_vote(c, shadow_judge, item["task_id"],
-                                                                 proc.stdout or "", wrote_files), "monitor")
+                                                                 stdout or "", wrote_files), "monitor")
                     _emit_outcome(c, item["task_id"], "monitor_verdict", verdict, "monitor")
     for request in requests:
         if request.get("executor") == "claude-subagent":
@@ -1871,28 +1926,21 @@ def cmd_integrate(a) -> int:
         raise CliError(FAIL, "task %s has no recorded worktree" % a.task)
     if not os.path.isdir(worktree):
         raise CliError(FAIL, "task %s worktree does not exist: %s" % (a.task, worktree))
-    status = subprocess.run(["git", "status", "--porcelain", "-z", "--untracked-files=all"],
-                            cwd=worktree, capture_output=True)
-    if status.returncode != 0:
-        raise CliError(FAIL, "cannot inspect task worktree")
-    changed = []
     worktree_config = c.labels[a.task].get("context", {}).get("worktree") or {}
     setup_outputs = worktree_config.get("setup_outputs", [])
-    records = status.stdout.decode("utf-8", "replace").split("\0")
-    for record in records:
-        if not record:
-            continue
-        path = record[3:] if len(record) >= 4 else ""
-        if (not path or "__pycache__" in path or path.endswith(".pyc")
-                or path == ".ale-setup-done"
-                or any(fnmatch.fnmatch(path, pattern) or path.startswith(pattern.rstrip("/") + "/")
-                       for pattern in setup_outputs)):
-            continue
-        if path not in changed:
-            changed.append(path)
+    changed = _task_changed_paths(worktree, setup_outputs)
+    if changed is None:
+        raise CliError(FAIL, "cannot inspect task worktree")
     outside = V.paths_within(changed, c.labels[a.task].get("context", {}).get("allowed_paths", []))
     if outside:
         raise CliError(FAIL, "changed path outside allowed_paths: %s" % outside[0])
+    # Refuse before staging or committing anything, so a refusal leaves the worktree as it was.
+    expected_tree = (state.get("evidence") or {}).get("tree")
+    if expected_tree:
+        actual_tree = _task_git_tree(worktree, changed)
+        if actual_tree != expected_tree:
+            raise CliError(FAIL, "verified tree %s differs from integration tree %s; "
+                           "run ale reopen and verify again" % (expected_tree, actual_tree))
     if changed:
         added = subprocess.run(["git", "add", "--"] + changed, cwd=worktree,
                                capture_output=True, text=True)

@@ -26,6 +26,6 @@ version of this protocol.
    attempt receives the failure output.
 10. Do not record token usage yourself. The orchestrator or an adapter records usage for the task.
 
-Lead-side verification can use `ale verify --reject "reason"` to record a manual rejection without running acceptance commands. `ale reopen` returns a rejected task to verification; `ale fix` returns it to implementation work. A parent gets at most two fix tasks, and fix tasks cannot be fixed again; escalate further repair to the lead.
+Lead-side verification can use `ale verify --reject "reason"` to record a manual rejection without running acceptance commands. `ale reopen` returns a rejected or accepted-but-unintegrated task to verification; `ale fix` returns a rejection to implementation work. A parent gets at most two fix tasks, and fix tasks cannot be fixed again; escalate further repair to the lead.
 
 `ale dispatch --no-exec` creates and records the task worktree and branch without launching an executor, for work the lead will execute manually.
