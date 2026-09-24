@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.13 (2026-09-24)
 
 - `ale dispatch --spawn` starts executor processes concurrently up to the roster's existing parallel cap while preserving request-ordered output and failure events; monitor spawns remain sequential.
 - `ale reopen` accepts an unintegrated accepted task and returns it to verification, while integrated tasks remain final.

@@ -6,7 +6,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-EXPECTED_VERSION = "0.2.12"
+EXPECTED_VERSION = "0.2.13"
 
 
 def _pyproject_version():

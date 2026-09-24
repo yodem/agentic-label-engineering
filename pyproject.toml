@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agentic-label-engineering"
-version = "0.2.12"
+version = "0.2.13"
 description = "Typed task labels, an append-only board and a zero-LLM watchdog for multi-agent coding work"
 requires-python = ">=3.9"
 dependencies = []
