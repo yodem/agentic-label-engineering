@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Shadow adjudication measures agreement instead of assuming it. Accepting a task now also records a disagreeing Jev vote (`by: disagreement_then_accepted`, `jev_choice`), so `adjudicated_count` counts every accepted case and disagreements no longer sit pending forever. An explicit `ale adjudicate` replaces the automatic record once. A vote on a field left unset still records nothing.
+- `ale judge-stats` adds `disagreement_count` per decision, uses the latest adjudication as a case's truth, and takes `--all-runs [--runs-dir DIR]` to sum every run.
+
 ## 0.2.12 (2026-09-24)
 
 - Installed packages run workers correctly. The wheel now bundles the whole Claude Code plugin (`hooks/`, `.claude-plugin/`, `skills/`, the Mod, `agents/`, `catalog/`, `bin/`), so `claude-headless` workers started from a pip or `uv tool` install load the ALE hooks (path guard, heartbeats, stop gate). Dispatch passes `ALE_IMPORT_ROOT` and `ALE_PYTHON`, so `ale-spawn`, `ale-exec` and `ale-hook` import ALE with the installing interpreter even when its virtualenv is not activated.

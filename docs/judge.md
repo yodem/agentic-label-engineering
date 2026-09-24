@@ -5,8 +5,8 @@ optional and **off by default**: the shipped roster has `judge.default: off`, an
 it unless you turn it on. Everything in ALE works without one.
 
 When it is on, the judge runs in **shadow mode**. It records votes next to the planner's decisions
-and never changes a label, a lane, a route or a verdict. Votes that agree with a label that was later
-accepted become scored cases, and `ale judge-stats` reports whether the judge meets the roster's
+and never changes a label, a lane, a route or a verdict. Every vote on a label that was later accepted
+becomes a scored case, agreeing or not, and `ale judge-stats` reports whether the judge meets the roster's
 `judge.bar`. See [labeling.md](labeling.md) for how votes are collected and adjudicated.
 
 ## Plugging one in

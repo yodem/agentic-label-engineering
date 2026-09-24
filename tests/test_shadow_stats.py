@@ -63,8 +63,9 @@ def test_latency_median_and_effort_grey_zone():
 def test_bar_needs_100_adjudicated_cases_and_both_thresholds():
     def run(count, agree=True):
         votes = [_vote("T%d" % n, "risk", "low", confidence=.9) for n in range(count)]
-        outcomes = [_outcome("T%d" % n, "risk", "low" if agree else "high") for n in range(count)]
-        adjudications = [_outcome("T%d" % n, "risk", "low") for n in range(count)]
+        outcomes = [_outcome("T%d" % n, "risk", "low") for n in range(count)]
+        # An adjudication is the case's truth, so disagreement is set there.
+        adjudications = [_outcome("T%d" % n, "risk", "low" if agree else "high") for n in range(count)]
         return summarize_shadow(votes, outcomes, adjudications, BAR)["decisions"]["risk"]
     assert run(99)["bar_met"] is False and run(99)["progress"]["adjudicated"] == 99
     assert run(100)["bar_met"] is True and run(100)["progress"]["fraction"] == 1.0
@@ -90,6 +91,6 @@ def test_output_shape_is_stable():
     result = summarize_shadow([_vote("T1", "role", "backend", confidence=.9)], [], [], BAR)
     assert set(result) == {"decisions", "bar", "band", "cases"}
     assert set(result["decisions"]["role"]) == {
-        "vote_count", "adjudicated_count", "uncertain_band", "agreement", "agreement_inside_band",
+        "vote_count", "adjudicated_count", "disagreement_count", "uncertain_band", "agreement", "agreement_inside_band",
         "agreement_outside_band", "latency_ms_median", "grey_zone", "progress", "instability", "bar_met"}
     assert result["band"] == {"noul_uncertain": [0.35, 0.65], "choice_uncertain_below": 0.5}

@@ -70,8 +70,16 @@ def summarize_shadow(votes: list, outcomes, adjudications, bar: dict, accepted_t
         for row in outcomes or []:
             outcome_map[_key(row)] = _choice(row)
 
-    adjudicated_keys = set(adjudications) if isinstance(adjudications, dict) else {
-        _key(row) for row in adjudications or []}
+    # The latest adjudication of a case is its truth: an explicit `ale adjudicate`
+    # written after the automatic one at acceptance replaces it.
+    adjudicated_value = {}
+    if isinstance(adjudications, dict):
+        for key, value in adjudications.items():
+            adjudicated_value[key] = value.get("choice", value.get("value")) if isinstance(value, dict) else value
+    else:
+        for row in adjudications or []:
+            adjudicated_value[_key(row)] = _choice(row)
+    adjudicated_keys = set(adjudicated_value)
     track_pending = accepted_tasks is not None
     label_decisions = {"role", "sub", "phase", "model_tier", "risk", "effort", "locality"}
     accepted_tasks = set(accepted_tasks or [])
@@ -79,7 +87,8 @@ def summarize_shadow(votes: list, outcomes, adjudications, bar: dict, accepted_t
     if track_pending:
         for key in grouped:
             run_id, task_id, decision = key
-            if task_id not in accepted_tasks or decision not in label_decisions:
+            if decision not in label_decisions or (
+                    task_id not in accepted_tasks and (run_id, task_id) not in accepted_tasks):
                 continue
             if key not in adjudicated_keys and (task_id, decision) not in adjudicated_keys:
                 pending_by_decision[decision].add(key)
@@ -88,7 +97,7 @@ def summarize_shadow(votes: list, outcomes, adjudications, bar: dict, accepted_t
 
     def item_for(decision):
         return by_decision.setdefault(decision, {
-            "vote_count": 0, "adjudicated_count": 0,
+            "vote_count": 0, "adjudicated_count": 0, "disagreement_count": 0,
             "_agree": {band: [0, 0] for band in BANDS}, "_latency": [],
             "uncertain_band": {band: 0 for band in BANDS}})
 
@@ -97,8 +106,12 @@ def summarize_shadow(votes: list, outcomes, adjudications, bar: dict, accepted_t
         item = item_for(decision)
         expected = outcome_map.get(key, outcome_map.get((task_id, decision)))
         item["vote_count"] += len(items)
-        if key in adjudicated_keys or (task_id, decision) in adjudicated_keys:
+        adjudicated_key = key if key in adjudicated_keys else (task_id, decision)
+        if adjudicated_key in adjudicated_keys:
+            expected = adjudicated_value[adjudicated_key]
             item["adjudicated_count"] += 1
+            if _choice(items[-1]) != expected:
+                item["disagreement_count"] += 1
         for vote in items:
             band = band_of(vote)
             item["uncertain_band"][band] += 1

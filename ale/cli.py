@@ -1136,6 +1136,10 @@ def cmd_verify(a) -> int:
     return OK
 
 
+# Written by `ale verify` on accept. A later explicit `ale adjudicate` overrides them.
+AUTOMATIC_ADJUDICATIONS = ("agreement_then_accepted", "disagreement_then_accepted")
+
+
 def _adjudicate_shadow_acceptance(c: Ctx, task_id: str) -> None:
     if _judge_mode(c.roster or {}) != "shadow":
         return
@@ -1165,14 +1169,19 @@ def _adjudicate_shadow_acceptance(c: Ctx, task_id: str) -> None:
             c.emit("adjudicated", task_id, None, attempt, field=decision, decision=decision,
                    choice=final, value=final, by="agreement_then_accepted",
                    authority="lead", additive=True)
-        elif choice != final:
-            if final is None:
-                options = DECISIONS.options_for_decision(decision, c.roster, label=label)
-                print("adjudicate %s %s: planner=unset jev=%s -> ale adjudicate --task %s --decision %s --value <one of: %s>" %
-                      (task_id, decision, choice, task_id, decision, "|".join(options)), file=sys.stderr)
-            else:
-                print("adjudicate %s %s: planner=%s jev=%s -> ale adjudicate --task %s --decision %s --value %s (or --value %s to side with Jev)" %
-                      (task_id, decision, final, choice, task_id, decision, final, choice), file=sys.stderr)
+        elif final is None:
+            # Nothing was accepted for this field, so there is no truth to record.
+            options = DECISIONS.options_for_decision(decision, c.roster, label=label)
+            print("adjudicate %s %s: planner=unset jev=%s -> ale adjudicate --task %s --decision %s --value <one of: %s>" %
+                  (task_id, decision, choice, task_id, decision, "|".join(options)), file=sys.stderr)
+        else:
+            # The accepted label is the provisional truth, so the disagreement counts
+            # against agreement now instead of waiting on a lead who may never come.
+            c.emit("adjudicated", task_id, None, attempt, field=decision, decision=decision,
+                   choice=final, value=final, by="disagreement_then_accepted", jev_choice=choice,
+                   authority="lead", additive=True)
+            print("adjudicate %s %s: planner=%s jev=%s -> ale adjudicate --task %s --decision %s --value %s (or --value %s to side with Jev) [recorded: planner]" %
+                  (task_id, decision, final, choice, task_id, decision, final, choice), file=sys.stderr)
 
 
 def cmd_check(a) -> int:
@@ -2404,7 +2413,7 @@ def cmd_adjudicate(a) -> int:
                     if event.get("type") == "adjudicated"
                     and event.get("task_id") == a.task
                     and (event.get("decision") or event.get("field")) == a.decision]
-        if already:
+        if any(event.get("by") not in AUTOMATIC_ADJUDICATIONS for event in already):
             raise CliError(FAIL, "decision %s for task %s was already adjudicated" % (a.decision, a.task))
         options = DECISIONS.options_for_decision(a.decision, c.roster, label=c.labels[a.task])
         if a.value not in options:
@@ -2433,15 +2442,24 @@ def cmd_judge_stats(a) -> int:
     The run's events.jsonl is the single source: bake-time votes are imported
     into it by ``init-run --plan``, and every later firing site appends there.
     """
-    run_dir = _resolve_run_dir(a)
-    events = E.read_events(os.path.join(run_dir, "events.jsonl"))
+    if getattr(a, "all_runs", False):
+        runs_dir = a.runs_dir or _default_runs_dir()
+        events = []
+        for name in sorted(os.listdir(runs_dir)) if os.path.isdir(runs_dir) else []:
+            path = os.path.join(runs_dir, name, "events.jsonl")
+            if os.path.isfile(path):
+                events.extend(E.read_events(path))
+    else:
+        run_dir = _resolve_run_dir(a)
+        events = E.read_events(os.path.join(run_dir, "events.jsonl"))
     judged = set(DECISIONS.judged_decision_ids())
     votes = [event for event in events if event.get("type") == "shadow_vote" and event.get("decision") in judged]
     outcomes = [event for event in events
                 if event.get("type") == "decision_outcome" and event.get("decision") in judged]
     adjudications = [event for event in events if event.get("type") == "adjudicated"
                      and (event.get("decision") or event.get("field")) in judged]
-    accepted_tasks = {event.get("task_id") for event in events if event.get("type") == "accepted"}
+    accepted_tasks = {(event.get("run_id") or "", event.get("task_id"))
+                      for event in events if event.get("type") == "accepted"}
     roster = R.load_roster(_resolve_roster(a))
     stats = summarize_shadow(votes, outcomes, adjudications, (roster.get("judge") or {}).get("bar", {}),
                              accepted_tasks)
@@ -3175,7 +3193,9 @@ def _parser() -> argparse.ArgumentParser:
     adj.add_argument("--value")
     adj.add_argument("--by", default="human")
     adj.add_argument("--decision")
-    add("judge-stats", cmd_judge_stats)
+    js = add("judge-stats", cmd_judge_stats)
+    js.add_argument("--all-runs", action="store_true", help="sum every run under --runs-dir (default: the repo's .ale/runs)")
+    js.add_argument("--runs-dir")
     add("paths-within", cmd_paths_within).add_argument("task_id")
     add("doctor", cmd_doctor)
     gp = add("guard-path", cmd_guard_path, task=True)

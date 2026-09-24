@@ -48,23 +48,98 @@ def _events(path):
     return E.read_events(str(path))
 
 
-def test_acceptance_adjudicates_agreement_once_and_lists_disagreement(tmp_path, capsys):
+def _stats(run, roster, capsys, *extra):
+    capsys.readouterr()
+    assert main(["judge-stats", "--run-dir", str(run), "--roster", str(roster), *extra]) == 0
+    return json.loads(capsys.readouterr().out)["decisions"]
+
+
+def test_acceptance_adjudicates_agreement_and_disagreement_once_each(tmp_path, capsys):
     run, roster, events = _setup(tmp_path)
     _vote(events, "role", "backend")
     _vote(events, "risk", "high")
     assert _verify(run, roster) == 0
-    lines = [e for e in _events(events) if e["type"] == "adjudicated"]
-    assert len(lines) == 1
-    assert {k: lines[0][k] for k in ("field", "decision", "choice", "value", "by", "authority", "additive")} == {
+    lines = {e["decision"]: e for e in _events(events) if e["type"] == "adjudicated"}
+    assert set(lines) == {"role", "risk"}
+    keys = ("field", "decision", "choice", "value", "by", "authority", "additive")
+    assert {k: lines["role"][k] for k in keys} == {
         "field": "role", "decision": "role", "choice": "backend", "value": "backend",
         "by": "agreement_then_accepted", "authority": "lead", "additive": True}
-    assert "adjudicate T01 risk: planner=low jev=high -> ale adjudicate --task T01 --decision risk --value low" in capsys.readouterr().err
+    assert {k: lines["risk"][k] for k in keys + ("jev_choice",)} == {
+        "field": "risk", "decision": "risk", "choice": "low", "value": "low",
+        "by": "disagreement_then_accepted", "authority": "lead", "additive": True, "jev_choice": "high"}
+    err = capsys.readouterr().err
+    assert "adjudicate T01 risk: planner=low jev=high -> ale adjudicate --task T01 --decision risk --value low" in err
+    assert "(or --value high to side with Jev) [recorded: planner]" in err
     from argparse import Namespace
     from ale.cli import Ctx, _adjudicate_shadow_acceptance
     _adjudicate_shadow_acceptance(Ctx(Namespace(run_dir=str(run), roster=str(roster), now=5)), "T01")
-    assert len([e for e in _events(events) if e["type"] == "adjudicated"]) == 1
+    assert len([e for e in _events(events) if e["type"] == "adjudicated"]) == 2
     assert _verify(run, roster) == 1  # already accepted; no duplicate event
-    assert len([e for e in _events(events) if e["type"] == "adjudicated"]) == 1
+    assert len([e for e in _events(events) if e["type"] == "adjudicated"]) == 2
+
+
+def test_agreement_counts_one_adjudicated_agreement(tmp_path, capsys):
+    run, roster, events = _setup(tmp_path)
+    _vote(events, "role", "backend")
+    assert _verify(run, roster) == 0
+    role = _stats(run, roster, capsys)["role"]
+    assert (role["adjudicated_count"], role["disagreement_count"], role["agreement"]) == (1, 0, 1.0)
+    assert role["pending_adjudication"] == 0
+
+
+def test_disagreement_is_counted_not_left_pending(tmp_path, capsys):
+    run, roster, events = _setup(tmp_path)
+    _vote(events, "role", "frontend")
+    assert _verify(run, roster) == 0
+    role = _stats(run, roster, capsys)["role"]
+    assert (role["adjudicated_count"], role["disagreement_count"], role["agreement"]) == (1, 1, 0.0)
+    assert role["pending_adjudication"] == 0 and role["bar_met"] is False
+
+
+def test_explicit_adjudication_overrides_the_automatic_one(tmp_path, capsys):
+    run, roster, events = _setup(tmp_path)
+    _vote(events, "role", "frontend")
+    assert _verify(run, roster) == 0
+    assert main(["adjudicate", "--task", "T01", "--decision", "role", "--value", "frontend",
+                 "--run-dir", str(run), "--roster", str(roster), "--now", "5"]) == 0
+    role = _stats(run, roster, capsys)["role"]
+    assert (role["adjudicated_count"], role["disagreement_count"], role["agreement"]) == (1, 0, 1.0)
+    from ale.labeling.truth import truth_for
+    labels = {"T01": json.loads((run / "labels" / "T01.json").read_text())}
+    assert truth_for(_events(events), labels)[("T01", "role")]["value"] == "frontend"
+    # A second explicit adjudication is still refused.
+    assert main(["adjudicate", "--task", "T01", "--decision", "role", "--value", "backend",
+                 "--run-dir", str(run), "--roster", str(roster), "--now", "6"]) == 1
+
+
+def test_null_final_label_records_no_event_and_stays_pending(tmp_path, capsys):
+    run, roster, events = _setup(tmp_path)
+    _vote(events, "sub", "api")
+    assert _verify(run, roster) == 0
+    assert not [e for e in _events(events) if e["type"] == "adjudicated"]
+    assert "planner=unset jev=api" in capsys.readouterr().err
+    assert _stats(run, roster, capsys)["sub"]["pending_adjudication"] == 1
+
+
+def test_judge_stats_all_runs_sums_every_run(tmp_path, capsys):
+    repo = tmp_path / "repo"
+    (repo / ".ale" / "runs").mkdir(parents=True)
+    (repo / ".git").mkdir()
+    for name, choice in (("a", "backend"), ("b", "frontend")):
+        case = tmp_path / name
+        case.mkdir()
+        run, roster, events = _setup(case)
+        _vote(events, "role", choice)
+        assert _verify(run, roster) == 0
+        # Each real run has its own run_id; the copied example shares one.
+        events.write_text(events.read_text().replace('"example-run"', '"run-%s"' % name))
+        shutil.move(str(run), str(repo / ".ale" / "runs" / name))
+    capsys.readouterr()
+    assert main(["judge-stats", "--all-runs", "--runs-dir", str(repo / ".ale" / "runs"),
+                 "--roster", str(roster)]) == 0
+    role = json.loads(capsys.readouterr().out)["decisions"]["role"]
+    assert (role["adjudicated_count"], role["disagreement_count"], role["agreement"]) == (2, 1, 0.5)
 
 
 def test_acceptance_skips_off_legacy_lane_and_failed_votes(tmp_path, capsys):
@@ -85,11 +160,9 @@ def test_acceptance_skips_off_legacy_lane_and_failed_votes(tmp_path, capsys):
     assert capsys.readouterr().err == ""
 
 
-def test_judge_stats_reports_pending_accepted_vote_and_blocks_bar(tmp_path, capsys):
+def test_judge_stats_counts_accepted_disagreement_and_blocks_bar_below_min_cases(tmp_path, capsys):
     run, roster, events = _setup(tmp_path)
     _vote(events, "role", "frontend")
     assert _verify(run, roster) == 0
-    assert main(["judge-stats", "--run-dir", str(run), "--roster", str(roster)]) == 0
-    result = json.loads(capsys.readouterr().out)
-    role = result["decisions"]["role"]
-    assert role["pending_adjudication"] == 1 and role["bar_met"] is False
+    role = _stats(run, roster, capsys)["role"]
+    assert role["pending_adjudication"] == 0 and role["adjudicated_count"] == 1 and role["bar_met"] is False
