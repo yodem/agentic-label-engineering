@@ -17,5 +17,7 @@
   "breach": ["breach", "detail"],
   "usage": ["gen_ai.request.model", "gen_ai.usage.input_tokens", "gen_ai.usage.output_tokens", "usage_source"],
   "decision": ["text"],
-  "monitor_verdict": ["agent_id_minted", "verdict", "text"]
+  "monitor_verdict": ["agent_id_minted", "verdict", "text"],
+  "restack_needed": ["parent", "base_commit"],
+  "restacked": ["parent", "old_base", "new_base"]
 }

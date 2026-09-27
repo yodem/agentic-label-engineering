@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .stack import integrate_blocker
+
 
 def unresolved_fixes(task_id: str, tasks: dict, labels: dict) -> list:
     resolved_states = ("accepted", "rejected", "failed", "canceled")
@@ -37,7 +39,8 @@ def next_actions(state: dict, labels: dict, events: list) -> list:
         if status.get("state") == "submitted" and needs_verification:
             actions.append(("verify", task_id))
         elif status.get("state") == "accepted" and not status.get("integrated") and not is_fix:
-            actions.append(("integrate", task_id))
+            if integrate_blocker(labels, state, events, task_id) is None:
+                actions.append(("integrate", task_id))
         elif status.get("state") in ("rejected", "fixing"):
             if is_fix:
                 continue

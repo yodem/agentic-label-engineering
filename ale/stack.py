@@ -47,3 +47,50 @@ def stack_base(label: dict, run_state: dict) -> Optional[dict]:
     if commit is None:
         return None
     return {"parent": parent, "commit": commit}
+
+
+def current_base(events: List[dict], task_id: str) -> Optional[str]:
+    """The commit a stacked task's branch is built on: the last restack, else the last stacked spawn."""
+    base = None
+    for event in events:
+        if event.get("task_id") != task_id:
+            continue
+        if event.get("type") == "spawned" and event.get("base_commit"):
+            base = event["base_commit"]
+        elif event.get("type") == "restacked" and event.get("new_base"):
+            base = event["new_base"]
+    return base
+
+
+def latest_accepted_commit(events: List[dict], task_id: str) -> Optional[str]:
+    commit = None
+    for event in events:
+        if event.get("task_id") == task_id and event.get("type") == "accepted":
+            value = (event.get("evidence") or {}).get("commit")
+            if value:
+                commit = value
+    return commit
+
+
+def stacked_children(labels: Dict[str, dict], run_state: dict, events: List[dict], parent: str) -> List[str]:
+    """Unintegrated tasks stacked on ``parent`` that were built on one of its commits."""
+    tasks = run_state.get("tasks") or {}
+    return [task_id for task_id in sorted(labels)
+            if stack_parent(labels[task_id]) == parent
+            and not (tasks.get(task_id) or {}).get("integrated")
+            and current_base(events, task_id) is not None]
+
+
+def integrate_blocker(labels: Dict[str, dict], run_state: dict, events: List[dict], task_id: str) -> Optional[str]:
+    """Why a stacked task cannot integrate yet, or None when it can."""
+    parent = stack_parent(labels.get(task_id) or {})
+    base = current_base(events, task_id)
+    if parent is None or base is None:
+        return None
+    if not ((run_state.get("tasks") or {}).get(parent) or {}).get("integrated"):
+        return "integrate %s first" % parent
+    latest = latest_accepted_commit(events, parent)
+    if latest and latest != base:
+        return ("task %s is built on %s but %s was last accepted at %s; run ale restack --task %s"
+                % (task_id, base[:12], parent, latest[:12], task_id))
+    return None

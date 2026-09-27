@@ -16,7 +16,8 @@ TERMINAL = ("accepted", "failed", "canceled")
 _OPEN = ("planned", "released", "rejected")
 _NEEDS_EVIDENCE = ("verified", "accepted", "rejected")
 _AUTHORITY = ("verified", "accepted", "rejected", "failed", "canceled", "lease_expired", "released", "input_answered",
-              "task_added", "label_changed", "label_removed", "spawned", "integrated", "monitor_verdict", "reopened")
+              "task_added", "label_changed", "label_removed", "spawned", "integrated", "monitor_verdict", "reopened",
+              "restack_needed", "restacked")
 _DYNAMIC_EVENT_FIELDS = {
     "task_added": ("label_file", "reason"),
     "label_changed": ("field", "old", "new", "reason"),

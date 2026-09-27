@@ -1552,6 +1552,14 @@ def cmd_reopen(a) -> int:
     _emit_outcome(c, a.task, "rejection_action", "reopen", "lead")
     c.emit("reopened", a.task, None, st["attempt"], reason=reason, from_state=state)
     _record_decision(c, "Reopened %s: %s" % (a.task, reason))
+    if state == "accepted":
+        from .stack import current_base, stacked_children
+        events = E.read_events(c.events_path)
+        run_state = c.state()
+        for child in stacked_children(c.labels, run_state, events, a.task):
+            c.emit("restack_needed", child, None, run_state["tasks"][child]["attempt"],
+                   parent=a.task, base_commit=current_base(events, child))
+            print("restack needed: %s is stacked on %s" % (child, a.task))
     return OK
 
 
@@ -1977,6 +1985,10 @@ def cmd_integrate(a) -> int:
                        (a.task, commit[:7] if commit else "unknown commit"))
     if state.get("state") != "accepted":
         raise CliError(FAIL, "task %s is %s, not accepted" % (a.task, state.get("state")))
+    from .stack import integrate_blocker
+    blocker = integrate_blocker(c.labels, c.state(), E.read_events(c.events_path), a.task)
+    if blocker:
+        raise CliError(FAIL, blocker)
     event = _latest_spawn(c, a.task)
     if event is None or not event.get("branch"):
         raise CliError(FAIL, "task %s has no recorded branch" % a.task)
