@@ -105,7 +105,11 @@ case "$ale_executor" in
             exit 2
         }
         herdr_exec=${ALE_HERDR_EXEC:-$ale_herdr}
-        run_argv python3 "$herdr_exec" start --cwd "$ale_cwd" || exit $?
+        if [ -n "${ALE_HERDR_HOST:-}" ]; then
+            run_argv python3 "$herdr_exec" start --cwd "$ale_cwd" --host "$ALE_HERDR_HOST" || exit $?
+        else
+            run_argv python3 "$herdr_exec" start --cwd "$ale_cwd" || exit $?
+        fi
         run_argv python3 "$herdr_exec" send "$safe_agent" --spec "$ale_prompt"
         ;;
     claude-headless|codex-exec|pi-print)

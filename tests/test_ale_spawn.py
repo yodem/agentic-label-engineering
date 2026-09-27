@@ -85,6 +85,26 @@ def test_herdr_pane_starts_and_sends_with_safe_agent_name(tmp_path):
     assert "agent-id_99" in proc.stdout
 
 
+def test_herdr_pane_passes_host_when_ale_herdr_host_is_set(tmp_path):
+    path = _request(tmp_path, "herdr-pane")
+    herdr = tmp_path / "herdr-exec.py"
+    herdr.write_text("#!/usr/bin/env python3\n")
+    proc = _run(path, {"ALE_HERDR_EXEC": str(herdr), "ALE_HERDR_HOST": "build-box"})
+    assert proc.returncode == 0
+    start = next(line for line in proc.stdout.splitlines() if " start " in line)
+    assert start.endswith("--host build-box")
+
+
+def test_herdr_pane_without_host_passes_no_host_flag(tmp_path):
+    path = _request(tmp_path, "herdr-pane")
+    herdr = tmp_path / "herdr-exec.py"
+    herdr.write_text("#!/usr/bin/env python3\n")
+    env = {"ALE_HERDR_EXEC": str(herdr), "ALE_HERDR_HOST": ""}
+    proc = _run(path, env)
+    assert proc.returncode == 0
+    assert "--host" not in proc.stdout
+
+
 def test_unknown_executor_exits_two(tmp_path):
     proc = _run(_request(tmp_path, "mystery"))
     assert proc.returncode == 2

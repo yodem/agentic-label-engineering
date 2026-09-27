@@ -2222,6 +2222,70 @@ def cmd_doctor(a) -> int:
     return FAIL if problems else OK
 
 
+_HOST_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+
+def _registered_worktrees(checkout: str) -> dict:
+    """``{realpath: branch or None}`` for every worktree of the repository at ``checkout``."""
+    listed = subprocess.run(["git", "worktree", "list", "--porcelain"], cwd=checkout,
+                            capture_output=True, text=True)
+    if listed.returncode != 0:
+        raise CliError(FAIL, "%s is not a git repository: %s" % (checkout, (listed.stderr or "").strip()))
+    registered, current = {}, None
+    for line in listed.stdout.splitlines():
+        if line.startswith("worktree "):
+            current = os.path.realpath(line[9:])
+            registered[current] = None
+        elif line.startswith("branch ") and current is not None:
+            value = line[7:]
+            registered[current] = value[len("refs/heads/"):] if value.startswith("refs/heads/") else value
+    return registered
+
+
+def cmd_register_worktree(a) -> int:
+    from .dispatch import _trigger_instance, mint_agent_id
+
+    c = Ctx(a)
+    c.task(a.task)
+    if a.host is not None and not _HOST_NAME.match(a.host):
+        raise CliError(USAGE, "unsafe --host name: %r" % (a.host,))
+    checkout = os.path.abspath(a.cwd or os.getcwd())
+    path = os.path.abspath(a.path)
+    registered = _registered_worktrees(checkout)
+    real_path = os.path.realpath(path)
+    if real_path not in registered:
+        raise CliError(FAIL, "%s is not a worktree of the repository at %s" % (path, checkout))
+    if registered[real_path] != a.branch:
+        raise CliError(FAIL, "worktree %s is on branch %s, not %s" %
+                       (path, registered[real_path] or "detached", a.branch))
+    base = subprocess.run(["git", "rev-parse", "--verify", "--quiet", a.base + "^{commit}"], cwd=checkout,
+                          capture_output=True, text=True)
+    if base.returncode != 0:
+        raise CliError(FAIL, "base %s is not a commit in %s" % (a.base, checkout))
+    base_commit = base.stdout.strip()
+    ancestor = subprocess.run(["git", "merge-base", "--is-ancestor", base_commit, "refs/heads/" + a.branch],
+                              cwd=checkout, capture_output=True, text=True)
+    if ancestor.returncode != 0:
+        raise CliError(FAIL, "base %s is not an ancestor of branch %s" % (base_commit[:12], a.branch))
+    dispatch_state = _dispatch_state(c)
+    task_state = dispatch_state["tasks"][a.task]
+    label = c.labels[a.task]
+    role = label.get("labels", {}).get("role") or "general"
+    previous = sum(1 for event in E.read_events(c.events_path)
+                   if event.get("type") == "spawned" and event.get("task_id") == a.task)
+    agent_id = mint_agent_id(a.task, "executor", role, previous + 1)
+    instance = _trigger_instance({"kind": "executor", "trigger": "ready"}, a.task, task_state, [])
+    extra = {"agent_id_minted": agent_id, "assignment_kind": "executor", "executor": "external",
+             "model": None, "trigger_instance": instance, "worktree": path, "branch": a.branch,
+             "base_commit": base_commit}
+    if a.host:
+        extra["host"] = a.host
+    c.emit("spawned", a.task, None, task_state["attempt"], pane=None, **extra)
+    print(json.dumps({"task_id": a.task, "agent_id": agent_id, "worktree": path, "branch": a.branch,
+                      "base_commit": base_commit, "host": a.host}, sort_keys=True))
+    return OK
+
+
 def cmd_timeline(a) -> int:
     c = Ctx(a)
     events = E.read_events(c.events_path)
@@ -3352,6 +3416,12 @@ def _parser() -> argparse.ArgumentParser:
     ch.add_argument("--json", action="store_true")
     ch.add_argument("--required", action="store_true")
     add("watchdog", cmd_watchdog)
+    register = add("register-worktree", cmd_register_worktree, task=True)
+    register.add_argument("--path", required=True)
+    register.add_argument("--branch", required=True)
+    register.add_argument("--base", required=True)
+    register.add_argument("--host")
+    register.add_argument("--cwd")
     us = add("usage", cmd_usage, task=True)
     us.add_argument("--agent")
     us.add_argument("--model", required=True)
