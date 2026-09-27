@@ -104,6 +104,14 @@ Use `ale agents list` to inspect the effective catalog and its source. Use
 Project-specific additions belong in `.ale/agents/`; add a roster vocabulary
 entry under `vocab.sub.<role>` as well so the new sub is recognized.
 
+## Deep references
+
+`ALE_REFS_FILE`, or the roster's `refs_file` (a path relative to the roster file), names a JSON object keyed by agent. Lookup tries the catalog key (`backend/api`, `_cross/review`, `general`), then the `<role>/<name>` alias (`_cross/cross-review`), then the domain key (`backend`). Each entry has `title`, `how_to_read`, and `read_first`.
+
+When an agent is resolved, the prompt adds a section headed "Deep reference (read on demand; not pasted)" after the checklist. An agent with no entry gets `- none configured`. Nothing is fetched at render time.
+
+The `ale:agent-handbook` skill builds a handbook from your own document library and writes that refs file.
+
 ## Rule enforcement
 
 Agent rules add to the label's restrictions. `deny_paths` and `deny_tools`

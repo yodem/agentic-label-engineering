@@ -16,7 +16,8 @@ TERMINAL = ("accepted", "failed", "canceled")
 _OPEN = ("planned", "released", "rejected")
 _NEEDS_EVIDENCE = ("verified", "accepted", "rejected")
 _AUTHORITY = ("verified", "accepted", "rejected", "failed", "canceled", "lease_expired", "released", "input_answered",
-              "task_added", "label_changed", "label_removed", "spawned", "integrated", "monitor_verdict", "reopened")
+              "task_added", "label_changed", "label_removed", "spawned", "integrated", "monitor_verdict", "reopened",
+              "restack_needed", "restacked")
 _DYNAMIC_EVENT_FIELDS = {
     "task_added": ("label_file", "reason"),
     "label_changed": ("field", "old", "new", "reason"),
@@ -174,6 +175,11 @@ def _apply(st: dict, ev: dict, tasks: Dict[str, dict], labels: Dict[str, dict]) 
                       summary="Reopened: %s" % ev["reason"], evidence=None, waiting_on=None)
             st["breaches_seen"] = [breach for breach in st["breaches_seen"]
                                    if breach[0] != "attempts_exhausted"]
+    elif kind == "restacked":
+        if st["state"] in ("submitted", "accepted") and not st.get("integrated"):
+            st.update(state="submitted", owner=None, attempt=st["attempt"] + 1, submitted_ts=ts,
+                      summary="Restacked onto %s" % str(ev.get("new_base"))[:12], evidence=None,
+                      waiting_on=None)
     elif kind == "lease_expired":
         if st["state"] in LIVE:
             st.update(state="stale", owner=None)

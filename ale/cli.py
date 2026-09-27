@@ -17,6 +17,7 @@ import time
 import webbrowser
 from typing import List, Optional
 
+from . import __version__
 from . import events as E
 from .herdr_token import token_text
 from . import handoff as H
@@ -40,6 +41,7 @@ from .labeling.shadow import summarize_shadow
 from .labeling import evidence as EV
 from . import decisions as DECISIONS
 from .labeling.judge import CommandJudge, is_mostly_english
+from .labeling import exclude as EXCL
 from .evalharness import corpus as CORPUS
 from .evalharness import goldset as GOLDSET
 from .evalharness import jevrun as JEVRUN
@@ -77,15 +79,27 @@ def _judge_mode(roster: dict) -> str:
     return "off"
 
 
-def _make_judge(roster: dict):
+def _judge_roots(run_dir: Optional[str] = None, plan_path: Optional[str] = None) -> List[str]:
+    """Project roots whose task text a judge call could carry: the cwd's, the run's, the plan's."""
+    roots = [_git_root(os.getcwd())]
+    if run_dir:
+        roots.append(_git_root(run_dir))
+    if plan_path:
+        roots.append(_git_root(os.path.dirname(os.path.abspath(plan_path))))
+    return roots
+
+
+def _make_judge(roster: dict, run_dir: Optional[str] = None, plan_path: Optional[str] = None):
     judge = roster["judge"]
+    if EXCL.any_excluded(roster, _judge_roots(run_dir, plan_path)):
+        return EXCL.ExcludedJudge(judge.get("model"))
     return CommandJudge(judge.get("command") or ["jev-ask"], timeout_s=judge.get("timeout_s", 30),
                         model=judge.get("model"))
 
 
-def _shadow_judge(roster: dict):
+def _shadow_judge(roster: dict, run_dir: Optional[str] = None):
     """A judge for Part B decision votes, or None unless the roster is in shadow mode."""
-    return _make_judge(roster) if _judge_mode(roster) == "shadow" else None
+    return _make_judge(roster, run_dir) if _judge_mode(roster) == "shadow" else None
 
 
 def _vote_fields(vote: dict) -> dict:
@@ -573,7 +587,7 @@ def cmd_init_run(a) -> int:
     rhash = R.roster_hash(c.roster)
     for tid, label in c.labels.items():
         c.emit("labeled", tid, None, 1, labels=label["labels"], roster_hash=rhash)
-    judge = _shadow_judge(c.roster)
+    judge = _shadow_judge(c.roster, c.run_dir)
     if judge is not None:
         _init_run_monitor_votes(c, judge)
     decisions = os.path.join(c.run_dir, "decisions.md")
@@ -1092,6 +1106,33 @@ def _task_git_tree(cwd: str, paths: List[str]) -> str:
         return proc.stdout.strip()
 
 
+def _git_identity_args(cwd: str) -> List[str]:
+    """``-c`` options that fill a missing git identity with ale's, and leave a configured one alone."""
+    args = []
+    for key, fallback in (("user.name", "ale"), ("user.email", "ale@localhost")):
+        found = subprocess.run(["git", "config", "--get", key], cwd=cwd, capture_output=True, text=True)
+        if not found.stdout.strip():
+            args += ["-c", "%s=%s" % (key, fallback)]
+    return args
+
+
+def _commit_task_paths(worktree: str, paths: List[str], message: str) -> str:
+    """Commit ``paths`` in ``worktree`` and return the new HEAD; with no paths, return HEAD unchanged."""
+    if paths:
+        added = subprocess.run(["git", "add", "--"] + paths, cwd=worktree, capture_output=True, text=True)
+        if added.returncode != 0:
+            raise CliError(FAIL, added.stderr.strip() or "git add failed")
+        committed = subprocess.run(["git"] + _git_identity_args(worktree) + ["commit", "-m", message],
+                                   cwd=worktree, capture_output=True, text=True)
+        if committed.returncode != 0:
+            subprocess.run(["git", "reset", "-q", "--"] + paths, cwd=worktree, capture_output=True, text=True)
+            raise CliError(FAIL, committed.stderr.strip() or "git commit failed")
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=worktree, capture_output=True, text=True)
+    if head.returncode != 0:
+        raise CliError(FAIL, head.stderr.strip() or "git rev-parse failed")
+    return head.stdout.strip()
+
+
 def _fit(evidence: dict) -> None:
     while len(json.dumps(evidence)) > 3000 and any(r["tail"] for r in evidence["results"]):
         for r in evidence["results"]:
@@ -1154,7 +1195,7 @@ def cmd_verify(a) -> int:
     c.emit("verified", a.task, None, attempt, evidence=evidence)
     if reason is not None:
         c.emit("rejected", a.task, None, attempt, evidence=evidence, reason=reason)
-        shadow_judge = _shadow_judge(c.roster)
+        shadow_judge = _shadow_judge(c.roster, c.run_dir)
         if shadow_judge is not None:
             _emit_vote(c, a.task, _rejection_vote(c, shadow_judge, a.task, evidence, reason), "run_loop")
         c.render(a.task, owner)
@@ -1173,6 +1214,10 @@ def cmd_verify(a) -> int:
         task_changed = _task_changed_paths(cwd, worktree_config.get("setup_outputs", []))
         if task_changed is not None:
             evidence["tree"] = _task_git_tree(cwd, task_changed)
+            # Commit at accept: the verified tree becomes the task branch tip, so a
+            # dependent task can start from it and integrate only has to merge it.
+            evidence["commit"] = _commit_task_paths(
+                cwd, task_changed, "ale: %s %s" % (a.task, label.get("title", a.task)))
             _fit(evidence)
     c.emit("accepted", a.task, None, attempt, evidence=evidence)
     _adjudicate_shadow_acceptance(c, a.task)
@@ -1507,6 +1552,14 @@ def cmd_reopen(a) -> int:
     _emit_outcome(c, a.task, "rejection_action", "reopen", "lead")
     c.emit("reopened", a.task, None, st["attempt"], reason=reason, from_state=state)
     _record_decision(c, "Reopened %s: %s" % (a.task, reason))
+    if state == "accepted":
+        from .stack import current_base, stacked_children
+        events = E.read_events(c.events_path)
+        run_state = c.state()
+        for child in stacked_children(c.labels, run_state, events, a.task):
+            c.emit("restack_needed", child, None, run_state["tasks"][child]["attempt"],
+                   parent=a.task, base_commit=current_base(events, child))
+            print("restack needed: %s is stacked on %s" % (child, a.task))
     return OK
 
 
@@ -1587,7 +1640,7 @@ def _make_dispatch_request(c: Ctx, due: dict, project_cwd: str, n: int) -> dict:
     plan = worktree_plan(label, c.run_dir, c.run_id)
     request_cwd = project_cwd
     if plan:
-        plan["base"] = (label.get("context", {}).get("worktree") or {}).get("base") or "HEAD"
+        _resolve_plan_base(c, label, plan)
         request_cwd = plan["path"]
     request = spawn_request(label, assignment, c.run_dir, c.run_id, n=n,
                             cwd=request_cwd, worktree=plan, agent=routed_agent)
@@ -1607,6 +1660,18 @@ def _make_dispatch_request(c: Ctx, due: dict, project_cwd: str, n: int) -> dict:
         request["prompt_file"] = render_prompt(
             label, dict(assignment, breach=breach, handoff_path=request["handoff_path"], cwd=request["cwd"]), routed_agent)
     return request
+
+
+def _resolve_plan_base(c: Ctx, label: dict, plan: dict) -> dict:
+    """Set the worktree base: the stack parent's accepted commit, else the label's base or HEAD."""
+    from .stack import stack_base
+
+    stacked = stack_base(label, c.state())
+    if stacked is not None:
+        plan.update(base=stacked["commit"], stack_parent=stacked["parent"], base_commit=stacked["commit"])
+    else:
+        plan["base"] = (label.get("context", {}).get("worktree") or {}).get("base") or "HEAD"
+    return plan
 
 
 def _create_worktree(plan: dict, project_cwd: str) -> None:
@@ -1697,6 +1762,8 @@ def _append_spawned(c: Ctx, due: dict, request: dict, plan: Optional[dict]) -> N
              "trigger_instance": due["trigger_instance"]}
     if plan:
         extra.update({"worktree": plan["path"], "branch": plan["branch"]})
+        if plan.get("stack_parent"):
+            extra.update({"stack_parent": plan["stack_parent"], "base_commit": plan["base_commit"]})
     c.emit("spawned", due["task_id"], None, c.state()["tasks"][due["task_id"]]["attempt"],
            pane=request.get("executor_pane"), **extra)
 
@@ -1708,7 +1775,7 @@ def cmd_dispatch(a) -> int:
     c = Ctx(a)
     c.roster_path = _resolve_roster(a)
     # Executor routing is deterministic from tier and is never judged.
-    shadow_judge = (_shadow_judge(c.roster)
+    shadow_judge = (_shadow_judge(c.roster, c.run_dir)
                     if any(event.get("type") == "run_started" for event in E.read_events(c.events_path))
                     else None)
     project_cwd = os.path.abspath(a.cwd or os.getcwd())
@@ -1736,7 +1803,7 @@ def cmd_dispatch(a) -> int:
                     label = c.labels[item["task_id"]]
                     plan = worktree_plan(label, c.run_dir, c.run_id)
                     if plan:
-                        plan["base"] = (label.get("context", {}).get("worktree") or {}).get("base") or "HEAD"
+                        _resolve_plan_base(c, label, plan)
                         parent_spawn = _latest_spawn(c, item["task_id"])
                         reuses_parent = bool(label.get("fixes") and parent_spawn and parent_spawn.get("worktree"))
                         if not reuses_parent:
@@ -1746,7 +1813,7 @@ def cmd_dispatch(a) -> int:
                 label = c.labels[item["task_id"]]
                 plan = worktree_plan(label, c.run_dir, c.run_id)
                 if plan:
-                    plan["base"] = (label.get("context", {}).get("worktree") or {}).get("base") or "HEAD"
+                    _resolve_plan_base(c, label, plan)
                     parent_spawn = _latest_spawn(c, item["task_id"])
                     reuses_parent = bool(label.get("fixes") and parent_spawn and parent_spawn.get("worktree"))
                     if not reuses_parent:
@@ -1918,6 +1985,10 @@ def cmd_integrate(a) -> int:
                        (a.task, commit[:7] if commit else "unknown commit"))
     if state.get("state") != "accepted":
         raise CliError(FAIL, "task %s is %s, not accepted" % (a.task, state.get("state")))
+    from .stack import integrate_blocker
+    blocker = integrate_blocker(c.labels, c.state(), E.read_events(c.events_path), a.task)
+    if blocker:
+        raise CliError(FAIL, blocker)
     event = _latest_spawn(c, a.task)
     if event is None or not event.get("branch"):
         raise CliError(FAIL, "task %s has no recorded branch" % a.task)
@@ -1931,35 +2002,39 @@ def cmd_integrate(a) -> int:
     changed = _task_changed_paths(worktree, setup_outputs)
     if changed is None:
         raise CliError(FAIL, "cannot inspect task worktree")
-    outside = V.paths_within(changed, c.labels[a.task].get("context", {}).get("allowed_paths", []))
+    allowed = c.labels[a.task].get("context", {}).get("allowed_paths", [])
+    outside = V.paths_within(changed, allowed)
     if outside:
         raise CliError(FAIL, "changed path outside allowed_paths: %s" % outside[0])
-    # Refuse before staging or committing anything, so a refusal leaves the worktree as it was.
-    expected_tree = (state.get("evidence") or {}).get("tree")
-    if expected_tree:
-        actual_tree = _task_git_tree(worktree, changed)
-        if actual_tree != expected_tree:
+    checkout = os.path.abspath(a.cwd or os.getcwd())
+    evidence = state.get("evidence") or {}
+    expected_tree = evidence.get("tree")
+    if evidence.get("commit"):
+        # Committed at accept: nothing to stage. The tip must still be the verified tree.
+        tip_tree = subprocess.run(["git", "rev-parse", "HEAD^{tree}"], cwd=worktree,
+                                  capture_output=True, text=True).stdout.strip()
+        if changed or (expected_tree and tip_tree != expected_tree):
+            actual_tree = _task_git_tree(worktree, changed) if changed else tip_tree
             raise CliError(FAIL, "verified tree %s differs from integration tree %s; "
                            "run ale reopen and verify again" % (expected_tree, actual_tree))
-    if changed:
-        added = subprocess.run(["git", "add", "--"] + changed, cwd=worktree,
-                               capture_output=True, text=True)
-        if added.returncode != 0:
-            raise CliError(FAIL, added.stderr.strip() or "git add failed")
-        identity_name = subprocess.run(["git", "config", "--get", "user.name"], cwd=worktree,
-                                       capture_output=True, text=True)
-        identity_email = subprocess.run(["git", "config", "--get", "user.email"], cwd=worktree,
-                                        capture_output=True, text=True)
-        commit_command = ["git"]
-        if not identity_name.stdout.strip():
-            commit_command += ["-c", "user.name=ale"]
-        if not identity_email.stdout.strip():
-            commit_command += ["-c", "user.email=ale@localhost"]
-        commit_command += ["commit", "-m", "ale: %s %s" % (a.task, c.labels[a.task].get("title", a.task))]
-        committed = subprocess.run(commit_command, cwd=worktree, capture_output=True, text=True)
-        if committed.returncode != 0:
-            raise CliError(FAIL, committed.stderr.strip() or "git commit failed")
-    checkout = os.path.abspath(a.cwd or os.getcwd())
+        listed_files = subprocess.run(["git", "diff", "--name-only", "HEAD..." + event["branch"]],
+                                      cwd=checkout, capture_output=True, text=True)
+        if listed_files.returncode != 0:
+            raise CliError(FAIL, listed_files.stderr.strip() or "git diff failed")
+        changed = sorted(line for line in listed_files.stdout.splitlines() if line)
+        outside = V.paths_within(changed, allowed)
+        if outside:
+            raise CliError(FAIL, "committed path outside allowed_paths: %s" % outside[0])
+    else:
+        # Refuse before staging or committing anything, so a refusal leaves the worktree as it was.
+        if expected_tree:
+            actual_tree = _task_git_tree(worktree, changed)
+            if actual_tree != expected_tree:
+                raise CliError(FAIL, "verified tree %s differs from integration tree %s; "
+                               "run ale reopen and verify again" % (expected_tree, actual_tree))
+        if changed:
+            _commit_task_paths(worktree, changed,
+                               "ale: %s %s" % (a.task, c.labels[a.task].get("title", a.task)))
     base_status = subprocess.run(["git", "status", "--porcelain"], cwd=checkout,
                                  capture_output=True, text=True)
     if base_status.returncode != 0:
@@ -1989,6 +2064,50 @@ def cmd_integrate(a) -> int:
                              capture_output=True, text=True)
     if deleted.returncode != 0:
         print(deleted.stderr.strip() or "git branch delete failed", file=sys.stderr)
+    return OK
+
+
+def cmd_restack(a) -> int:
+    from .stack import current_base, latest_accepted_commit, stack_parent
+
+    c = Ctx(a)
+    st = c.task(a.task)
+    if st.get("integrated"):
+        raise CliError(FAIL, "task %s is already integrated" % a.task)
+    if st["state"] not in ("submitted", "accepted"):
+        raise CliError(FAIL, "task %s is %s; restack it once it is submitted or accepted" % (a.task, st["state"]))
+    events = E.read_events(c.events_path)
+    parent = stack_parent(c.labels[a.task])
+    old = current_base(events, a.task)
+    if parent is None or old is None:
+        raise CliError(FAIL, "task %s is not stacked" % a.task)
+    parent_state = c.state()["tasks"].get(parent, {})
+    new = latest_accepted_commit(events, parent)
+    if parent_state.get("state") != "accepted" or not new:
+        raise CliError(FAIL, "parent %s is %s; verify it before restacking %s" %
+                       (parent, parent_state.get("state"), a.task))
+    if new == old:
+        print("%s is already built on %s" % (a.task, new[:12]))
+        return OK
+    spawn = _latest_spawn(c, a.task) or {}
+    worktree = spawn.get("worktree")
+    if not worktree or not os.path.isdir(worktree):
+        raise CliError(FAIL, "task %s worktree does not exist: %s" % (a.task, worktree))
+    dirty = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"], cwd=worktree,
+                           capture_output=True, text=True)
+    if dirty.returncode != 0 or dirty.stdout.strip():
+        raise CliError(FAIL, "task %s worktree has uncommitted changes; verify it before restacking" % a.task)
+    rebase = subprocess.run(["git"] + _git_identity_args(worktree) + ["rebase", "--onto", new, old],
+                            cwd=worktree, capture_output=True, text=True)
+    if rebase.returncode != 0:
+        subprocess.run(["git", "rebase", "--abort"], cwd=worktree, capture_output=True, text=True)
+        detail = (rebase.stderr or rebase.stdout).strip().splitlines()
+        text = "restack onto %s failed and was aborted: %s" % (new[:12], (detail[-1] if detail else "rebase failed"))
+        c.emit("note", a.task, None, st["attempt"], lead=True, text=text[:TEXT_MAX])
+        raise CliError(FAIL, text)
+    head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=worktree, text=True).strip()
+    c.emit("restacked", a.task, None, st["attempt"], parent=parent, old_base=old, new_base=new, head=head)
+    print("restacked %s onto %s; verify it again" % (a.task, new[:12]))
     return OK
 
 
@@ -2031,6 +2150,21 @@ def cmd_remove(a) -> int:
     if st.get("state") not in ("planned", "ready", "released", "rejected"):
         raise CliError(FAIL, "task %s is %s and cannot be removed" % (a.task, st.get("state")))
     c.emit("label_removed", a.task, None, st.get("attempt"), reason=a.reason[:TEXT_MAX])
+    return OK
+
+
+def cmd_evidence(a) -> int:
+    from .evidence import render
+
+    c = Ctx(a)
+    try:
+        text = render(a.task_id, c.labels.get(a.task_id) or {}, c.task(a.task_id))
+    except ValueError as exc:
+        raise CliError(FAIL, str(exc))
+    if a.out:
+        H.write_atomic(a.out, text)
+    else:
+        sys.stdout.write(text)
     return OK
 
 
@@ -2086,6 +2220,70 @@ def cmd_doctor(a) -> int:
     for p in problems:
         print(p, file=sys.stderr)
     return FAIL if problems else OK
+
+
+_HOST_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+
+def _registered_worktrees(checkout: str) -> dict:
+    """``{realpath: branch or None}`` for every worktree of the repository at ``checkout``."""
+    listed = subprocess.run(["git", "worktree", "list", "--porcelain"], cwd=checkout,
+                            capture_output=True, text=True)
+    if listed.returncode != 0:
+        raise CliError(FAIL, "%s is not a git repository: %s" % (checkout, (listed.stderr or "").strip()))
+    registered, current = {}, None
+    for line in listed.stdout.splitlines():
+        if line.startswith("worktree "):
+            current = os.path.realpath(line[9:])
+            registered[current] = None
+        elif line.startswith("branch ") and current is not None:
+            value = line[7:]
+            registered[current] = value[len("refs/heads/"):] if value.startswith("refs/heads/") else value
+    return registered
+
+
+def cmd_register_worktree(a) -> int:
+    from .dispatch import _trigger_instance, mint_agent_id
+
+    c = Ctx(a)
+    c.task(a.task)
+    if a.host is not None and not _HOST_NAME.match(a.host):
+        raise CliError(USAGE, "unsafe --host name: %r" % (a.host,))
+    checkout = os.path.abspath(a.cwd or os.getcwd())
+    path = os.path.abspath(a.path)
+    registered = _registered_worktrees(checkout)
+    real_path = os.path.realpath(path)
+    if real_path not in registered:
+        raise CliError(FAIL, "%s is not a worktree of the repository at %s" % (path, checkout))
+    if registered[real_path] != a.branch:
+        raise CliError(FAIL, "worktree %s is on branch %s, not %s" %
+                       (path, registered[real_path] or "detached", a.branch))
+    base = subprocess.run(["git", "rev-parse", "--verify", "--quiet", a.base + "^{commit}"], cwd=checkout,
+                          capture_output=True, text=True)
+    if base.returncode != 0:
+        raise CliError(FAIL, "base %s is not a commit in %s" % (a.base, checkout))
+    base_commit = base.stdout.strip()
+    ancestor = subprocess.run(["git", "merge-base", "--is-ancestor", base_commit, "refs/heads/" + a.branch],
+                              cwd=checkout, capture_output=True, text=True)
+    if ancestor.returncode != 0:
+        raise CliError(FAIL, "base %s is not an ancestor of branch %s" % (base_commit[:12], a.branch))
+    dispatch_state = _dispatch_state(c)
+    task_state = dispatch_state["tasks"][a.task]
+    label = c.labels[a.task]
+    role = label.get("labels", {}).get("role") or "general"
+    previous = sum(1 for event in E.read_events(c.events_path)
+                   if event.get("type") == "spawned" and event.get("task_id") == a.task)
+    agent_id = mint_agent_id(a.task, "executor", role, previous + 1)
+    instance = _trigger_instance({"kind": "executor", "trigger": "ready"}, a.task, task_state, [])
+    extra = {"agent_id_minted": agent_id, "assignment_kind": "executor", "executor": "external",
+             "model": None, "trigger_instance": instance, "worktree": path, "branch": a.branch,
+             "base_commit": base_commit}
+    if a.host:
+        extra["host"] = a.host
+    c.emit("spawned", a.task, None, task_state["attempt"], pane=None, **extra)
+    print(json.dumps({"task_id": a.task, "agent_id": agent_id, "worktree": path, "branch": a.branch,
+                      "base_commit": base_commit, "host": a.host}, sort_keys=True))
+    return OK
 
 
 def cmd_timeline(a) -> int:
@@ -2223,7 +2421,7 @@ def cmd_label(a) -> int:
 
     mode = "off" if a.no_judge else _judge_mode(roster)
     # legacy keeps the pre-Part-B cascade judge; only shadow mode records decision votes.
-    judge = _make_judge(roster) if mode in ("legacy", "shadow") else None
+    judge = _make_judge(roster, run_dir) if mode in ("legacy", "shadow") else None
     collect = mode == "shadow"
 
     total_votes = 0
@@ -2749,8 +2947,12 @@ def _plan_existing_labels(text: str) -> dict:
     return {label["task_id"]: label for _, label in extract_blocks(text)}
 
 
-def _plan_labels(text: str, path: str, run_id: str, roster: dict, no_judge: bool, collect: bool = False):
-    """Bake labels. ``collect`` (shadow mode only) adds the Part B decision votes."""
+def _plan_labels(text: str, path: str, run_id: str, roster: dict, no_judge: bool, collect: bool = False,
+                 stack: bool = False):
+    """Bake labels. ``collect`` (shadow mode only) adds the Part B decision votes.
+
+    ``stack`` marks every per-task-worktree task with exactly one dependency as stacked.
+    """
     from .bake import skeleton_label
     from .planparse import parse_plan
 
@@ -2758,7 +2960,7 @@ def _plan_labels(text: str, path: str, run_id: str, roster: dict, no_judge: bool
     existing = _plan_existing_labels(text)
     judge = None
     if not no_judge and (roster.get("judge") or {}).get("plugin") is not None:
-        judge = _make_judge(roster)
+        judge = _make_judge(roster, plan_path=path)
     collect = collect and judge is not None
     bake_id = hashlib.sha256(("%s:%s:%s" % (os.path.abspath(path), time.time(), os.getpid()))
                              .encode("utf-8")).hexdigest()[:12]
@@ -2834,6 +3036,10 @@ def _plan_labels(text: str, path: str, run_id: str, roster: dict, no_judge: bool
             for field in ("spec_path", "pointers"):
                 if field in old:
                     label["context"][field] = old[field]
+        worktree = label["context"].get("worktree") or {}
+        if (stack and len(label["context"].get("depends_on", [])) == 1
+                and worktree.get("mode") == "per_task"):
+            label["context"]["worktree"] = dict(worktree, stack=True)
         labels[task["task_id"]] = label
         task_text[task["task_id"]] = task.get("body", "")
         if collect:
@@ -2952,7 +3158,7 @@ def cmd_plan_bake(a) -> int:
         validate_compact_blocks(text)
         labels, shadow = _plan_labels(text, a.plan_path, _plan_run_id(a.plan_path, a.run_id),
                                       roster, not judge_enabled or shadow_error is not None,
-                                      collect=mode == "shadow")
+                                      collect=mode == "shadow", stack=a.stack)
         baked = bake(text, labels)
     except (PlanParseError, ValueError) as exc:
         raise CliError(FAIL, str(exc))
@@ -3088,7 +3294,7 @@ def cmd_init_run_plan(a) -> int:
         c.emit("labeled", task_id, None, 1, labels=label["labels"], roster_hash=rhash)
     if _judge_mode(c.roster) == "shadow":
         _import_bake_votes(c, a.plan)
-        judge = _shadow_judge(c.roster)
+        judge = _shadow_judge(c.roster, c.run_dir)
         if judge is not None:
             from .planparse import parse_plan
             with open(a.plan, encoding="utf-8") as handle:
@@ -3108,6 +3314,7 @@ def _parser() -> argparse.ArgumentParser:
     common.add_argument("--now")
     common.add_argument("--run-id")
     p = argparse.ArgumentParser(prog="ale")
+    p.add_argument("--version", action="version", version="ale %s" % __version__)
     sub = p.add_subparsers(dest="cmd")
 
     def add(name, fn, *, task=False, agent=False):
@@ -3151,6 +3358,8 @@ def _parser() -> argparse.ArgumentParser:
     plan_bake.add_argument("--no-judge", action="store_true")
     plan_bake.add_argument("--write", action="store_true")
     plan_bake.add_argument("--roster")
+    plan_bake.add_argument("--stack", action="store_true",
+                           help="stack every per-task worktree task that has exactly one dependency")
     plan_compile = plan_sub.add_parser("compile")
     plan_compile.set_defaults(fn=cmd_plan_compile)
     plan_compile.add_argument("plan_path")
@@ -3165,6 +3374,7 @@ def _parser() -> argparse.ArgumentParser:
     dispatch.add_argument("--cwd")
     integrate = add("integrate", cmd_integrate, task=True)
     integrate.add_argument("--cwd")
+    add("restack", cmd_restack, task=True)
     add("status", cmd_status).add_argument("--json", action="store_true")
     board = add("board", cmd_board)
     board.add_argument("--open", action="store_true")
@@ -3206,6 +3416,12 @@ def _parser() -> argparse.ArgumentParser:
     ch.add_argument("--json", action="store_true")
     ch.add_argument("--required", action="store_true")
     add("watchdog", cmd_watchdog)
+    register = add("register-worktree", cmd_register_worktree, task=True)
+    register.add_argument("--path", required=True)
+    register.add_argument("--branch", required=True)
+    register.add_argument("--base", required=True)
+    register.add_argument("--host")
+    register.add_argument("--cwd")
     us = add("usage", cmd_usage, task=True)
     us.add_argument("--agent")
     us.add_argument("--model", required=True)
@@ -3245,6 +3461,9 @@ def _parser() -> argparse.ArgumentParser:
     js.add_argument("--all-runs", action="store_true", help="sum every run under --runs-dir (default: the repo's .ale/runs)")
     js.add_argument("--runs-dir")
     add("paths-within", cmd_paths_within).add_argument("task_id")
+    evidence = add("evidence", cmd_evidence)
+    evidence.add_argument("task_id")
+    evidence.add_argument("--out")
     add("doctor", cmd_doctor)
     gp = add("guard-path", cmd_guard_path, task=True)
     gp.add_argument("--path", required=True)

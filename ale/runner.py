@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .stack import integrate_blocker, needs_restack
+
 
 def unresolved_fixes(task_id: str, tasks: dict, labels: dict) -> list:
     resolved_states = ("accepted", "rejected", "failed", "canceled")
@@ -24,7 +26,8 @@ def next_actions(state: dict, labels: dict, events: list) -> list:
                                       if event.get("task_id") == task_id and event.get("type") == "relabeled"
                                       and event.get("field") == "acceptance"), default=-1)
         last_reopened = max((index for index, event in enumerate(events)
-                             if event.get("task_id") == task_id and event.get("type") == "reopened"), default=-1)
+                             if event.get("task_id") == task_id
+                             and event.get("type") in ("reopened", "restacked")), default=-1)
         last_rejection = max((index for index, event in enumerate(events)
                               if event.get("task_id") == task_id and event.get("type") == "rejected"), default=-1)
         last_fix_accept = max((index for index, event in enumerate(events)
@@ -37,7 +40,10 @@ def next_actions(state: dict, labels: dict, events: list) -> list:
         if status.get("state") == "submitted" and needs_verification:
             actions.append(("verify", task_id))
         elif status.get("state") == "accepted" and not status.get("integrated") and not is_fix:
-            actions.append(("integrate", task_id))
+            if needs_restack(labels, state, events, task_id):
+                actions.append(("restack", task_id))
+            elif integrate_blocker(labels, state, events, task_id) is None:
+                actions.append(("integrate", task_id))
         elif status.get("state") in ("rejected", "fixing"):
             if is_fix:
                 continue

@@ -42,6 +42,8 @@ ale --help
 uv tool install git+https://github.com/yodem/agentic-label-engineering.git   # alternative
 ```
 
+`ale --version` prints the installed version.
+
 The package bundles the whole plugin (agent catalog, hooks, launchers), so it works outside a checkout,
 and workers it starts load the same hooks as the Claude Code plugin.
 To hack on ALE itself, install from a clone with `pip install -e .` (see [CONTRIBUTING.md](CONTRIBUTING.md)).
@@ -176,6 +178,7 @@ work, and opens up to two focused fix tasks per rejection. Watch it with `ale st
   rendered views for humans and successor agents.
 - **Lease**: a claim lives while heartbeats arrive. The watchdog releases dead claims.
 - **Completion barrier**: only `ale verify` writes `accepted`, after running the acceptance commands itself.
+- **Stacked tasks**: a task with one dependency can start from that dependency's accepted commit. See [docs/label-layer.md](docs/label-layer.md).
 - **Event authorship**: system events (`verified`, `accepted`, `rejected`, `failed`, `canceled`,
   `lease_expired`, `released`, `input_answered`) are applied only when written with no agent id.
   Executor events (`claim`, `heartbeat`, `submit`, `input-required`, `note`) must come from
@@ -192,7 +195,7 @@ The roster maps each `(role, model_tier)` to an executor. `bin/ale-spawn` launch
 | `codex-exec` | `codex exec --json` wrapped by `bin/ale-exec` | Codex CLI |
 | `pi-print` | `pi --mode json -p` wrapped by `bin/ale-exec` | Pi CLI |
 | `claude-subagent` | an in-session subagent the lead starts | a Claude Code session |
-| `herdr-pane` | a visible terminal pane | a launcher script you supply in `ALE_HERDR_EXEC` with `start --cwd DIR` and `send AGENT --spec FILE` subcommands |
+| `herdr-pane` | a visible terminal pane | a launcher script you supply in `ALE_HERDR_EXEC` with `start --cwd DIR` and `send AGENT --spec FILE` subcommands. The launcher also receives `--host NAME` on `start` when `ALE_HERDR_HOST` is set. |
 
 The shipped roster uses `claude-headless` and `codex-exec` only.
 

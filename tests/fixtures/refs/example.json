@@ -1,0 +1,11 @@
+{
+  "backend": {"title": "Agent Handbook, Part backend", "how_to_read": "store get handbook:20", "read_first": "store get handbook:2"},
+  "backend/api": {"title": "Agent Handbook, Part backend, chapter backend/api", "how_to_read": "store get handbook:22", "read_first": "store get handbook:2"},
+  "frontend": {"title": "Agent Handbook, Part frontend", "how_to_read": "store get handbook:40", "read_first": "store get handbook:2"},
+  "devops": {"title": "Agent Handbook, Part devops", "how_to_read": "store get handbook:60", "read_first": "store get handbook:2"},
+  "test": {"title": "Agent Handbook, Part test", "how_to_read": "store get handbook:80", "read_first": "store get handbook:2"},
+  "docs": {"title": "Agent Handbook, Part docs", "how_to_read": "store get handbook:100", "read_first": "store get handbook:2"},
+  "_cross": {"title": "Agent Handbook, Part cross", "how_to_read": "store get handbook:120", "read_first": "store get handbook:2"},
+  "_cross/review": {"title": "Agent Handbook, Part cross, chapter _cross/review", "how_to_read": "store get handbook:124", "read_first": "store get handbook:2"},
+  "general": {"title": "Agent Handbook, Part general", "how_to_read": "store get handbook:140", "read_first": "store get handbook:2"}
+}

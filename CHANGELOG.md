@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.14 (2026-09-27)
+
+- Stacked tasks. `context.worktree.stack: true` (or `ale plan bake --stack`) lets a task with one dependency start from that dependency's accepted commit instead of waiting for integration. `ale verify` in a task's own worktree now commits the verified tree (`ale: <task> <title>`, `evidence.commit`), and `ale integrate` merges that tip after checking it still matches `evidence.tree`. Integrate enforces parent-first order; reopening an accepted parent emits `restack_needed`, and `ale restack --task T` rebases the child onto the parent's new commit (`restacked`) and sends it back to verification. `ale run` follows the same order.
+- `ale evidence TASK [--out FILE]` renders a deterministic requirement-to-evidence markdown table.
+- `ale register-worktree` records an external or remote worktree as the task's own (`spawned` with `executor: external`, optional `host`); `bin/ale-spawn` passes `--host "$ALE_HERDR_HOST"` to a herdr launcher.
+- Deep references: `ALE_REFS_FILE` or roster `refs_file` maps agents to handbook entries, rendered in the prompt as "Deep reference (read on demand; not pasted)". The new `ale:agent-handbook` skill builds such a handbook from your own library.
+- Roster `judge.exclude_paths` makes every judge and decision vote abstain (`excluded`) for matching project roots, with no judge call.
+- `ale --version`.
+
 ## 0.2.13 (2026-09-24)
 
 - `ale dispatch --spawn` starts executor processes concurrently up to the roster's existing parallel cap while preserving request-ordered output and failure events; monitor spawns remain sequential.

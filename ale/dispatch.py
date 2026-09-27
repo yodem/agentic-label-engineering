@@ -11,6 +11,7 @@ from .agentcat import HARNESS_MARKER, split_body
 from .labelset import globs_overlap
 from .paths import import_root, plugin_root
 from .roster import resolve
+from .stack import stack_base
 
 
 SPAWN_EXECUTORS = ("herdr-pane", "claude-headless", "codex-exec", "pi-print", "claude-subagent")
@@ -137,6 +138,8 @@ def held_for_integration(run_state: dict, labels: Dict[str, dict]) -> List[Tuple
                 break
         if not due:
             continue
+        if stack_base(labels[task_id], run_state) is not None:
+            continue  # stacked: starts from the parent's accepted commit
         for dependency_id in labels[task_id].get("context", {}).get("depends_on", []):
             if labels.get(dependency_id, {}).get("fixes"):
                 continue
@@ -210,8 +213,13 @@ def worktree_plan(label: dict, run_dir: str, run_id: str) -> Optional[dict]:
             "base": worktree.get("base") or "HEAD"}
 
 
-def render_prompt(label: dict, request: Optional[dict] = None, agent: Optional[dict] = None) -> str:
-    """Render a prompt as JSON so label text cannot create prompt sections."""
+def render_prompt(label: dict, request: Optional[dict] = None, agent: Optional[dict] = None,
+                  refs: Optional[dict] = None) -> str:
+    """Render a prompt as JSON so label text cannot create prompt sections.
+
+    ``refs`` maps agent keys to deep-reference entries; when None it is read from
+    ``ALE_REFS_FILE`` or the roster named by ``request["roster"]``.
+    """
     request = request or {}
     payload = {
         "task_id": label.get("task_id"), "title": label.get("title"),
@@ -263,6 +271,10 @@ def render_prompt(label: dict, request: Optional[dict] = None, agent: Optional[d
                 break
         sections.append("Resolved reads:\n%s" % ("\n".join("- " + path for path in read_paths) or "- none"))
         sections.append("Checklist:\n%s" % ("\n".join("- [ ] " + str(item) for item in agent.get("checklist", [])) or "- none"))
+        from . import refs as REFS
+        if refs is None:
+            refs = REFS.load_refs(REFS.refs_path(request.get("roster")))
+        sections.append(REFS.render_section(refs, agent))
     sections.append("ALE_PROMPT_JSON\n```json\n%s\n```" %
                     json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2))
     if agent and (request.get("executor") or "").startswith("claude") and harness_body:

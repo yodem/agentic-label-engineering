@@ -20,7 +20,7 @@ def pytest_configure(config):
 @pytest.fixture(autouse=True)
 def isolate_test_environment(monkeypatch, tmp_path, request):
     for name in ("ALE_RUN_DIR", "ALE_ROSTER", "ALE_NOW", "ALE_SPAWN_BIN",
-                 "ALE_SPAWN_DRY", "ALE_HERDR", "ALE_BIN"):
+                 "ALE_SPAWN_DRY", "ALE_HERDR", "ALE_BIN", "ALE_REFS_FILE"):
         monkeypatch.delenv(name, raising=False)
     if request.node.get_closest_marker("ale_real_cwd") is None:
         monkeypatch.chdir(tmp_path)

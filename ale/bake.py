@@ -25,7 +25,7 @@ _COMPACT_KEYS = ("task_id", "title", "labels", "lane_reason", "acceptance", "all
 _LABEL_KEYS = ("role", "model_tier", "lane", "risk", "effort", "locality", "sub", "phase")
 _ASSIGNMENT_KEYS = ("kind", "role", "model_tier", "executor", "trigger")
 _ACCEPTANCE_KEYS = ("id", "cmd", "expect", "manual")
-_WORKTREE_KEYS = ("mode", "worktree_reason")
+_WORKTREE_KEYS = ("mode", "worktree_reason", "stack")
 _WATCH_KEYS = ("heartbeat_timeout_s", "stuck_after_s", "max_duration_s", "budget_tokens", "max_attempts")
 
 
@@ -197,6 +197,9 @@ def render_block(label: dict) -> str:
     worktree_value = worktree.get("mode")
     if worktree_value == "shared":
         worktree_value = {"mode": "shared", "worktree_reason": worktree.get("worktree_reason")}
+    if worktree.get("stack") is True:
+        worktree_value = dict(worktree_value) if isinstance(worktree_value, dict) else {"mode": worktree_value}
+        worktree_value["stack"] = True
     values = [
         ("task_id", label.get("task_id")),
         ("title", label.get("title")),
@@ -390,6 +393,8 @@ def compile_plan(text: str, run_id: str = "run-1", provenance: dict = None) -> D
             mode, reason = worktree, None
         label["context"]["worktree"] = {"mode": mode, "branch": None, "base": None,
                                           "worktree_reason": reason}
+        if isinstance(worktree, dict) and worktree.get("stack") is True:
+            label["context"]["worktree"]["stack"] = True
         spec_text = label["context"].get("spec_text", "")
         if not spec_text:
             label["context"].pop("spec_text", None)
