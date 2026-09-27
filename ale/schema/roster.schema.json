@@ -91,6 +91,7 @@
         },
         "model": {"type": "string", "minLength": 1},
         "timeout_s": {"type": "integer", "minimum": 1},
+        "exclude_paths": {"type": "array", "items": {"type": "string", "minLength": 1}},
         "threshold": {"type": "number", "minimum": 0},
         "bar": {
           "type": "object",

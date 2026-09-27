@@ -17,6 +17,7 @@ import time
 import webbrowser
 from typing import List, Optional
 
+from . import __version__
 from . import events as E
 from .herdr_token import token_text
 from . import handoff as H
@@ -40,6 +41,7 @@ from .labeling.shadow import summarize_shadow
 from .labeling import evidence as EV
 from . import decisions as DECISIONS
 from .labeling.judge import CommandJudge, is_mostly_english
+from .labeling import exclude as EXCL
 from .evalharness import corpus as CORPUS
 from .evalharness import goldset as GOLDSET
 from .evalharness import jevrun as JEVRUN
@@ -77,15 +79,27 @@ def _judge_mode(roster: dict) -> str:
     return "off"
 
 
-def _make_judge(roster: dict):
+def _judge_roots(run_dir: Optional[str] = None, plan_path: Optional[str] = None) -> List[str]:
+    """Project roots whose task text a judge call could carry: the cwd's, the run's, the plan's."""
+    roots = [_git_root(os.getcwd())]
+    if run_dir:
+        roots.append(_git_root(run_dir))
+    if plan_path:
+        roots.append(_git_root(os.path.dirname(os.path.abspath(plan_path))))
+    return roots
+
+
+def _make_judge(roster: dict, run_dir: Optional[str] = None, plan_path: Optional[str] = None):
     judge = roster["judge"]
+    if EXCL.any_excluded(roster, _judge_roots(run_dir, plan_path)):
+        return EXCL.ExcludedJudge(judge.get("model"))
     return CommandJudge(judge.get("command") or ["jev-ask"], timeout_s=judge.get("timeout_s", 30),
                         model=judge.get("model"))
 
 
-def _shadow_judge(roster: dict):
+def _shadow_judge(roster: dict, run_dir: Optional[str] = None):
     """A judge for Part B decision votes, or None unless the roster is in shadow mode."""
-    return _make_judge(roster) if _judge_mode(roster) == "shadow" else None
+    return _make_judge(roster, run_dir) if _judge_mode(roster) == "shadow" else None
 
 
 def _vote_fields(vote: dict) -> dict:
@@ -573,7 +587,7 @@ def cmd_init_run(a) -> int:
     rhash = R.roster_hash(c.roster)
     for tid, label in c.labels.items():
         c.emit("labeled", tid, None, 1, labels=label["labels"], roster_hash=rhash)
-    judge = _shadow_judge(c.roster)
+    judge = _shadow_judge(c.roster, c.run_dir)
     if judge is not None:
         _init_run_monitor_votes(c, judge)
     decisions = os.path.join(c.run_dir, "decisions.md")
@@ -1154,7 +1168,7 @@ def cmd_verify(a) -> int:
     c.emit("verified", a.task, None, attempt, evidence=evidence)
     if reason is not None:
         c.emit("rejected", a.task, None, attempt, evidence=evidence, reason=reason)
-        shadow_judge = _shadow_judge(c.roster)
+        shadow_judge = _shadow_judge(c.roster, c.run_dir)
         if shadow_judge is not None:
             _emit_vote(c, a.task, _rejection_vote(c, shadow_judge, a.task, evidence, reason), "run_loop")
         c.render(a.task, owner)
@@ -1708,7 +1722,7 @@ def cmd_dispatch(a) -> int:
     c = Ctx(a)
     c.roster_path = _resolve_roster(a)
     # Executor routing is deterministic from tier and is never judged.
-    shadow_judge = (_shadow_judge(c.roster)
+    shadow_judge = (_shadow_judge(c.roster, c.run_dir)
                     if any(event.get("type") == "run_started" for event in E.read_events(c.events_path))
                     else None)
     project_cwd = os.path.abspath(a.cwd or os.getcwd())
@@ -2223,7 +2237,7 @@ def cmd_label(a) -> int:
 
     mode = "off" if a.no_judge else _judge_mode(roster)
     # legacy keeps the pre-Part-B cascade judge; only shadow mode records decision votes.
-    judge = _make_judge(roster) if mode in ("legacy", "shadow") else None
+    judge = _make_judge(roster, run_dir) if mode in ("legacy", "shadow") else None
     collect = mode == "shadow"
 
     total_votes = 0
@@ -2758,7 +2772,7 @@ def _plan_labels(text: str, path: str, run_id: str, roster: dict, no_judge: bool
     existing = _plan_existing_labels(text)
     judge = None
     if not no_judge and (roster.get("judge") or {}).get("plugin") is not None:
-        judge = _make_judge(roster)
+        judge = _make_judge(roster, plan_path=path)
     collect = collect and judge is not None
     bake_id = hashlib.sha256(("%s:%s:%s" % (os.path.abspath(path), time.time(), os.getpid()))
                              .encode("utf-8")).hexdigest()[:12]
@@ -3088,7 +3102,7 @@ def cmd_init_run_plan(a) -> int:
         c.emit("labeled", task_id, None, 1, labels=label["labels"], roster_hash=rhash)
     if _judge_mode(c.roster) == "shadow":
         _import_bake_votes(c, a.plan)
-        judge = _shadow_judge(c.roster)
+        judge = _shadow_judge(c.roster, c.run_dir)
         if judge is not None:
             from .planparse import parse_plan
             with open(a.plan, encoding="utf-8") as handle:
@@ -3108,6 +3122,7 @@ def _parser() -> argparse.ArgumentParser:
     common.add_argument("--now")
     common.add_argument("--run-id")
     p = argparse.ArgumentParser(prog="ale")
+    p.add_argument("--version", action="version", version="ale %s" % __version__)
     sub = p.add_subparsers(dest="cmd")
 
     def add(name, fn, *, task=False, agent=False):
