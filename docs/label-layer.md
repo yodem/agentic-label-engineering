@@ -21,7 +21,7 @@ Defaults use the nearest `.ale/roster.json` and `.ale/runs/<run-id>` under the r
 
 Dispatch creates the default per-task worktree for a write task. Executors claim, send heartbeats, submit, and run the label's acceptance through `ale verify`. After a fix is accepted, the runner verifies the parent's full acceptance again. Integrate an accepted branch with the runner's `ale integrate --task TASK` action.
 
-Executors never commit. When verification runs in the task's own worktree it records the exact allowed-change tree without touching the worktree's index. `ale integrate` compares the current allowed changes with that tree before it stages anything, and refuses if they differ, leaving the worktree as it was; reopen and verify the task again after any post-acceptance edit. `ale dispatch --json` prints one JSON object per line, one spawn request per line. `ale dispatch --spawn` starts executor requests concurrently up to the roster's parallel cap, while monitors remain sequential.
+Executors never commit. Verification in the task's own worktree pins the tree and commits the task's allowed changes as `ale: <task> <title>`, recording `evidence.commit`. `ale integrate` merges that committed tip after checking that the tip's tree still equals `evidence.tree` and that no uncommitted task changes remain, and refuses otherwise (reopen and verify again). An acceptance recorded without a commit (verified outside the worktree, or by an older ALE) is staged and committed at integrate, as before. `ale dispatch --json` prints one JSON object per line, one spawn request per line. `ale dispatch --spawn` starts executor requests concurrently up to the roster's parallel cap, while monitors remain sequential.
 
 `ale dispatch --no-exec` is for a lead who will execute the task manually. It creates the task worktree and branch and records the worktree on the task without launching an executor. `ale verify --reject "reason"` records a lead's manual rejection of a submitted task, including the reason, without running the acceptance commands. The verifier can ignore ALE's `.ale-setup-done` setup marker when checking changed paths.
 
@@ -134,7 +134,21 @@ Alternatively, use `"setup": ["npm ci"]` on the label (or `worktree_setup_defaul
 
 `ale integrate --task TASK` is lead-side only and requires `accepted`. It merges the recorded task branch into the base checkout and removes the worktree after a successful merge. A conflict is aborted and leaves the worktree in place. When the checkout is dirty the error names it and the first five uncommitted paths.
 
-Accepted work is integrated before anything that depends on it is dispatched. `ale run` integrates every task that became accepted during a cycle before that cycle dispatches, and `ale dispatch` refuses to spawn a per-task-worktree task whose `depends_on` names a task that is accepted but not yet integrated, printing `holding T2: dependency T1 is accepted but not integrated` on stderr. A per-task worktree is therefore branched from the checkout's HEAD as it stands at dispatch time, which contains every dependency merged so far. Without this, a dependent branches from a base that lacks its dependency's files, recreates them, and its own integration fails on conflicts.
+### Stacked tasks
+
+A label opts in with `"worktree": {"mode": "per_task", "stack": true}`. `ale plan bake --stack` sets that flag on every per-task task that has exactly one dependency.
+
+Dispatch starts a stacked task from its parent's accepted commit, before that parent is integrated. The `spawned` event records `stack_parent` and `base_commit`. Unstacked tasks, and tasks with two or more dependencies, are still held until the dependency is integrated. `ale dispatch` prints `holding T2: dependency T1 is accepted but not integrated` on stderr for those, and `ale run` integrates every task that became accepted during a cycle before that cycle dispatches. A per-task worktree that is not stacked is branched from the checkout's HEAD as it stands at dispatch time.
+
+`ale integrate` refuses a stacked child whose parent is not integrated yet, with `integrate <parent> first`. It also refuses while the child's base differs from the parent's latest accepted commit, and names `ale restack --task <child>`.
+
+Reopening an accepted parent emits `restack_needed` for each unintegrated stacked child that was built on it. `ale restack --task <child>` rebases the child onto the parent's latest accepted commit, emits `restacked`, and returns the child to `submitted`. On a conflict it aborts the rebase, writes a note, and exits 1. It refuses a worktree that has uncommitted changes.
+
+`ale run` proposes restack, then verify, then integrate, in that order. It does not propose integrating a child before its parent.
+
+`ale evidence TASK [--out FILE]` renders deterministic markdown for a task that has verification evidence. The acceptance table has columns for id, requirement, command, expected, exit / ok, and the last 5 output lines. The requirement column shows the manual text for manual checks and `-` for command checks. The file also lists required commands, the files changed, the pinned tree and commit, and the sign-off.
+
+`ale register-worktree --task T --path P --branch B --base SHA [--host NAME] [--cwd CHECKOUT]` records an external or remote worktree as the task's own. The `spawned` event uses `executor: external` and may include `host`. It refuses, before writing an event, a path that is not a worktree of the checkout's repository, a branch mismatch, a base that is not a commit, and a base that is not an ancestor of the branch. An unsafe host name exits 2.
 
 ## Assignments and monitoring
 
@@ -163,7 +177,7 @@ Monitor prompts contain the triggering breach and heartbeat step, acceptance com
 
 The board is append-only. Core events are `run_started`, `run_finished`, `labeled`, `label_vote`, `relabeled`, `adjudicated`, `dispatched`, `claimed`, `heartbeat`, `note`, `input_required`, `input_answered`, `relayed`, `submitted`, `verified`, `accepted`, `rejected`, `failed`, `canceled`, `lease_expired`, `released`, `breach`, `monitor_verdict`, `usage`, and `decision`.
 
-The label-layer events are `task_added`, `label_changed`, `label_removed`, `spawned`, and `integrated`. `monitor_verdict` is also lead-authority: it records the minted monitor ID, one of the four verdicts, and up to 1500 characters of the monitor response. Lead-authority events have no `agent_id`; executor-authored label changes are ignored. `task_added` records the label filename rather than embedding the label body, keeping event lines below the 4096-byte cap.
+The label-layer events are `task_added`, `label_changed`, `label_removed`, `spawned`, `integrated`, `restack_needed`, and `restacked`. A `spawned` event may also carry `stack_parent`, `base_commit`, and `host`. `restack_needed` records `parent` and `base_commit`; `restacked` records `parent`, `old_base`, and `new_base`. `monitor_verdict` is also lead-authority: it records the minted monitor ID, one of the four verdicts, and up to 1500 characters of the monitor response. Lead-authority events have no `agent_id`; executor-authored label changes are ignored. `task_added` records the label filename rather than embedding the label body, keeping event lines below the 4096-byte cap.
 
 ## Compact baked block
 
