@@ -2798,8 +2798,12 @@ def _plan_existing_labels(text: str) -> dict:
     return {label["task_id"]: label for _, label in extract_blocks(text)}
 
 
-def _plan_labels(text: str, path: str, run_id: str, roster: dict, no_judge: bool, collect: bool = False):
-    """Bake labels. ``collect`` (shadow mode only) adds the Part B decision votes."""
+def _plan_labels(text: str, path: str, run_id: str, roster: dict, no_judge: bool, collect: bool = False,
+                 stack: bool = False):
+    """Bake labels. ``collect`` (shadow mode only) adds the Part B decision votes.
+
+    ``stack`` marks every per-task-worktree task with exactly one dependency as stacked.
+    """
     from .bake import skeleton_label
     from .planparse import parse_plan
 
@@ -2883,6 +2887,10 @@ def _plan_labels(text: str, path: str, run_id: str, roster: dict, no_judge: bool
             for field in ("spec_path", "pointers"):
                 if field in old:
                     label["context"][field] = old[field]
+        worktree = label["context"].get("worktree") or {}
+        if (stack and len(label["context"].get("depends_on", [])) == 1
+                and worktree.get("mode") == "per_task"):
+            label["context"]["worktree"] = dict(worktree, stack=True)
         labels[task["task_id"]] = label
         task_text[task["task_id"]] = task.get("body", "")
         if collect:
@@ -3001,7 +3009,7 @@ def cmd_plan_bake(a) -> int:
         validate_compact_blocks(text)
         labels, shadow = _plan_labels(text, a.plan_path, _plan_run_id(a.plan_path, a.run_id),
                                       roster, not judge_enabled or shadow_error is not None,
-                                      collect=mode == "shadow")
+                                      collect=mode == "shadow", stack=a.stack)
         baked = bake(text, labels)
     except (PlanParseError, ValueError) as exc:
         raise CliError(FAIL, str(exc))
@@ -3201,6 +3209,8 @@ def _parser() -> argparse.ArgumentParser:
     plan_bake.add_argument("--no-judge", action="store_true")
     plan_bake.add_argument("--write", action="store_true")
     plan_bake.add_argument("--roster")
+    plan_bake.add_argument("--stack", action="store_true",
+                           help="stack every per-task worktree task that has exactly one dependency")
     plan_compile = plan_sub.add_parser("compile")
     plan_compile.set_defaults(fn=cmd_plan_compile)
     plan_compile.add_argument("plan_path")
