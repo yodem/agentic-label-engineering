@@ -4,6 +4,7 @@
   "required": ["schema_version", "vocab", "routing", "watch_defaults", "uncertain_below", "judge", "promotion", "cost_gate"],
   "properties": {
     "schema_version": {"const": "1.0"},
+    "refs_file": {"type": "string", "minLength": 1},
     "vocab": {
       "type": "object",
       "additionalProperties": false,
