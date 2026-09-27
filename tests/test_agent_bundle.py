@@ -73,3 +73,39 @@ def test_bundle_keeps_reference_material_outside_plugin_agents_tree():
             assert not read.startswith("agents/_refs/"), (agent_path, read)
             if read.startswith("catalog/refs/"):
                 assert (ROOT / read).is_file(), (agent_path, read)
+
+
+HANDBOOK_SKILL = ROOT / "skills" / "agent-handbook" / "SKILL.md"
+REFS_FIXTURES = ROOT / "tests" / "fixtures" / "refs"
+# A CandleKeep-style id (c + 24 lowercase letters or digits), a home path, a personal
+# address, or an em dash has no place in the public skill or its fixtures.
+NOT_PORTABLE = re.compile(r"\bc[a-z0-9]{24}\b|/Users/|/home/|~/|@gmail|\u2014")
+
+
+def test_agent_handbook_skill_and_refs_fixtures_are_portable():
+    paths = [HANDBOOK_SKILL] + sorted(REFS_FIXTURES.glob("*.json"))
+    assert len(paths) >= 2
+    for path in paths:
+        found = NOT_PORTABLE.search(path.read_text(encoding="utf-8"))
+        assert found is None, (path, found.group(0) if found else None)
+
+
+def test_agent_handbook_skill_names_every_step_and_part_zero():
+    frontmatter, body = parse_frontmatter(HANDBOOK_SKILL.read_text(encoding="utf-8"))
+    assert frontmatter["name"] == "agent-handbook"
+    assert frontmatter["description"]
+    for step in range(1, 7):
+        assert "\n%d. **" % step in body, step
+    assert "Part 0" in body and "decision matrix" in body.lower()
+    assert "ALE_REFS_FILE" in body and "refs_file" in body
+    assert "in place" in body
+
+
+def test_example_refs_file_resolves_every_shipped_agent_and_reads_part_zero_first():
+    from ale import refs as REFS_MOD
+    refs = REFS_MOD.load_refs(str(REFS_FIXTURES / "example.json"))
+    read_first = {entry["read_first"] for entry in refs.values()}
+    assert len(read_first) == 1
+    catalog = load_catalog([str(AGENTS)])
+    unresolved = [key for key, agent in catalog.items() if REFS_MOD.resolve(refs, agent) is None]
+    assert unresolved == []
