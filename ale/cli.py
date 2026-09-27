@@ -1632,7 +1632,7 @@ def _make_dispatch_request(c: Ctx, due: dict, project_cwd: str, n: int) -> dict:
     plan = worktree_plan(label, c.run_dir, c.run_id)
     request_cwd = project_cwd
     if plan:
-        plan["base"] = (label.get("context", {}).get("worktree") or {}).get("base") or "HEAD"
+        _resolve_plan_base(c, label, plan)
         request_cwd = plan["path"]
     request = spawn_request(label, assignment, c.run_dir, c.run_id, n=n,
                             cwd=request_cwd, worktree=plan, agent=routed_agent)
@@ -1652,6 +1652,18 @@ def _make_dispatch_request(c: Ctx, due: dict, project_cwd: str, n: int) -> dict:
         request["prompt_file"] = render_prompt(
             label, dict(assignment, breach=breach, handoff_path=request["handoff_path"], cwd=request["cwd"]), routed_agent)
     return request
+
+
+def _resolve_plan_base(c: Ctx, label: dict, plan: dict) -> dict:
+    """Set the worktree base: the stack parent's accepted commit, else the label's base or HEAD."""
+    from .stack import stack_base
+
+    stacked = stack_base(label, c.state())
+    if stacked is not None:
+        plan.update(base=stacked["commit"], stack_parent=stacked["parent"], base_commit=stacked["commit"])
+    else:
+        plan["base"] = (label.get("context", {}).get("worktree") or {}).get("base") or "HEAD"
+    return plan
 
 
 def _create_worktree(plan: dict, project_cwd: str) -> None:
@@ -1742,6 +1754,8 @@ def _append_spawned(c: Ctx, due: dict, request: dict, plan: Optional[dict]) -> N
              "trigger_instance": due["trigger_instance"]}
     if plan:
         extra.update({"worktree": plan["path"], "branch": plan["branch"]})
+        if plan.get("stack_parent"):
+            extra.update({"stack_parent": plan["stack_parent"], "base_commit": plan["base_commit"]})
     c.emit("spawned", due["task_id"], None, c.state()["tasks"][due["task_id"]]["attempt"],
            pane=request.get("executor_pane"), **extra)
 
@@ -1781,7 +1795,7 @@ def cmd_dispatch(a) -> int:
                     label = c.labels[item["task_id"]]
                     plan = worktree_plan(label, c.run_dir, c.run_id)
                     if plan:
-                        plan["base"] = (label.get("context", {}).get("worktree") or {}).get("base") or "HEAD"
+                        _resolve_plan_base(c, label, plan)
                         parent_spawn = _latest_spawn(c, item["task_id"])
                         reuses_parent = bool(label.get("fixes") and parent_spawn and parent_spawn.get("worktree"))
                         if not reuses_parent:
@@ -1791,7 +1805,7 @@ def cmd_dispatch(a) -> int:
                 label = c.labels[item["task_id"]]
                 plan = worktree_plan(label, c.run_dir, c.run_id)
                 if plan:
-                    plan["base"] = (label.get("context", {}).get("worktree") or {}).get("base") or "HEAD"
+                    _resolve_plan_base(c, label, plan)
                     parent_spawn = _latest_spawn(c, item["task_id"])
                     reuses_parent = bool(label.get("fixes") and parent_spawn and parent_spawn.get("worktree"))
                     if not reuses_parent:

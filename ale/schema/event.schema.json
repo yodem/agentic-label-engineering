@@ -25,6 +25,9 @@
     "answers": {"type": "object"},
     "rule": {"type": ["string", "null"]},
     "bake_id": {"type": "string"},
-    "calls_latency_ms": {"type": "array", "items": {"type": "number"}}
+    "calls_latency_ms": {"type": "array", "items": {"type": "number"}},
+    "stack_parent": {"type": "string", "minLength": 1},
+    "base_commit": {"type": "string", "minLength": 1},
+    "host": {"type": "string", "minLength": 1}
   }
 }

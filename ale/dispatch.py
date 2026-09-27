@@ -11,6 +11,7 @@ from .agentcat import HARNESS_MARKER, split_body
 from .labelset import globs_overlap
 from .paths import import_root, plugin_root
 from .roster import resolve
+from .stack import stack_base
 
 
 SPAWN_EXECUTORS = ("herdr-pane", "claude-headless", "codex-exec", "pi-print", "claude-subagent")
@@ -137,6 +138,8 @@ def held_for_integration(run_state: dict, labels: Dict[str, dict]) -> List[Tuple
                 break
         if not due:
             continue
+        if stack_base(labels[task_id], run_state) is not None:
+            continue  # stacked: starts from the parent's accepted commit
         for dependency_id in labels[task_id].get("context", {}).get("depends_on", []):
             if labels.get(dependency_id, {}).get("fixes"):
                 continue
