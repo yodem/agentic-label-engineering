@@ -2153,6 +2153,21 @@ def cmd_remove(a) -> int:
     return OK
 
 
+def cmd_evidence(a) -> int:
+    from .evidence import render
+
+    c = Ctx(a)
+    try:
+        text = render(a.task_id, c.labels.get(a.task_id) or {}, c.task(a.task_id))
+    except ValueError as exc:
+        raise CliError(FAIL, str(exc))
+    if a.out:
+        H.write_atomic(a.out, text)
+    else:
+        sys.stdout.write(text)
+    return OK
+
+
 def cmd_paths_within(a) -> int:
     c = Ctx(a, need_roster=False)
     if a.task_id not in c.labels:
@@ -3376,6 +3391,9 @@ def _parser() -> argparse.ArgumentParser:
     js.add_argument("--all-runs", action="store_true", help="sum every run under --runs-dir (default: the repo's .ale/runs)")
     js.add_argument("--runs-dir")
     add("paths-within", cmd_paths_within).add_argument("task_id")
+    evidence = add("evidence", cmd_evidence)
+    evidence.add_argument("task_id")
+    evidence.add_argument("--out")
     add("doctor", cmd_doctor)
     gp = add("guard-path", cmd_guard_path, task=True)
     gp.add_argument("--path", required=True)
