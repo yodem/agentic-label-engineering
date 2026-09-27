@@ -2067,6 +2067,50 @@ def cmd_integrate(a) -> int:
     return OK
 
 
+def cmd_restack(a) -> int:
+    from .stack import current_base, latest_accepted_commit, stack_parent
+
+    c = Ctx(a)
+    st = c.task(a.task)
+    if st.get("integrated"):
+        raise CliError(FAIL, "task %s is already integrated" % a.task)
+    if st["state"] not in ("submitted", "accepted"):
+        raise CliError(FAIL, "task %s is %s; restack it once it is submitted or accepted" % (a.task, st["state"]))
+    events = E.read_events(c.events_path)
+    parent = stack_parent(c.labels[a.task])
+    old = current_base(events, a.task)
+    if parent is None or old is None:
+        raise CliError(FAIL, "task %s is not stacked" % a.task)
+    parent_state = c.state()["tasks"].get(parent, {})
+    new = latest_accepted_commit(events, parent)
+    if parent_state.get("state") != "accepted" or not new:
+        raise CliError(FAIL, "parent %s is %s; verify it before restacking %s" %
+                       (parent, parent_state.get("state"), a.task))
+    if new == old:
+        print("%s is already built on %s" % (a.task, new[:12]))
+        return OK
+    spawn = _latest_spawn(c, a.task) or {}
+    worktree = spawn.get("worktree")
+    if not worktree or not os.path.isdir(worktree):
+        raise CliError(FAIL, "task %s worktree does not exist: %s" % (a.task, worktree))
+    dirty = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"], cwd=worktree,
+                           capture_output=True, text=True)
+    if dirty.returncode != 0 or dirty.stdout.strip():
+        raise CliError(FAIL, "task %s worktree has uncommitted changes; verify it before restacking" % a.task)
+    rebase = subprocess.run(["git"] + _git_identity_args(worktree) + ["rebase", "--onto", new, old],
+                            cwd=worktree, capture_output=True, text=True)
+    if rebase.returncode != 0:
+        subprocess.run(["git", "rebase", "--abort"], cwd=worktree, capture_output=True, text=True)
+        detail = (rebase.stderr or rebase.stdout).strip().splitlines()
+        text = "restack onto %s failed and was aborted: %s" % (new[:12], (detail[-1] if detail else "rebase failed"))
+        c.emit("note", a.task, None, st["attempt"], lead=True, text=text[:TEXT_MAX])
+        raise CliError(FAIL, text)
+    head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=worktree, text=True).strip()
+    c.emit("restacked", a.task, None, st["attempt"], parent=parent, old_base=old, new_base=new, head=head)
+    print("restacked %s onto %s; verify it again" % (a.task, new[:12]))
+    return OK
+
+
 def _failed_acceptance(label: dict, evidence: dict) -> List[dict]:
     failed = {item.get("id") for item in evidence.get("results", []) if not item.get("ok")}
     return [item for item in label.get("acceptance", []) if item.get("id") in failed]
@@ -3251,6 +3295,7 @@ def _parser() -> argparse.ArgumentParser:
     dispatch.add_argument("--cwd")
     integrate = add("integrate", cmd_integrate, task=True)
     integrate.add_argument("--cwd")
+    add("restack", cmd_restack, task=True)
     add("status", cmd_status).add_argument("--json", action="store_true")
     board = add("board", cmd_board)
     board.add_argument("--open", action="store_true")

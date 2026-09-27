@@ -94,3 +94,15 @@ def integrate_blocker(labels: Dict[str, dict], run_state: dict, events: List[dic
         return ("task %s is built on %s but %s was last accepted at %s; run ale restack --task %s"
                 % (task_id, base[:12], parent, latest[:12], task_id))
     return None
+
+
+def needs_restack(labels: Dict[str, dict], run_state: dict, events: List[dict], task_id: str) -> bool:
+    """True when a stacked task's parent is accepted at a commit other than the task's base."""
+    parent = stack_parent(labels.get(task_id) or {})
+    base = current_base(events, task_id)
+    if parent is None or base is None:
+        return False
+    if ((run_state.get("tasks") or {}).get(parent) or {}).get("state") != "accepted":
+        return False
+    latest = latest_accepted_commit(events, parent)
+    return bool(latest) and latest != base

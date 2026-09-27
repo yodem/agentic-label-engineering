@@ -175,6 +175,11 @@ def _apply(st: dict, ev: dict, tasks: Dict[str, dict], labels: Dict[str, dict]) 
                       summary="Reopened: %s" % ev["reason"], evidence=None, waiting_on=None)
             st["breaches_seen"] = [breach for breach in st["breaches_seen"]
                                    if breach[0] != "attempts_exhausted"]
+    elif kind == "restacked":
+        if st["state"] in ("submitted", "accepted") and not st.get("integrated"):
+            st.update(state="submitted", owner=None, attempt=st["attempt"] + 1, submitted_ts=ts,
+                      summary="Restacked onto %s" % str(ev.get("new_base"))[:12], evidence=None,
+                      waiting_on=None)
     elif kind == "lease_expired":
         if st["state"] in LIVE:
             st.update(state="stale", owner=None)
