@@ -1106,6 +1106,33 @@ def _task_git_tree(cwd: str, paths: List[str]) -> str:
         return proc.stdout.strip()
 
 
+def _git_identity_args(cwd: str) -> List[str]:
+    """``-c`` options that fill a missing git identity with ale's, and leave a configured one alone."""
+    args = []
+    for key, fallback in (("user.name", "ale"), ("user.email", "ale@localhost")):
+        found = subprocess.run(["git", "config", "--get", key], cwd=cwd, capture_output=True, text=True)
+        if not found.stdout.strip():
+            args += ["-c", "%s=%s" % (key, fallback)]
+    return args
+
+
+def _commit_task_paths(worktree: str, paths: List[str], message: str) -> str:
+    """Commit ``paths`` in ``worktree`` and return the new HEAD; with no paths, return HEAD unchanged."""
+    if paths:
+        added = subprocess.run(["git", "add", "--"] + paths, cwd=worktree, capture_output=True, text=True)
+        if added.returncode != 0:
+            raise CliError(FAIL, added.stderr.strip() or "git add failed")
+        committed = subprocess.run(["git"] + _git_identity_args(worktree) + ["commit", "-m", message],
+                                   cwd=worktree, capture_output=True, text=True)
+        if committed.returncode != 0:
+            subprocess.run(["git", "reset", "-q", "--"] + paths, cwd=worktree, capture_output=True, text=True)
+            raise CliError(FAIL, committed.stderr.strip() or "git commit failed")
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=worktree, capture_output=True, text=True)
+    if head.returncode != 0:
+        raise CliError(FAIL, head.stderr.strip() or "git rev-parse failed")
+    return head.stdout.strip()
+
+
 def _fit(evidence: dict) -> None:
     while len(json.dumps(evidence)) > 3000 and any(r["tail"] for r in evidence["results"]):
         for r in evidence["results"]:
@@ -1187,6 +1214,10 @@ def cmd_verify(a) -> int:
         task_changed = _task_changed_paths(cwd, worktree_config.get("setup_outputs", []))
         if task_changed is not None:
             evidence["tree"] = _task_git_tree(cwd, task_changed)
+            # Commit at accept: the verified tree becomes the task branch tip, so a
+            # dependent task can start from it and integrate only has to merge it.
+            evidence["commit"] = _commit_task_paths(
+                cwd, task_changed, "ale: %s %s" % (a.task, label.get("title", a.task)))
             _fit(evidence)
     c.emit("accepted", a.task, None, attempt, evidence=evidence)
     _adjudicate_shadow_acceptance(c, a.task)
@@ -1945,35 +1976,39 @@ def cmd_integrate(a) -> int:
     changed = _task_changed_paths(worktree, setup_outputs)
     if changed is None:
         raise CliError(FAIL, "cannot inspect task worktree")
-    outside = V.paths_within(changed, c.labels[a.task].get("context", {}).get("allowed_paths", []))
+    allowed = c.labels[a.task].get("context", {}).get("allowed_paths", [])
+    outside = V.paths_within(changed, allowed)
     if outside:
         raise CliError(FAIL, "changed path outside allowed_paths: %s" % outside[0])
-    # Refuse before staging or committing anything, so a refusal leaves the worktree as it was.
-    expected_tree = (state.get("evidence") or {}).get("tree")
-    if expected_tree:
-        actual_tree = _task_git_tree(worktree, changed)
-        if actual_tree != expected_tree:
+    checkout = os.path.abspath(a.cwd or os.getcwd())
+    evidence = state.get("evidence") or {}
+    expected_tree = evidence.get("tree")
+    if evidence.get("commit"):
+        # Committed at accept: nothing to stage. The tip must still be the verified tree.
+        tip_tree = subprocess.run(["git", "rev-parse", "HEAD^{tree}"], cwd=worktree,
+                                  capture_output=True, text=True).stdout.strip()
+        if changed or (expected_tree and tip_tree != expected_tree):
+            actual_tree = _task_git_tree(worktree, changed) if changed else tip_tree
             raise CliError(FAIL, "verified tree %s differs from integration tree %s; "
                            "run ale reopen and verify again" % (expected_tree, actual_tree))
-    if changed:
-        added = subprocess.run(["git", "add", "--"] + changed, cwd=worktree,
-                               capture_output=True, text=True)
-        if added.returncode != 0:
-            raise CliError(FAIL, added.stderr.strip() or "git add failed")
-        identity_name = subprocess.run(["git", "config", "--get", "user.name"], cwd=worktree,
-                                       capture_output=True, text=True)
-        identity_email = subprocess.run(["git", "config", "--get", "user.email"], cwd=worktree,
-                                        capture_output=True, text=True)
-        commit_command = ["git"]
-        if not identity_name.stdout.strip():
-            commit_command += ["-c", "user.name=ale"]
-        if not identity_email.stdout.strip():
-            commit_command += ["-c", "user.email=ale@localhost"]
-        commit_command += ["commit", "-m", "ale: %s %s" % (a.task, c.labels[a.task].get("title", a.task))]
-        committed = subprocess.run(commit_command, cwd=worktree, capture_output=True, text=True)
-        if committed.returncode != 0:
-            raise CliError(FAIL, committed.stderr.strip() or "git commit failed")
-    checkout = os.path.abspath(a.cwd or os.getcwd())
+        listed_files = subprocess.run(["git", "diff", "--name-only", "HEAD..." + event["branch"]],
+                                      cwd=checkout, capture_output=True, text=True)
+        if listed_files.returncode != 0:
+            raise CliError(FAIL, listed_files.stderr.strip() or "git diff failed")
+        changed = sorted(line for line in listed_files.stdout.splitlines() if line)
+        outside = V.paths_within(changed, allowed)
+        if outside:
+            raise CliError(FAIL, "committed path outside allowed_paths: %s" % outside[0])
+    else:
+        # Refuse before staging or committing anything, so a refusal leaves the worktree as it was.
+        if expected_tree:
+            actual_tree = _task_git_tree(worktree, changed)
+            if actual_tree != expected_tree:
+                raise CliError(FAIL, "verified tree %s differs from integration tree %s; "
+                               "run ale reopen and verify again" % (expected_tree, actual_tree))
+        if changed:
+            _commit_task_paths(worktree, changed,
+                               "ale: %s %s" % (a.task, c.labels[a.task].get("title", a.task)))
     base_status = subprocess.run(["git", "status", "--porcelain"], cwd=checkout,
                                  capture_output=True, text=True)
     if base_status.returncode != 0:
