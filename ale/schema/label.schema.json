@@ -136,6 +136,7 @@
           "model_tier": {"type": "string", "minLength": 1},
           "executor": {"type": ["string", "null"]},
           "model": {"type": ["string", "null"]},
+          "pin_reason": {"type": ["string", "null"], "description": "Why assignments[].model pins a model instead of taking the roster's; required when model is set."},
           "trigger": {"enum": ["ready", "on_breach", "on_submit", "milestone"]}
         }
       }

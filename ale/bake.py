@@ -9,7 +9,7 @@ from typing import Dict, List, Tuple
 
 from .labeling.merge import LaneVoteError
 from .planparse import parse_plan
-from .roster import resolve
+from .roster import RosterError
 
 
 class BakeError(ValueError):
@@ -21,9 +21,9 @@ _FENCE = re.compile(r"^\s*([`~]{3,})(.*)$")
 _GLOB = re.compile(r"[*?\[]")
 _COMPACT_KEYS = ("task_id", "title", "labels", "lane_reason", "acceptance", "allowed_paths",
                  "depends_on", "worktree", "assignments", "fixes", "spec_path", "pointers",
-                 "watch", "milestone")
+                 "watch", "milestone", "route")
 _LABEL_KEYS = ("role", "model_tier", "lane", "risk", "effort", "locality", "sub", "phase")
-_ASSIGNMENT_KEYS = ("kind", "role", "model_tier", "executor", "trigger")
+_ASSIGNMENT_KEYS = ("kind", "role", "model_tier", "executor", "model", "pin_reason", "trigger")
 _ACCEPTANCE_KEYS = ("id", "cmd", "expect", "manual")
 _WORKTREE_KEYS = ("mode", "worktree_reason", "stack")
 _WATCH_KEYS = ("heartbeat_timeout_s", "stuck_after_s", "max_duration_s", "budget_tokens", "max_attempts")
@@ -117,6 +117,35 @@ def _provenance(vote: dict) -> dict:
     }
 
 
+_NULL_ROUTING = {"executor": None, "model": None, "resolved_from": None}
+
+
+def routing_for(label: dict, roster: dict, agent=None) -> dict:
+    """The label's routing, derived by ``harness.route`` from the roster (never from a vote).
+
+    ``executor`` is the harness name. Without a roster, or when the roster has no row for
+    the label's role and tier, the routing stays all null.
+    """
+    if not roster:
+        return dict(_NULL_ROUTING)
+    from . import harness
+    try:
+        route = harness.route(label, roster)
+    except (RosterError, KeyError, TypeError):
+        return dict(_NULL_ROUTING)
+    return {"executor": route["harness"], "model": route["model"], "mode": route["mode"],
+            "host": route["host"], "resolved_from": route["resolved_from"], "agent": agent}
+
+
+def _task_block(task: dict) -> dict:
+    """The ale-label block already written under this task, or ``{}``."""
+    try:
+        blocks = extract_blocks(task.get("body") or "")
+    except BakeError:
+        return {}
+    return next((block for _, block in blocks if block.get("task_id") == task.get("task_id")), {})
+
+
 def skeleton_label(task: dict, run_id: str, votes: dict) -> dict:
     """Create a complete label skeleton from a parsed task and merged votes."""
     if "lane" in votes:
@@ -143,15 +172,6 @@ def skeleton_label(task: dict, run_id: str, votes: dict) -> dict:
         {"id": "A%d" % index, "cmd": command, "expect": "exit0"}
         for index, command in enumerate(task.get("commands", [])[:5], 1)
     ]
-    routing = {"executor": None, "model": None, "resolved_from": None}
-    if roster and role and model_tier:
-        try:
-            resolved = resolve(roster, role, model_tier)
-            routing = {"executor": resolved["executor"], "model": resolved["model"],
-                       "resolved_from": "roster"}
-        except Exception:
-            pass
-
     label = {
         "schema_version": "1.0",
         "run_id": run_id,
@@ -160,7 +180,7 @@ def skeleton_label(task: dict, run_id: str, votes: dict) -> dict:
         "labels": {"role": role, "model_tier": model_tier, "lane": None,
                     "risk": risk, "effort": effort, "locality": task.get("locality", "any"),
                     "phase": "implement" if allowed_paths else None},
-        "routing": routing,
+        "routing": dict(_NULL_ROUTING),
         "context": {
             "spec_path": task.get("spec_path") or "plan",
             "pointers": list(task.get("pointers", [])),
@@ -178,7 +198,28 @@ def skeleton_label(task: dict, run_id: str, votes: dict) -> dict:
         "assignments": [{"kind": "executor", "role": role, "model_tier": model_tier,
                          "executor": None, "trigger": "ready"}],
     }
+    if roster and role and model_tier:
+        # The route follows what the written block says (labels, pinned assignment); the
+        # block's own ``route`` is a derived view and is never read back.
+        block = _task_block(task)
+        probe = copy.deepcopy(label)
+        if isinstance(block.get("labels"), dict):
+            probe["labels"].update(block["labels"])
+        if isinstance(block.get("assignments"), list) and block["assignments"]:
+            probe["assignments"] = copy.deepcopy(block["assignments"])
+        label["routing"] = routing_for(probe, roster)
     return label
+
+
+def _route_view(label: dict):
+    """The compact ``route`` a block shows: harness, model, and mode once a lane exists."""
+    routing = label.get("routing") or {}
+    if not routing.get("executor"):
+        return None
+    from .harness import normalize
+    return {"harness": normalize(routing.get("harness") or routing["executor"]),
+            "model": routing.get("model"),
+            "mode": routing.get("mode") if (label.get("labels") or {}).get("lane") else None}
 
 
 def render_block(label: dict) -> str:
@@ -211,6 +252,9 @@ def render_block(label: dict) -> str:
         ("worktree", worktree_value),
         ("assignments", label.get("assignments", [])),
     ]
+    route = _route_view(label)
+    if route is not None:
+        values.append(("route", route))
     if label.get("fixes") is not None:
         values.append(("fixes", label["fixes"]))
     if context.get("spec_path") and context.get("spec_path") != "plan":
@@ -330,6 +374,10 @@ def bake(text: str, labels) -> str:
             replacement_text = None  # Preserve byte-for-byte hand-edited blocks.
         elif existing and not complete_fields.issubset(existing):
             replacement_block = _merge_missing(existing, generated)
+            # route is derived: always the regenerated value, never a hand edit.
+            replacement_block.pop("route", None)
+            if "route" in generated:
+                replacement_block["route"] = generated["route"]
             replacement_text = "```ale-label" + newline + json.dumps(
                 replacement_block, ensure_ascii=False, separators=(",", ":"), sort_keys=True
             ) + newline + "```" + newline
@@ -360,7 +408,9 @@ def bake(text: str, labels) -> str:
     return "".join(lines)
 
 
-def compile_plan(text: str, run_id: str = "run-1", provenance: dict = None) -> Dict[str, dict]:
+def compile_plan(text: str, run_id: str = "run-1", provenance: dict = None,
+                 roster: dict = None) -> Dict[str, dict]:
+    """Compile the plan's blocks into labels. With ``roster``, routing is derived afresh."""
     blocks = extract_blocks(text)
     for _, compact in blocks:
         _validate_compact_block(compact)
@@ -427,6 +477,8 @@ def compile_plan(text: str, run_id: str = "run-1", provenance: dict = None) -> D
             if field not in label["labels"]:
                 label["labels"][field] = None
         label["labels"].setdefault("locality", "any")
+        if roster:
+            label["routing"] = routing_for(label, roster, agent=label["routing"].get("agent"))
         task_id = label.get("task_id")
         if not task_id:
             raise BakeError("ale-label block has no task_id")
