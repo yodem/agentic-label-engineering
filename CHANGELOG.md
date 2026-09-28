@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0 (2026-09-28)
+
+- Executors name a harness: `claude`, `codex`, `pi`, or one declared under the roster's `harnesses` (headless argv with `{model}`/`{prompt}`, usage parser, herdr kind). Mode (`in-session`, `headless`, `pane`) and host are derived by code from lane, harness, model and locality; a non-Anthropic model never runs in-session, and non-in-session work goes to the roster's `remote_host` unless locality is `local`. `ale plan route` prints the decision.
+- Migration: legacy executor ids (`claude-headless`, `codex-exec`, `pi-print`, `claude-subagent`, `claude_code`, `herdr-pane`) still load and keep their mode. Dispatch output keeps `executor` as the spawn id and adds `harness`, `mode`, `host`, `family`, `argv`.
+- `bin/ale-spawn` runs any harness argv without `eval`, closes stdin, passes `--kind`/`--host` to herdr panes, and refuses remote headless work. A remote task without a provisioned worktree is released, never run locally. Codex runs with `--skip-git-repo-check`.
+- In-session dispatch records its worktree (so `ale verify` runs there) and re-prints the request while the task is unclaimed.
+- Baked plan blocks show a derived `route` (harness, model, mode); a pinned `assignments[0].model` needs `pin_reason`. The model stays owned by the roster. The example roster's frontier model is `claude-opus-5-5`.
+- Deep references are prefetched at dispatch into `<run-dir>/refs/<task>.md` with a content token; the prompt makes reading them required; `ale refs-ack`, the hook and `ale verify`'s `refs_read` report whether they were read (report only). Default agents now resolve their `<role>/_default` chapter.
+- `ale setup` configures harnesses (with versions), models per tier, the CandleKeep refs file, the remote host, the judge mode and project notes, via `--answers`, a terminal, or the new `/ale:setup` skill; `--questions --json` and `--check`. It never stores credentials.
+
 ## 0.2.15 (2026-09-28)
 
 - Hook latency tests measure best-of-5 and median-of-20 against the same 50 ms / 25 ms budgets, so a loaded machine no longer fails them while a slow hook still does.

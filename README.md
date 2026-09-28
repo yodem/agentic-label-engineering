@@ -187,17 +187,37 @@ work, and opens up to two focused fix tasks per rejection. Watch it with `ale st
 
 ## Executors
 
-The roster maps each `(role, model_tier)` to an executor. `bin/ale-spawn` launches it:
+A label's executor names a **harness**: `claude`, `codex`, `pi`, or any harness the roster
+declares under `harnesses`. Code, not a model, then decides how and where it runs
+(see [docs/label-layer.md](docs/label-layer.md#harness-mode-and-host)):
 
-| Executor | Runs | Needs |
+| Mode | When | Runs |
 | --- | --- | --- |
-| `claude-headless` | `claude -p` with the ALE plugin loaded | Claude Code CLI |
-| `codex-exec` | `codex exec --json` wrapped by `bin/ale-exec` | Codex CLI |
-| `pi-print` | `pi --mode json -p` wrapped by `bin/ale-exec` | Pi CLI |
-| `claude-subagent` | an in-session subagent the lead starts | a Claude Code session |
-| `herdr-pane` | a visible terminal pane | a launcher script you supply in `ALE_HERDR_EXEC` with `start --cwd DIR` and `send AGENT --spec FILE` subcommands. The launcher also receives `--host NAME` on `start` when `ALE_HERDR_HOST` is set. |
+| `in-session` | inline or workflow lane, a harness that can run in the lead's session (`claude`) and an Anthropic model | an in-session subagent the lead starts; dispatch creates and records its worktree |
+| `headless` | any other inline or workflow task on the local host | the harness's `headless` argv (for example `codex exec --json --skip-git-repo-check …`) wrapped by `bin/ale-exec` |
+| `pane` | a pane lane, or any non-in-session task on the roster's `remote_host` | a herdr pane of the harness's kind, through the launcher in `ALE_HERDR_EXEC` |
 
-The shipped roster uses `claude-headless` and `codex-exec` only.
+Work that does not run in-session goes to the roster's `remote_host` unless the label's locality
+is `local`; it needs a provisioned remote worktree (`ALE_REMOTE_WORKTREE_<TASK>`), otherwise
+dispatch releases the task instead of running it locally. A roster-declared harness looks like:
+
+```json
+"harnesses": {"gemini": {"headless": ["gemini", "-m", "{model}", "-p", "{prompt}"], "herdr_kind": "gemini"}}
+```
+
+The older ids `claude-headless`, `codex-exec`, `pi-print`, `claude-subagent` (and `claude_code`) and
+`herdr-pane` still load: each names a harness and fixes its mode. `ale plan route <plan> --task T
+--json` prints the harness, model, mode and host code picks for a task.
+
+## Setup
+
+`ale setup` creates `.ale/roster.json`. With `--answers FILE`, interactively on a terminal, or through
+the `/ale:setup` skill (which asks you each question), it also configures the harnesses it finds on
+`PATH` (with their `--version`), the model per harness and tier, the CandleKeep handbook refs file,
+the remote host from `herdr-exec.toml`, the judge mode (off by default for private repositories) and
+free-text project notes that every prompt carries. `ale setup --questions --json` lists the questions;
+`ale setup --check` reports what is configured and what is broken. Setup never stores credentials:
+it prints the login commands for you to run.
 
 ## Optional judge
 
