@@ -30,6 +30,9 @@
         "executor": {"type": ["string", "null"]},
         "model": {"type": ["string", "null"]},
         "resolved_from": {"type": ["string", "null"]},
+        "harness": {"type": ["string", "null"]},
+        "mode": {"type": ["string", "null"], "enum": ["in-session", "headless", "pane", null]},
+        "host": {"type": ["string", "null"]},
         "agent": {
           "anyOf": [
             {"type": "null"},
@@ -132,6 +135,7 @@
           "role": {"type": "string", "minLength": 1},
           "model_tier": {"type": "string", "minLength": 1},
           "executor": {"type": ["string", "null"]},
+          "model": {"type": ["string", "null"]},
           "trigger": {"enum": ["ready", "on_breach", "on_submit", "milestone"]}
         }
       }
