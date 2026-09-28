@@ -16,7 +16,8 @@ version of this protocol.
    `$ALE_BIN refs-ack --token <ALE-REFS-TOKEN line> --summary "<what applied>"`. The ack is report
    only: `ale verify` records `refs_read`, and a wrong token shows as a mismatch.
 4. Work only inside `context.allowed_paths`. Editing anything else gets your work rejected.
-   After `init-run`, the run's allowed paths are frozen; request a focused fix task if the scope needs to change.
+   If the task truly needs a path outside them, ask with `input-required` (step 7); the lead widens
+   the scope with `ale rescope`. Never edit label files.
 5. After each completed step: `python3 -m ale heartbeat --task <task> --agent <agent> --step "<what you just finished>" --files a,b`.
    Heartbeat at least every 10 minutes. No heartbeat means your claim expires and the task is given away.
 6. Exit 4 from any command means you lost the lease. Stop immediately. Do not write more files.
