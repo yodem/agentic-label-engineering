@@ -1672,6 +1672,8 @@ def _make_dispatch_request(c: Ctx, due: dict, project_cwd: str, n: int) -> dict:
                             cwd=request_cwd, worktree=plan, agent=routed_agent)
     request["executor"] = due["executor"]
     request["model"] = due["model"]
+    for key in ("harness", "mode", "host"):
+        request[key] = due.get(key)
     request["trigger_instance"] = due["trigger_instance"]
     request["env"]["ALE_ROSTER"] = c.roster_path if hasattr(c, "roster_path") else "roster.json"
     if due["kind"] == "monitor":
@@ -1825,7 +1827,7 @@ def cmd_dispatch(a) -> int:
                     continue
                 if not a.spawn and not a.no_exec:
                     continue
-                if item["executor"] == "claude-subagent" and not a.no_exec:
+                if item.get("mode") == "in-session" and not a.no_exec:
                     label = c.labels[item["task_id"]]
                     plan = worktree_plan(label, c.run_dir, c.run_id)
                     if plan:
@@ -1907,7 +1909,7 @@ def cmd_dispatch(a) -> int:
                                                                  stdout or "", wrote_files), "monitor")
                     _emit_outcome(c, item["task_id"], "monitor_verdict", verdict, "monitor")
     for request in requests:
-        if request.get("executor") == "claude-subagent":
+        if request.get("mode") == "in-session":
             print(json.dumps(request, sort_keys=True))
     return OK
 
@@ -3164,6 +3166,31 @@ def cmd_plan_parse(a) -> int:
     return OK
 
 
+def cmd_plan_route(a) -> int:
+    """Print the harness, model, mode and host code picks for one task of a baked plan."""
+    from . import harness
+    from .bake import compile_plan
+
+    try:
+        with open(a.plan_path, encoding="utf-8") as handle:
+            plan_text = handle.read()
+    except OSError as exc:
+        raise CliError(USAGE, "cannot read %s: %s" % (a.plan_path, exc))
+    roster = R.load_roster(_resolve_roster(a))
+    labels = compile_plan(plan_text, _plan_run_id(a.plan_path, None))
+    if a.task not in labels:
+        raise CliError(USAGE, "no task %s in %s" % (a.task, a.plan_path))
+    try:
+        route = harness.route(labels[a.task], roster, lane=a.lane)
+    except R.RosterError as exc:
+        raise CliError(FAIL, str(exc))
+    if a.json:
+        print(json.dumps(route, sort_keys=True))
+    else:
+        print("%(harness)s %(model)s %(mode)s %(host)s (%(resolved_from)s)" % route)
+    return OK
+
+
 def cmd_plan_bake(a) -> int:
     from .bake import bake, validate_compact_blocks
     from .planparse import PlanParseError
@@ -3386,6 +3413,13 @@ def _parser() -> argparse.ArgumentParser:
     plan_bake.add_argument("--roster")
     plan_bake.add_argument("--stack", action="store_true",
                            help="stack every per-task worktree task that has exactly one dependency")
+    plan_route = plan_sub.add_parser("route")
+    plan_route.set_defaults(fn=cmd_plan_route)
+    plan_route.add_argument("plan_path")
+    plan_route.add_argument("--task", required=True)
+    plan_route.add_argument("--lane", choices=["inline", "workflow", "pane"])
+    plan_route.add_argument("--roster")
+    plan_route.add_argument("--json", action="store_true")
     plan_compile = plan_sub.add_parser("compile")
     plan_compile.set_defaults(fn=cmd_plan_compile)
     plan_compile.add_argument("plan_path")

@@ -68,7 +68,7 @@ def load_roster(path: str) -> dict:
     errs = validate(roster, load_schema("roster.schema.json"))
     if errs:
         raise RosterError("invalid roster %s:\n  %s" % (path, "\n  ".join(errs)))
-    from .dispatch import SPAWN_EXECUTORS
+    from . import harness
     roster["vocab"]["role"].update({
         "fixer": "Focused repair work after an acceptance failure.",
         "monitor": "Read-only monitoring and escalation.",
@@ -78,10 +78,9 @@ def load_roster(path: str) -> dict:
         {"role": "fixer", "model_tier": "standard", "executor": "claude-headless", "model": "claude-sonnet-5"},
         {"role": "monitor", "model_tier": "standard", "executor": "claude-headless", "model": "claude-sonnet-5"},
     ])
-    invalid = [row.get("executor") for row in roster.get("routing", [])
-               if row.get("executor") not in SPAWN_EXECUTORS]
-    if invalid:
-        raise RosterError("unsupported executor(s): %s" % ", ".join(sorted(set(invalid))))
+    errs = harness.check(roster)
+    if errs:
+        raise RosterError("; ".join(errs))
     return roster
 
 
@@ -93,10 +92,12 @@ def roster_hash(roster: dict) -> str:
 
 
 def resolve(roster: dict, role: str, tier: str, executor: str = None) -> Dict[str, str]:
+    """Executor and model for a role and tier; a pinned ``executor`` matches rows by harness."""
     if executor is not None:
+        from .harness import normalize
         wildcard = None
         for row in roster["routing"]:
-            if row["model_tier"] != tier or row["executor"] != executor:
+            if row["model_tier"] != tier or normalize(row["executor"]) != normalize(executor):
                 continue
             if row["role"] == role:
                 return {"executor": executor, "model": row["model"]}
