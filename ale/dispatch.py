@@ -224,11 +224,12 @@ def headless_fields(request: dict, roster: dict, prompt: str) -> dict:
 
 
 def render_prompt(label: dict, request: Optional[dict] = None, agent: Optional[dict] = None,
-                  refs: Optional[dict] = None) -> str:
+                  refs: Optional[dict] = None, prefetched: Optional[str] = None) -> str:
     """Render a prompt as JSON so label text cannot create prompt sections.
 
     ``refs`` maps agent keys to deep-reference entries; when None it is read from
-    ``ALE_REFS_FILE`` or the roster named by ``request["roster"]``.
+    ``ALE_REFS_FILE`` or the roster named by ``request["roster"]``. ``prefetched`` is
+    the path of the deep reference already fetched for this task, named in the prompt.
     """
     request = request or {}
     payload = {
@@ -284,7 +285,7 @@ def render_prompt(label: dict, request: Optional[dict] = None, agent: Optional[d
         from . import refs as REFS
         if refs is None:
             refs = REFS.load_refs(REFS.refs_path(request.get("roster")))
-        sections.append(REFS.render_section(refs, agent))
+        sections.append(REFS.render_section(refs, agent, prefetched=prefetched))
     sections.append("ALE_PROMPT_JSON\n```json\n%s\n```" %
                     json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2))
     if agent and request_harness(request) == "claude" and harness_body:
