@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import csv
 import glob
 import hashlib
@@ -604,9 +605,95 @@ def cmd_init_run(a) -> int:
     return OK
 
 
+def _setup_layers_wanted(a) -> bool:
+    if getattr(a, "answers", None):
+        return True
+    try:
+        return sys.stdin.isatty() and sys.stdout.isatty()
+    except (AttributeError, ValueError):
+        return False
+
+
+def _setup_roster_or_example(roster_path: str) -> dict:
+    path = roster_path if os.path.exists(roster_path) else os.path.join(os.path.dirname(__file__), "example_roster.json")
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return json.load(handle)
+    except (OSError, ValueError) as exc:
+        raise CliError(FAIL, "cannot read %s: %s" % (path, exc))
+
+
+def _setup_layers(a, roster_path: str) -> int:
+    """Detect, ask (answers file or stdin), apply and write the roster; print the report."""
+    from . import setup as S
+    from .validate import load_schema, validate
+
+    roster = _setup_roster_or_example(roster_path)
+    detected = S.detect(dict(os.environ), probe=False)
+    if getattr(a, "answers", None):
+        try:
+            with open(a.answers, encoding="utf-8") as handle:
+                answers = json.load(handle)
+        except (OSError, ValueError) as exc:
+            raise CliError(USAGE, "cannot read answers %s: %s" % (a.answers, exc))
+        if not isinstance(answers, dict):
+            raise CliError(USAGE, "answers file must hold a JSON object of question id -> answer")
+    else:
+        answers = {}
+        for question in S.questions(detected, roster):
+            answers[question["id"]] = S.ask(question)
+    try:
+        updated, report = S.apply(roster, answers, detected)
+    except ValueError as exc:
+        raise CliError(FAIL, str(exc))
+    checked = copy.deepcopy(updated)
+    R._apply_vocab_defaults(checked)
+    errs = validate(checked, load_schema("roster.schema.json"))
+    if errs:
+        raise CliError(FAIL, "setup answers make an invalid roster:\n  %s" % "\n  ".join(errs))
+    H.write_atomic(roster_path, json.dumps(updated, indent=2, sort_keys=True) + "\n")
+    print("Updated %s" % roster_path)
+    for line in report:
+        print(line)
+    print("Next: ale setup --check")
+    return OK
+
+
+def _setup_check(a, roster_path: str) -> int:
+    from . import setup as S
+
+    if not os.path.exists(roster_path):
+        print("roster: BROKEN %s is missing; run ale setup" % roster_path)
+        return FAIL
+    roster = _setup_roster_or_example(roster_path)
+    detected = S.detect(dict(os.environ), probe=True)
+    lines, broken = S.check(roster, detected)
+    if getattr(a, "json", False):
+        print(json.dumps({"detected": detected, "report": lines, "broken": broken}, indent=2, sort_keys=True))
+    else:
+        for line in lines:
+            print(line)
+    return FAIL if broken else OK
+
+
 def cmd_setup(a) -> int:
     ale_root = _ale_dir()
     roster_path = os.path.join(ale_root, "roster.json")
+    if getattr(a, "questions", False):
+        from . import setup as S
+        roster = _setup_roster_or_example(roster_path)
+        items = S.questions(S.detect(dict(os.environ), probe=False), roster)
+        if getattr(a, "json", False):
+            print(json.dumps(items, indent=2))
+        else:
+            for item in items:
+                print("%s [%s]: %s" % (item["id"], item.get("default"), item["prompt"]))
+        return OK
+    if getattr(a, "check", False):
+        return _setup_check(a, roster_path)
+    if os.path.exists(roster_path) and not a.force and getattr(a, "judge", None) is None \
+            and _setup_layers_wanted(a):
+        return _setup_layers(a, roster_path)
     if os.path.exists(roster_path) and getattr(a, "judge", None) is not None:
         try:
             with open(roster_path, encoding="utf-8") as handle:
@@ -644,6 +731,8 @@ def cmd_setup(a) -> int:
                     handle.write("\n")
                 handle.write(".ale/\n")
     print("Created %s" % roster_path)
+    if _setup_layers_wanted(a):
+        return _setup_layers(a, roster_path)
     print("Next: /label-layer PLAN.md")
     return OK
 
@@ -3589,6 +3678,10 @@ def _parser() -> argparse.ArgumentParser:
     setup = sub.add_parser("setup")
     setup.add_argument("--force", action="store_true")
     setup.add_argument("--judge", choices=["off", "shadow"])
+    setup.add_argument("--questions", action="store_true", help="print the setup questions and exit")
+    setup.add_argument("--answers", metavar="FILE", help="apply a JSON answers file non-interactively")
+    setup.add_argument("--check", action="store_true", help="report each layer; exit 1 when one is broken")
+    setup.add_argument("--json", action="store_true")
     setup.set_defaults(fn=cmd_setup)
     run = sub.add_parser("run", parents=[common])
     run.set_defaults(fn=cmd_run)
