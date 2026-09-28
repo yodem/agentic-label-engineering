@@ -31,9 +31,11 @@ defaults; you ask the user, and code applies the answers.
    "Anything else executors should know about this project?"
    Its answer is `notes.project` (at most 2000 characters).
 4. **Apply.** Write the answers as a JSON object of question id to answer in a temporary
-   file outside the repository, then run `ale setup --answers <file>` (add `--force` only
-   when `.ale/roster.json` does not exist yet and the user wants a fresh roster). Paste
-   the report lines. Delete the temporary file.
+   file outside the repository, then run `ale setup --answers <file>`. It creates
+   `.ale/roster.json` when there is none; on a re-run it updates the existing roster in
+   place and keeps every key the answers leave out. Exit 2 names an answer that does not
+   fit its question (for example a harness without a model for some tier): fix that
+   answer and run it again. Paste the report lines. Delete the temporary file.
 5. **Handbook.** If `refs.book` is `build`, run the `agent-handbook` skill now, with the
    refs file path from `refs.file`.
 6. **Check.** Run `ale setup --check` and paste its report. Exit 1 means a configured

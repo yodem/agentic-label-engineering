@@ -644,13 +644,17 @@ def _setup_layers(a, roster_path: str) -> int:
             answers[question["id"]] = S.ask(question)
     try:
         updated, report = S.apply(roster, answers, detected)
+    except S.AnswerError as exc:
+        raise CliError(USAGE, str(exc))
     except ValueError as exc:
         raise CliError(FAIL, str(exc))
+    # The same checks load_roster runs: never write a roster it would reject.
+    from . import harness as HARNESS
     checked = copy.deepcopy(updated)
     R._apply_vocab_defaults(checked)
-    errs = validate(checked, load_schema("roster.schema.json"))
+    errs = validate(checked, load_schema("roster.schema.json")) or HARNESS.check(checked)
     if errs:
-        raise CliError(FAIL, "setup answers make an invalid roster:\n  %s" % "\n  ".join(errs))
+        raise CliError(USAGE, "setup answers make an invalid roster:\n  %s" % "\n  ".join(errs))
     H.write_atomic(roster_path, json.dumps(updated, indent=2, sort_keys=True) + "\n")
     print("Updated %s" % roster_path)
     for line in report:

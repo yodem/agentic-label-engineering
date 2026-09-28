@@ -101,7 +101,7 @@ def test_detect_probe_uses_batch_mode_ssh(tmp_path):
     found = S.detect({"PATH": str(tmp_path), "ALE_HOSTS_FILE": str(hosts)}, probe=True)
     assert found["hosts"][0]["reachable"] is True and found["hosts"][0]["ale_version"] == "ale 0.3.0"
     assert found["hosts"][1]["reachable"] is None
-    assert log.read_text().split() == ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "user@box", "ale", "--version"]
+    assert log.read_text().split() == ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "--", "user@box", "ale", "--version"]
 
 
 def test_detect_probe_unreachable_host(tmp_path):
@@ -135,6 +135,7 @@ def test_questions_defaults_from_roster_and_detection(example_roster):
 
 def test_apply_answers_writes_roster_keys(example_roster):
     answers = {"harness.default": "codex", "models.codex.standard": "gpt-6-luna", "refs.file": "~/refs.json",
+               "models.codex.cheap": "gpt-6-mini", "models.codex.frontier": "gpt-6",
                "remote.host": "dev-server", "notes.project": "Run ruff before submit."}
     roster, report = S.apply(example_roster, answers, {"harnesses": {"codex": True}, "ck": True, "hosts": []})
     assert roster["remote_host"] == "dev-server" and roster["refs_file"] == "~/refs.json"
@@ -300,3 +301,124 @@ def test_setup_skill_is_portable_and_names_the_procedure():
                    "Anything else executors should know about this project?", "notes.project",
                    "agent-handbook", "Recommended"):
         assert needle in body, needle
+
+
+def _roster_bytes(tmp_path):
+    return (tmp_path / ".ale" / "roster.json").read_bytes()
+
+
+def test_cli_unknown_harness_is_usage_and_roster_unchanged(tmp_path, run_ale):
+    assert run_ale(["setup"], cwd=tmp_path).returncode == 0
+    before = _roster_bytes(tmp_path)
+    answers = tmp_path / "a.json"; answers.write_text(json.dumps({"harness.default": "gpt"}))
+    out = run_ale(["setup", "--answers", str(answers)], cwd=tmp_path)
+    assert out.returncode == 2 and "unknown harness gpt" in out.stderr and "Traceback" not in out.stderr
+    assert _roster_bytes(tmp_path) == before
+
+
+def test_cli_never_writes_a_roster_harness_check_rejects(tmp_path, run_ale):
+    assert run_ale(["setup"], cwd=tmp_path).returncode == 0
+    path = tmp_path / ".ale" / "roster.json"
+    roster = json.loads(path.read_text())
+    roster["harnesses"] = {"mine": {"headless": ["mine", "--no-prompt"]}}
+    path.write_text(json.dumps(roster))
+    before = _roster_bytes(tmp_path)
+    answers = tmp_path / "a.json"; answers.write_text(json.dumps({"notes.project": "n"}))
+    out = run_ale(["setup", "--answers", str(answers)], cwd=tmp_path)
+    assert out.returncode == 2 and "{prompt}" in out.stderr
+    assert _roster_bytes(tmp_path) == before
+
+
+def test_models_touch_only_wildcard_rows_and_defaults_are_idempotent(example_roster):
+    example_roster["routing"].append({"role": "frontend", "model_tier": "standard",
+                                      "executor": "claude-headless", "model": "claude-pinned"})
+    detected = {"harnesses": {"claude": True, "codex": True, "pi": False}, "versions": {"codex": "codex 1"},
+                "ck": False, "hosts": [], "private": True}
+    defaults = {q["id"]: q["default"] for q in S.questions(detected, example_roster, env={})}
+    first, _ = S.apply(example_roster, defaults, detected)
+    assert {"role": "frontend", "model_tier": "standard", "executor": "claude-headless",
+            "model": "claude-pinned"} in first["routing"]
+    assert first["routing"] == example_roster["routing"]
+    again = {q["id"]: q["default"] for q in S.questions(detected, first, env={})}
+    second, _ = S.apply(first, again, detected)
+    assert json.dumps(second, sort_keys=True) == json.dumps(first, sort_keys=True)
+    changed, _ = S.apply(first, {"models.claude.standard": "claude-new"}, detected)
+    assert {"role": "frontend", "model_tier": "standard", "executor": "claude-headless",
+            "model": "claude-pinned"} in changed["routing"]
+    assert {"role": "backend", "model_tier": "standard", "executor": "codex-exec",
+            "model": "gpt-5-codex"} in changed["routing"]
+    star = [r for r in changed["routing"] if r["role"] == "*" and r["model_tier"] == "standard"]
+    assert star[0]["model"] == "claude-new"
+
+
+def test_cli_defaults_rerun_is_byte_idempotent(tmp_path, run_ale):
+    assert run_ale(["setup"], cwd=tmp_path).returncode == 0
+    items = json.loads(run_ale(["setup", "--questions", "--json"], cwd=tmp_path).stdout)
+    answers = tmp_path / "a.json"; answers.write_text(json.dumps({q["id"]: q["default"] for q in items}))
+    assert run_ale(["setup", "--answers", str(answers)], cwd=tmp_path).returncode == 0
+    first = _roster_bytes(tmp_path)
+    assert run_ale(["setup", "--answers", str(answers)], cwd=tmp_path).returncode == 0
+    assert _roster_bytes(tmp_path) == first
+
+
+def test_cli_judge_kept_when_judge_layer_not_answered(tmp_path, run_ale):
+    assert run_ale(["setup"], cwd=tmp_path).returncode == 0
+    assert run_ale(["setup", "--judge", "shadow"], cwd=tmp_path).returncode == 0
+    answers = tmp_path / "a.json"; answers.write_text(json.dumps({"remote.host": "none"}))
+    assert run_ale(["setup", "--answers", str(answers)], cwd=tmp_path).returncode == 0
+    assert json.load(open(tmp_path / ".ale" / "roster.json"))["judge"]["default"] == "shadow"
+
+
+def test_switching_harness_without_models_is_refused_unless_answered(example_roster):
+    with pytest.raises(S.AnswerError) as info:
+        S.apply(example_roster, {"harness.default": "pi"}, EMPTY)
+    assert "models.pi.cheap" in str(info.value) and "models.pi.frontier" in str(info.value)
+    answers = {"harness.default": "pi", "models.pi.cheap": "a/b", "models.pi.standard": "c/d", "models.pi.frontier": "e/f"}
+    roster, _ = S.apply(example_roster, answers, EMPTY)
+    star = {r["model_tier"]: r for r in roster["routing"] if r["role"] == "*"}
+    assert star["cheap"] == {"role": "*", "model_tier": "cheap", "executor": "pi", "model": "a/b"}
+
+
+def test_cli_switching_harness_without_models_exits_2(tmp_path, run_ale):
+    answers = tmp_path / "a.json"; answers.write_text(json.dumps({"harness.default": "pi"}))
+    out = run_ale(["setup", "--force", "--answers", str(answers)], cwd=tmp_path)
+    assert out.returncode == 2 and "models.pi.cheap" in out.stderr
+
+
+@pytest.mark.parametrize("answers", [
+    {"project.private": "yes"}, {"notes.project": 5}, {"harness.default": ["codex"]},
+    {"judge.mode": "loud"}, {"models.claude.huge": "m"}, {"models.nope.cheap": "m"}, {"no.such": "x"},
+])
+def test_answer_types_are_checked(example_roster, answers):
+    with pytest.raises(S.AnswerError):
+        S.apply(example_roster, answers, EMPTY)
+
+
+def test_cli_bad_answer_type_is_usage_without_traceback(tmp_path, run_ale):
+    answers = tmp_path / "a.json"; answers.write_text(json.dumps({"project.private": "yes"}))
+    out = run_ale(["setup", "--force", "--answers", str(answers)], cwd=tmp_path)
+    assert out.returncode == 2 and "Traceback" not in out.stderr and "project.private" in out.stderr
+    answers.write_text(json.dumps(["not", "an", "object"]))
+    out = run_ale(["setup", "--force", "--answers", str(answers)], cwd=tmp_path)
+    assert out.returncode == 2 and "Traceback" not in out.stderr
+
+
+def test_ssh_values_starting_with_dash_are_rejected_and_probe_ends_options(tmp_path):
+    assert S.parse_hosts_toml('[hosts.evil]\nssh = "-oProxyCommand=touch x"\n') == [{"name": "evil"}]
+    log = tmp_path / "ssh.log"
+    _fake(tmp_path, "ssh", 'echo "$@" > "%s"' % log)
+    assert S.probe_host("-oProxyCommand=x", {"PATH": str(tmp_path)}) == (False, None)
+    assert not log.exists()
+    S.probe_host("user@box", {"PATH": str(tmp_path)})
+    assert log.read_text().split()[4:6] == ["--", "user@box"]
+
+
+def test_refuse_secret_skips_paths_and_refuses_known_prefixes(example_roster):
+    for qid, value in (("refs.file", "/srv/config/ale/api-token-refs-2026.json"),
+                       ("notes.project", "/srv/secrets/password-policy-2026.md")):
+        S.refuse_secret(qid, value)
+    for value in ("ghp_abcdefgh1234", "github_pat_ABCDEFGH12", "sk-abcdefgh12", "xoxb-12345678",
+                  "export GH=ghp_abcdefgh1234"):
+        with pytest.raises(S.SecretAnswer):
+            S.refuse_secret("notes.project", value)
+    S.refuse_secret("notes.project", "check the task-list and disk-usage before submit")

@@ -48,8 +48,16 @@ _SECRET = re.compile(r"(?i)(sk-|key|token|secret|password)")
 _OPAQUE = re.compile(r"^(?=.*[0-9])(?=.*[A-Za-z])[A-Za-z0-9_\-+=]{16,}$")
 
 
+# Credential prefixes that are refused whatever else the answer says.
+_PREFIXES = ("ghp_", "github_pat_", "sk-", "xox")
+
+
 class SecretAnswer(ValueError):
     pass
+
+
+class AnswerError(ValueError):
+    """An answer that is not valid for its question (a usage error)."""
 
 
 def config_dir(env: Optional[dict] = None) -> Optional[str]:
@@ -119,7 +127,8 @@ def parse_hosts_toml(text: str) -> List[dict]:
         key = key.strip()
         if key in ("ssh", "repo_root"):
             parsed = _toml_string(value)
-            if parsed is not None:
+            # An ssh destination starting with '-' would be read as an ssh option.
+            if parsed is not None and not (key == "ssh" and parsed.startswith("-")):
                 current[key] = parsed
     return hosts
 
@@ -137,7 +146,9 @@ def _first_line(argv: List[str], env: dict, timeout: int = 5) -> Tuple[Optional[
 
 def probe_host(ssh: str, env: dict) -> Tuple[Optional[bool], Optional[str]]:
     """``(reachable, ale_version)``; ssh exits 255 when it cannot connect."""
-    code, line = _first_line(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", ssh,
+    if not ssh or ssh.startswith("-"):
+        return False, None
+    code, line = _first_line(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "--", ssh,
                               "ale --version"], env, timeout=15)
     if code is None or code == 255:
         return False, None
@@ -241,11 +252,55 @@ def questions(detected: dict, roster: Optional[dict] = None, env: Optional[dict]
     return out
 
 
+def _answer(answers: dict, qid: str) -> str:
+    value = answers.get(qid)
+    return value.strip() if isinstance(value, str) else ""
+
+
+def check_answers(roster: dict, answers: dict) -> None:
+    """Raise AnswerError unless every answer names a question and has that question's type."""
+    if not isinstance(answers, dict):
+        raise AnswerError("answers must be a JSON object of question id -> answer")
+    known = HARNESS.registry(roster)
+    kinds = {question["id"]: question for question in QUESTIONS}
+    for qid, value in answers.items():
+        if not isinstance(qid, str):
+            raise AnswerError("answer ids must be strings")
+        parts = qid.split(".")
+        if qid.startswith("models."):
+            if len(parts) != 3 or parts[2] not in TIERS or parts[1] not in known:
+                raise AnswerError("%s: expected models.<harness>.<tier> with harness in %s and tier in %s" %
+                                  (qid, ", ".join(sorted(known)), ", ".join(TIERS)))
+            if not isinstance(value, str):
+                raise AnswerError("%s: expected a string" % qid)
+            continue
+        question = kinds.get(qid)
+        if question is None:
+            raise AnswerError("unknown question id %s" % qid)
+        if question["kind"] == "bool":
+            if not isinstance(value, bool):
+                raise AnswerError("%s: expected true or false" % qid)
+            continue
+        if not isinstance(value, str):
+            raise AnswerError("%s: expected a string" % qid)
+        if qid == "harness.default" and value and HARNESS.normalize(value) not in known:
+            raise AnswerError("harness.default: unknown harness %s (known: %s)" % (value, ", ".join(sorted(known))))
+        if qid == "judge.mode" and value not in ("off", "shadow"):
+            raise AnswerError("judge.mode: expected off or shadow")
+
+
 def refuse_secret(qid: str, value: object) -> None:
     """Raise when an answer looks like a credential; setup never stores one."""
     if not isinstance(value, str):
         return
     words = [word.strip("'\"`,;:()[]{}") for word in value.split()]
+    for word in words:
+        bare = word.split("=", 1)[-1]
+        if any(bare.startswith(prefix) and len(bare) >= len(prefix) + 8 for prefix in _PREFIXES):
+            raise SecretAnswer("answer to %s looks like a credential; setup never stores one. "
+                               "export it in your shell instead (for example in your shell profile)" % qid)
+    if qid == "refs.file" or _looks_like_path(value):
+        return
     has_keyword = _SECRET.search(value) is not None
     for word in words:
         # A long word that carries a credential marker (sk-..., api_key=...), or an opaque
@@ -253,6 +308,13 @@ def refuse_secret(qid: str, value: object) -> None:
         if (len(word) > 20 and _SECRET.search(word) and re.search(r"[0-9]", word)) or (has_keyword and _OPAQUE.match(word)):
             raise SecretAnswer("answer to %s looks like a credential; setup never stores one. "
                                "export it in your shell instead (for example in your shell profile)" % qid)
+
+
+def _looks_like_path(value: str) -> bool:
+    value = value.strip()
+    if not value or any(char.isspace() for char in value):
+        return False
+    return os.path.isabs(os.path.expanduser(value)) and bool(os.path.splitext(os.path.basename(value))[1])
 
 
 def _truthy(value: object) -> bool:
@@ -276,7 +338,12 @@ def _agents_without_refs(refs_file: Optional[str], catalog: Optional[dict]) -> T
 
 def apply(roster: dict, answers: dict, detected: dict,
           catalog: Optional[dict] = None) -> Tuple[dict, List[str]]:
-    """The roster with the answers applied, and report lines. Raises ValueError on a secret."""
+    """The roster with the answers applied, and report lines.
+
+    Raises SecretAnswer for a credential-looking answer and AnswerError for an answer that
+    does not fit its question (unknown id, wrong type, unknown harness, missing model).
+    """
+    check_answers(roster, answers)
     for qid, value in answers.items():
         refuse_secret(qid, value)
     roster = copy.deepcopy(roster)
@@ -285,16 +352,19 @@ def apply(roster: dict, answers: dict, detected: dict,
 
     chosen = answers.get("harness.default")
     if chosen:
-        chosen = HARNESS.normalize(str(chosen))
-        for row in routing:
-            if row.get("role") == "*" and HARNESS.normalize(row.get("executor")) != chosen:
-                fallback = _row_model(roster, chosen, row.get("model_tier"))
-                row["executor"] = chosen
-                if fallback:
-                    row["model"] = fallback
-                elif not answers.get("models.%s.%s" % (chosen, row.get("model_tier"))):
-                    report.append("models: %s at tier %s still uses %s; answer models.%s.%s" %
-                                  (chosen, row.get("model_tier"), row.get("model"), chosen, row.get("model_tier")))
+        chosen = HARNESS.normalize(chosen)
+        moving = [row for row in routing
+                  if row.get("role") == "*" and HARNESS.normalize(row.get("executor")) != chosen]
+        missing = ["models.%s.%s" % (chosen, row.get("model_tier")) for row in moving
+                   if not _row_model(roster, chosen, row.get("model_tier"))
+                   and not _answer(answers, "models.%s.%s" % (chosen, row.get("model_tier")))]
+        if missing:
+            raise AnswerError("harness.default %s has no model for: %s; answer those ids too" %
+                              (chosen, ", ".join(missing)))
+        for row in moving:
+            model = _row_model(roster, chosen, row.get("model_tier"))
+            row["executor"] = chosen
+            row["model"] = model or row["model"]
         report.append("harness: default executor is %s" % chosen)
 
     for qid, value in sorted(answers.items()):
@@ -304,11 +374,12 @@ def apply(roster: dict, answers: dict, detected: dict,
         if len(parts) != 3 or parts[2] not in TIERS:
             continue
         name, tier, model = parts[1], parts[2], value.strip()
-        rows = [row for row in routing
-                if row.get("model_tier") == tier and HARNESS.normalize(row.get("executor")) == name]
+        # Only wildcard rows follow the answer; a row pinned to a role is the user's own.
+        rows = [row for row in routing if row.get("role") == "*" and row.get("model_tier") == tier
+                and HARNESS.normalize(row.get("executor")) == name]
         for row in rows:
             row["model"] = model
-        if not rows:
+        if not rows and model != _row_model(roster, name, tier):
             routing.append({"role": "*", "model_tier": tier, "executor": name, "model": model})
 
     versions = detected.get("versions") or {}
@@ -336,7 +407,8 @@ def apply(roster: dict, answers: dict, detected: dict,
         if roster["remote_host"] and known and roster["remote_host"] not in known:
             report.append("remote: %s is not in the hosts file" % roster["remote_host"])
 
-    private = _truthy(answers["project.private"]) if "project.private" in answers else detected.get("private")
+    # The judge layer changes only when it was asked about.
+    private = _truthy(answers["project.private"]) if "project.private" in answers else False
     mode = answers.get("judge.mode")
     if mode in ("off", "shadow"):
         roster.setdefault("judge", {})["default"] = mode
