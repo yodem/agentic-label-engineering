@@ -17,7 +17,7 @@ LOCAL = "local"
 BUILTIN: Dict[str, dict] = {
     "claude": {"headless": ["claude", "--model", "{model}", "-p", "{prompt}"], "usage_from": None,
                "herdr_kind": "claude", "in_session": True, "family": "anthropic"},
-    "codex": {"headless": ["codex", "exec", "--json", "--model", "{model}", "{prompt}"],
+    "codex": {"headless": ["codex", "exec", "--json", "--skip-git-repo-check", "--model", "{model}", "{prompt}"],
               "usage_from": "codex-json", "herdr_kind": "codex", "in_session": False, "family": "openai"},
     "pi": {"headless": ["pi", "--mode", "json", "--model", "{model}", "-p", "{prompt}"],
            "usage_from": "pi-json", "herdr_kind": "pi", "in_session": False},
@@ -113,6 +113,19 @@ def family(harness_name: Optional[str], model: Optional[str], roster: dict) -> O
     return registry(roster).get(normalize(harness_name) or "", {}).get("family")
 
 
+def render_argv(template: List[str], model: Optional[str], prompt: str) -> List[str]:
+    """A headless argv with ``{model}`` and ``{prompt}`` filled in. With no model, an argument
+    that names ``{model}`` is dropped, together with the flag right before it (``--model``)."""
+    out: List[str] = []
+    for index, arg in enumerate(template):
+        if "{model}" in arg and model is None:
+            if out and out[-1].startswith("-") and index > 0 and template[index - 1] == out[-1]:
+                out.pop()
+            continue
+        out.append(arg.replace("{model}", model or "").replace("{prompt}", prompt))
+    return out
+
+
 def spawn_id(harness_name: str, mode: str) -> str:
     """The executor id bin/ale-spawn dispatches on."""
     if mode == "pane":
@@ -136,6 +149,9 @@ def route(label: dict, roster: dict, lane: Optional[str] = None,
     name = normalize(chosen)
     model = assignment.get("model") or resolved["model"]
     mode = derive_mode(lane if lane is not None else labels.get("lane"), name, roster, mode_hint(chosen), model)
-    return {"harness": name, "model": model, "mode": mode,
-            "host": derive_host(mode, labels.get("locality"), roster),
+    host = derive_host(mode, labels.get("locality"), roster)
+    if host != LOCAL and mode == "headless":
+        # The only remote path is a herdr pane on that host; a headless argv would run locally.
+        mode = "pane"
+    return {"harness": name, "model": model, "mode": mode, "host": host,
             "resolved_from": "pin" if (pinned or assignment.get("model")) else "roster"}

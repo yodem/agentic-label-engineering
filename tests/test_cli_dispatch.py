@@ -179,7 +179,7 @@ def test_failed_spawn_releases_assignment(tmp_path, capsys):
     assert [event["type"] for event in read_events(str(run / "events.jsonl"))] == ["spawned", "released"]
 
 
-def test_claude_subagent_is_printed_without_spawn_event(tmp_path, capsys):
+def test_claude_subagent_is_printed_and_recorded_as_spawned(tmp_path, capsys):
     roster = _roster(tmp_path)
     assignment = [{"kind": "executor", "role": "backend", "model_tier": "standard",
                    "executor": "claude-subagent", "trigger": "ready"}]
@@ -187,7 +187,11 @@ def test_claude_subagent_is_printed_without_spawn_event(tmp_path, capsys):
 
     assert main(_dispatch_args(run, roster, "--spawn")) == 0
     assert "claude-subagent" in capsys.readouterr().out
-    assert not (run / "events.jsonl").exists()
+    # The in-session spawn is recorded once; an unclaimed task's request is printed again.
+    assert [event["type"] for event in read_events(str(run / "events.jsonl"))] == ["spawned"]
+    assert main(_dispatch_args(run, roster, "--spawn")) == 0
+    assert "claude-subagent" in capsys.readouterr().out
+    assert [event["type"] for event in read_events(str(run / "events.jsonl"))] == ["spawned"]
 
 
 def test_per_task_worktree_is_created_before_spawn(tmp_path, monkeypatch):

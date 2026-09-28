@@ -2,6 +2,8 @@ import json
 import os
 import subprocess
 
+from ale import harness as H
+
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPT = os.path.join(ROOT, "bin", "ale-spawn")
@@ -16,9 +18,14 @@ def _request(tmp_path, executor, agent="T1-executor-backend-1", kind="executor")
     if kind == "monitor":
         env.pop("ALE_TASK")
         env["ALE_READ_ONLY"] = "1"
+    name, mode = H.normalize(executor), H.mode_hint(executor) or "headless"
+    entry = H.registry({}).get(name, {})
     path.write_text(json.dumps({
         "agent_id": agent, "task_id": "T1", "kind": kind, "role": "backend",
-        "executor": executor, "model": "model-x", "cwd": str(tmp_path),
+        "executor": executor, "harness": name, "mode": mode, "host": "local",
+        "argv": H.render_argv(entry["headless"], "model-x", "prompt") if entry else None,
+        "usage_from": entry.get("usage_from"), "herdr_kind": entry.get("herdr_kind"),
+        "model": "model-x", "cwd": str(tmp_path),
         "spec_path": "spec.md", "handoff_path": str(tmp_path / "handoff.md"),
         "env": env, "prompt_file": str(prompt),
     }))
@@ -92,7 +99,8 @@ def test_herdr_pane_passes_host_when_ale_herdr_host_is_set(tmp_path):
     proc = _run(path, {"ALE_HERDR_EXEC": str(herdr), "ALE_HERDR_HOST": "build-box"})
     assert proc.returncode == 0
     start = next(line for line in proc.stdout.splitlines() if " start " in line)
-    assert start.endswith("--host build-box")
+    # herdr-exec takes --host before the subcommand.
+    assert " --host build-box start " in start and "--kind claude" in start
 
 
 def test_herdr_pane_without_host_passes_no_host_flag(tmp_path):
@@ -109,3 +117,13 @@ def test_unknown_executor_exits_two(tmp_path):
     proc = _run(_request(tmp_path, "mystery"))
     assert proc.returncode == 2
     assert "unknown executor" in proc.stderr
+
+
+def test_unknown_mode_exits_two(tmp_path):
+    path = _request(tmp_path, "codex-exec")
+    data = json.loads(path.read_text())
+    data["mode"] = "sideways"
+    path.write_text(json.dumps(data))
+    proc = _run(path)
+    assert proc.returncode == 2
+    assert "unknown mode: sideways" in proc.stderr

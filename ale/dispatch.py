@@ -176,6 +176,7 @@ def due_assignments(run_state: dict, labels: Dict[str, dict], roster: dict) -> L
                               "model_tier": assignment.get("model_tier", label.get("labels", {}).get("model_tier")),
                               "executor": harness.spawn_id(route["harness"], route["mode"]), "model": route["model"],
                               "harness": route["harness"], "mode": route["mode"], "host": route["host"],
+                              "family": harness.family(route["harness"], route["model"], roster),
                               "trigger": trigger, "trigger_instance": instance,
                               "breach": next((b for b in reversed(breaches) if b.get("task_id") == task_id), None) if trigger == "on_breach" else None})
     cap = roster.get("cost_gate", {}).get("max_parallel", roster.get("cost_gate", {}).get("max_concurrent", 3))
@@ -206,6 +207,20 @@ def worktree_plan(label: dict, run_dir: str, run_id: str) -> Optional[dict]:
     return {"path": os.path.join(run_dir, "wt", task_id),
             "branch": "ale/%s/%s" % (run_id, task_id),
             "base": worktree.get("base") or "HEAD"}
+
+
+def request_harness(request: dict) -> Optional[str]:
+    """The harness a request runs on: its ``harness`` key, else the one its executor id names."""
+    return request.get("harness") or harness.normalize(request.get("executor"))
+
+
+def headless_fields(request: dict, roster: dict, prompt: str) -> dict:
+    """``argv`` (placeholders filled), ``usage_from`` and ``herdr_kind`` from the harness registry.
+    An unknown harness gets ``argv: None``; bin/ale-spawn refuses it."""
+    entry = harness.registry(roster).get(request_harness(request) or "") or {}
+    template = entry.get("headless")
+    return {"argv": harness.render_argv(template, request.get("model") or None, prompt) if template else None,
+            "usage_from": entry.get("usage_from"), "herdr_kind": entry.get("herdr_kind")}
 
 
 def render_prompt(label: dict, request: Optional[dict] = None, agent: Optional[dict] = None,
@@ -272,7 +287,7 @@ def render_prompt(label: dict, request: Optional[dict] = None, agent: Optional[d
         sections.append(REFS.render_section(refs, agent))
     sections.append("ALE_PROMPT_JSON\n```json\n%s\n```" %
                     json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2))
-    if agent and (request.get("executor") or "").startswith("claude") and harness_body:
+    if agent and request_harness(request) == "claude" and harness_body:
         sections.append("Claude harness context\n```\n%s\n```" % harness_body)
     return "\n\n".join(sections) + "\n"
 
@@ -286,6 +301,7 @@ def spawn_request(label: dict, assignment: dict, run_dir: str, run_id: str, n: i
     plan = worktree if worktree is not None else worktree_plan(label, run_dir, run_id)
     request = {"agent_id": agent_id, "task_id": task_id, "kind": kind, "role": role,
                "executor": assignment.get("executor"), "model": assignment.get("model"),
+               "harness": request_harness(assignment),
                "cwd": cwd or (plan["path"] if plan else run_dir),
                "spec_path": label.get("context", {}).get("spec_path"),
                "handoff_path": os.path.join(run_dir, "handoff", "%s-%s-handoff.md" % (agent_id, role)),
@@ -295,5 +311,6 @@ def spawn_request(label: dict, assignment: dict, run_dir: str, run_id: str, n: i
                        "ALE_PLUGIN_ROOT": plugin_root(),
                        "ALE_IMPORT_ROOT": import_root(), "ALE_PYTHON": sys.executable,
                        "ALE_DENY_TOOLS": (agent or {}).get("rules", {}).get("deny_tools", [])},
-               "prompt_file": render_prompt(label, dict(assignment, cwd=cwd or run_dir), agent)}
+               "prompt_file": render_prompt(label, dict(assignment, cwd=cwd or run_dir,
+                                                        harness=request_harness(assignment)), agent)}
     return request
