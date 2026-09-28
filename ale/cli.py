@@ -1300,6 +1300,11 @@ def cmd_verify(a) -> int:
     if st["state"] != "submitted":
         raise CliError(FAIL, "task %s is %s, not submitted" % (a.task, st["state"]))
     label, owner, attempt = c.labels[a.task], st["owner"], st["attempt"]
+    latest = _latest_spawn(c, a.task)
+    if a.reject is None and not a.cwd and latest and latest.get("remote_worktree") and not latest.get("worktree"):
+        # Verifying here would run acceptance in the lead's checkout and accept with no evidence.
+        raise CliError(FAIL, "remote task %s has no local worktree yet: fetch it back and run "
+                             "ale register-worktree first" % a.task)
     cwd = _task_project_root(c, a.task, a.cwd)
     if a.reject is not None:
         reason = a.reject[:TEXT_MAX]
@@ -1889,15 +1894,19 @@ def _make_dispatch_request(c: Ctx, due: dict, project_cwd: str, n: int) -> dict:
     assignment["roster"] = c.roster_path if hasattr(c, "roster_path") else _resolve_roster(argparse.Namespace())
     plan = worktree_plan(label, c.run_dir, c.run_id)
     request_cwd = project_cwd
+    remote = (due.get("host") or "local") != "local"
     if plan:
         _resolve_plan_base(c, label, plan)
-        request_cwd = plan["path"]
+        # A remote task's worktree is on the remote host; its prompt resolves reads from the checkout.
+        request_cwd = project_cwd if remote else plan["path"]
     request = spawn_request(label, assignment, c.run_dir, c.run_id, n=n,
                             cwd=request_cwd, worktree=plan, agent=routed_agent)
     request["executor"] = due["executor"]
     request["model"] = due["model"]
     for key in ("harness", "mode", "host", "family"):
         request[key] = due.get(key)
+    if remote and plan:
+        request["remote_base"] = plan.get("base")  # the commit the remote worktree must start from
     request["trigger_instance"] = due["trigger_instance"]
     request["env"]["ALE_ROSTER"] = c.roster_path if hasattr(c, "roster_path") else "roster.json"
     if due["kind"] == "monitor":

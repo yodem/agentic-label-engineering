@@ -333,3 +333,24 @@ def test_remote_task_gets_no_local_worktree(tmp_path, monkeypatch):
     assert not (run / "wt").exists()
     worktrees = subprocess.run(["git", "worktree", "list"], cwd=str(repo), capture_output=True, text=True).stdout
     assert len(worktrees.strip().splitlines()) == 1
+
+
+def test_verify_refuses_remote_task_before_register(tmp_path, monkeypatch, capsys):
+    repo = _git_repo(tmp_path)
+    roster = _roster(tmp_path, remote_host="dev-server")
+    run = _run(tmp_path, _label(executor="codex", mode="per_task"))
+    spawn = tmp_path / "spawn"
+    spawn.write_text("#!/bin/sh\ncat \"$1\" > '%s'\n" % (tmp_path / "req.json"))
+    spawn.chmod(spawn.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("ALE_SPAWN_BIN", str(spawn))
+    monkeypatch.setenv("ALE_REMOTE_WORKTREE", "/srv/wt/T1")
+    common = ["--run-dir", str(run), "--roster", roster]
+    assert main(["dispatch", "--spawn", "--cwd", str(repo)] + common) == 0
+    request = json.loads((tmp_path / "req.json").read_text())
+    assert request["cwd"] == str(repo) and request["remote_base"]
+    assert main(["claim", "--task", "T1", "--agent", "a1"] + common) == 0
+    assert main(["submit", "--task", "T1", "--agent", "a1", "--summary", "done remotely"] + common) == 0
+    capsys.readouterr()
+    assert main(["verify", "--task", "T1"] + common) == 1
+    assert "register-worktree" in capsys.readouterr().err
+    assert not [e for e in read_events(str(run / "events.jsonl")) if e["type"] in ("verified", "accepted")]
