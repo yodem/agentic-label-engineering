@@ -187,10 +187,11 @@ def test_claude_subagent_is_printed_and_recorded_as_spawned(tmp_path, capsys):
 
     assert main(_dispatch_args(run, roster, "--spawn")) == 0
     assert "claude-subagent" in capsys.readouterr().out
-    # The in-session spawn is recorded, so a second dispatch does not hand it out again.
+    # The in-session spawn is recorded once; an unclaimed task's request is printed again.
     assert [event["type"] for event in read_events(str(run / "events.jsonl"))] == ["spawned"]
     assert main(_dispatch_args(run, roster, "--spawn")) == 0
-    assert capsys.readouterr().out == ""
+    assert "claude-subagent" in capsys.readouterr().out
+    assert [event["type"] for event in read_events(str(run / "events.jsonl"))] == ["spawned"]
 
 
 def test_per_task_worktree_is_created_before_spawn(tmp_path, monkeypatch):

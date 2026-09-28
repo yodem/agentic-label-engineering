@@ -1791,6 +1791,8 @@ def _append_spawned(c: Ctx, due: dict, request: dict, plan: Optional[dict]) -> N
     extra = {"agent_id_minted": request["agent_id"], "assignment_kind": due["kind"],
              "executor": due["executor"], "model": due["model"],
              "trigger_instance": due["trigger_instance"]}
+    if due.get("mode") == "in-session":
+        extra["mode"] = "in-session"
     if plan:
         extra.update({"worktree": plan["path"], "branch": plan["branch"]})
         if plan.get("stack_parent"):
@@ -1823,6 +1825,7 @@ def cmd_dispatch(a) -> int:
                 print("holding %s: dependency %s is accepted but not integrated" %
                       (task_id, dependency_id), file=sys.stderr)
             due = due_assignments(dispatch_state, c.labels, c.roster)
+            remote_due = [item for item in due if (item.get("host") or "local") != "local"]
             for index, item in enumerate(due, 1):
                 request = _make_dispatch_request(c, item, project_cwd, index)
                 requests.append(request)
@@ -1840,17 +1843,19 @@ def cmd_dispatch(a) -> int:
                         if not reuses_parent:
                             _create_worktree(plan, project_cwd)
                         _run_worktree_setup(c, label, plan["path"], project_cwd)
-                    # Record the spawn (and its worktree) so verify runs in the task worktree.
+                    # Record the spawn (and its worktree) so verify runs in the task worktree,
+                    # and keep the request so an unclaimed task can be handed out again.
                     _append_spawned(c, item, request, plan)
+                    H.write_atomic(_in_session_request_path(c, request["agent_id"]),
+                                   json.dumps(request, sort_keys=True) + "\n")
                     continue
-                if (not a.no_exec and (item.get("host") or "local") != "local"
-                        and not os.environ.get("ALE_REMOTE_WORKTREE")):
-                    # Never run a remote-routed task locally by surprise.
-                    print("releasing %s: remote worktree not provisioned for host %s" %
-                          (item["task_id"], item["host"]), file=sys.stderr)
-                    c.emit("released", item["task_id"], None, c.state()["tasks"][item["task_id"]]["attempt"],
-                           reason="remote worktree not provisioned")
-                    continue
+                if not a.no_exec and (item.get("host") or "local") != "local":
+                    remote_worktree = _remote_worktree(item["task_id"], len(remote_due))
+                    if not remote_worktree:
+                        # Never run a remote-routed task locally by surprise.
+                        _release_unprovisioned(c, item)
+                        continue
+                    request["remote_worktree"] = remote_worktree
                 label = c.labels[item["task_id"]]
                 plan = worktree_plan(label, c.run_dir, c.run_id)
                 if plan:
@@ -1921,10 +1926,64 @@ def cmd_dispatch(a) -> int:
                     _emit_vote(c, item["task_id"], _monitor_vote(c, shadow_judge, item["task_id"],
                                                                  stdout or "", wrote_files), "monitor")
                     _emit_outcome(c, item["task_id"], "monitor_verdict", verdict, "monitor")
+    printed = set()
     for request in requests:
         if request.get("mode") == "in-session":
             print(json.dumps(request, sort_keys=True))
+            printed.add(request["task_id"])
+    if not a.no_exec:
+        for text in _unclaimed_in_session_requests(c, printed):
+            print(text)
     return OK
+
+
+REMOTE_UNPROVISIONED = "remote worktree not provisioned"
+
+
+def _in_session_request_path(c: Ctx, agent_id: str) -> str:
+    return os.path.join(c.run_dir, "requests", "%s.in-session.json" % agent_id)
+
+
+def _remote_worktree(task_id: str, remote_count: int) -> Optional[str]:
+    """The provisioned remote worktree for a task: ``ALE_REMOTE_WORKTREE_<TASK>`` first, then
+    ``ALE_REMOTE_WORKTREE`` only when this dispatch sends exactly one task to a remote host."""
+    specific = os.environ.get("ALE_REMOTE_WORKTREE_" + re.sub(r"[^A-Za-z0-9]", "_", task_id))
+    if specific:
+        return specific
+    shared = os.environ.get("ALE_REMOTE_WORKTREE")
+    return shared if shared and remote_count == 1 else None
+
+
+def _release_unprovisioned(c: Ctx, item: dict) -> None:
+    """Release a remote task with no worktree, once: a repeat dispatch adds no second event."""
+    print("releasing %s: %s for host %s" % (item["task_id"], REMOTE_UNPROVISIONED, item["host"]),
+          file=sys.stderr)
+    latest = None
+    for event in E.read_events(c.events_path):
+        if event.get("task_id") == item["task_id"]:
+            latest = event
+    if latest and latest.get("type") == "released" and latest.get("reason") == REMOTE_UNPROVISIONED:
+        return
+    c.emit("released", item["task_id"], None, c.state()["tasks"][item["task_id"]]["attempt"],
+           reason=REMOTE_UNPROVISIONED)
+
+
+def _unclaimed_in_session_requests(c: Ctx, skip: set) -> List[str]:
+    """Saved requests of in-session spawns whose task was never claimed (the lead may have
+    stopped before ``ale claim``); printing them again emits no event and makes no worktree."""
+    state = c.state()["tasks"]
+    out = []
+    for task_id in sorted(c.labels):
+        if task_id in skip or state.get(task_id, {}).get("state") != "ready":
+            continue
+        latest = _latest_spawn(c, task_id)
+        if not latest or latest.get("task_id") != task_id or latest.get("mode") != "in-session":
+            continue
+        path = _in_session_request_path(c, latest["agent_id_minted"])
+        if os.path.isfile(path):
+            with open(path, encoding="utf-8") as handle:
+                out.append(handle.read().strip())
+    return out
 
 
 def _extract_monitor_verdict(text: str) -> Optional[str]:

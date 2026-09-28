@@ -93,8 +93,9 @@ def test_pane_mode_passes_kind_and_host(tmp_path):
     req = _request(tmp_path, "pi", mode="pane")
     data = json.loads(req.read_text())
     data["host"] = "dev-server"
+    data["remote_worktree"] = "/srv/wt/T1"
     req.write_text(json.dumps(data))
-    env = dict(os.environ, ALE_HERDR_EXEC=str(herdr), ALE_REMOTE_WORKTREE="/srv/wt/T1", FAKE_OUT=str(tmp_path / "out"))
+    env = dict(os.environ, ALE_HERDR_EXEC=str(herdr), ALE_REMOTE_WORKTREE="/wrong", FAKE_OUT=str(tmp_path / "out"))
     subprocess.run(["sh", SPAWN, str(req)], check=True, env=env)
     first, second = (tmp_path / "out").read_text().splitlines()[:2]
     assert "--kind pi" in first and "--host dev-server" in first and "--cwd /srv/wt/T1" in first
@@ -109,10 +110,22 @@ def test_remote_pane_without_worktree_refuses(tmp_path):
     data = json.loads(req.read_text())
     data["host"] = "dev-server"
     req.write_text(json.dumps(data))
-    env = dict(os.environ, ALE_HERDR_EXEC=str(herdr))
-    env.pop("ALE_REMOTE_WORKTREE", None)
+    # The env var is not consulted by ale-spawn: only the request's remote_worktree counts.
+    env = dict(os.environ, ALE_HERDR_EXEC=str(herdr), ALE_REMOTE_WORKTREE="/srv/wt/T1")
     proc = subprocess.run(["sh", SPAWN, str(req)], env=env, capture_output=True, text=True)
     assert proc.returncode == 2 and "remote worktree not provisioned" in proc.stderr
+
+
+def test_headless_refuses_remote_host(tmp_path):
+    _fake(tmp_path, "codex")
+    req = _request(tmp_path, "codex")
+    data = json.loads(req.read_text())
+    data.update(host="dev-server", remote_worktree="/srv/wt/T1")
+    req.write_text(json.dumps(data))
+    proc = subprocess.run(["sh", SPAWN, str(req)], env=_path_env(tmp_path), capture_output=True, text=True)
+    assert proc.returncode == 2
+    assert "headless mode cannot run on remote host dev-server" in proc.stderr
+    assert not (tmp_path / "out").exists()
 
 
 def test_unknown_mode_exits_two(tmp_path):
@@ -204,6 +217,80 @@ def test_remote_host_without_worktree_releases_without_spawning(tmp_path, monkey
     assert [event["type"] for event in events] == ["released"]
     assert events[0]["reason"] == "remote worktree not provisioned"
     assert not marker.exists()
+    # A repeat dispatch while still unprovisioned adds no second release.
+    assert main(["dispatch", "--spawn", "--run-dir", str(run), "--roster", roster]) == 0
+    assert [event["type"] for event in read_events(str(run / "events.jsonl"))] == ["released"]
+    assert not marker.exists()
+
+
+def _two_remote_tasks(tmp_path):
+    roster = _roster(tmp_path, remote_host="dev-server")
+    run = tmp_path / "run"
+    (run / "labels").mkdir(parents=True)
+    for task_id in ("T1", "T2.a"):
+        label = _label(executor="codex")
+        label["task_id"], label["title"] = task_id, "Task " + task_id
+        label["context"]["allowed_paths"] = ["src/%s.py" % task_id]
+        (run / "labels" / (task_id + ".json")).write_text(json.dumps(label))
+    spawn = tmp_path / "spawn"
+    spawn.write_text("#!/bin/sh\ncat \"$1\" >> '%s'\necho >> '%s'\n" % (tmp_path / "spawned", tmp_path / "spawned"))
+    spawn.chmod(spawn.stat().st_mode | stat.S_IEXEC)
+    return roster, run, spawn
+
+
+def test_remote_worktree_resolves_per_task(tmp_path, monkeypatch):
+    roster, run, spawn = _two_remote_tasks(tmp_path)
+    monkeypatch.setenv("ALE_SPAWN_BIN", str(spawn))
+    monkeypatch.setenv("ALE_REMOTE_WORKTREE", "/srv/shared")
+    monkeypatch.setenv("ALE_REMOTE_WORKTREE_T2_a", "/srv/wt/T2.a")
+
+    assert main(["dispatch", "--spawn", "--run-dir", str(run), "--roster", roster]) == 0
+    events = read_events(str(run / "events.jsonl"))
+    released = [event["task_id"] for event in events if event["type"] == "released"]
+    spawned = [event["task_id"] for event in events if event["type"] == "spawned"]
+    # Two remote tasks: the shared variable is ambiguous, so only the task with its own path runs.
+    assert released == ["T1"] and spawned == ["T2.a"]
+    request = json.loads((tmp_path / "spawned").read_text().strip())
+    assert request["task_id"] == "T2.a" and request["mode"] == "pane"
+    assert request["remote_worktree"] == "/srv/wt/T2.a"
+
+
+def test_shared_remote_worktree_serves_a_single_remote_task(tmp_path, monkeypatch):
+    roster = _roster(tmp_path, remote_host="dev-server")
+    run = _run(tmp_path, _label(executor="codex"))
+    spawn = tmp_path / "spawn"
+    spawn.write_text("#!/bin/sh\ncat \"$1\" > '%s'\n" % (tmp_path / "spawned"))
+    spawn.chmod(spawn.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("ALE_SPAWN_BIN", str(spawn))
+    monkeypatch.setenv("ALE_REMOTE_WORKTREE", "/srv/shared")
+
+    assert main(["dispatch", "--spawn", "--run-dir", str(run), "--roster", roster]) == 0
+    assert [event["type"] for event in read_events(str(run / "events.jsonl"))] == ["spawned"]
+    assert json.loads((tmp_path / "spawned").read_text())["remote_worktree"] == "/srv/shared"
+
+
+def test_unclaimed_in_session_request_is_printed_again(tmp_path, monkeypatch, capsys):
+    repo = _git_repo(tmp_path)
+    roster = _roster(tmp_path)
+    run = _run(tmp_path, _label(executor="claude_code", lane="inline", mode="per_task"))
+    common = ["--run-dir", str(run), "--roster", roster]
+    calls = []
+    import ale.cli as CLI
+    original = CLI._create_worktree
+    monkeypatch.setattr(CLI, "_create_worktree", lambda plan, cwd: (calls.append(plan["path"]), original(plan, cwd)))
+
+    assert main(["dispatch", "--spawn", "--cwd", str(repo)] + common) == 0
+    first = capsys.readouterr().out.strip()
+    assert main(["dispatch", "--spawn", "--cwd", str(repo)] + common) == 0
+    second = capsys.readouterr().out.strip()
+    assert json.loads(second) == json.loads(first)
+    assert [event["type"] for event in read_events(str(run / "events.jsonl"))] == ["spawned"]
+    assert len(calls) == 1
+
+    # Once claimed, the request is not handed out again.
+    assert main(["claim", "--task", "T1", "--agent", json.loads(first)["agent_id"]] + common) == 0
+    assert main(["dispatch", "--spawn", "--cwd", str(repo)] + common) == 0
+    assert capsys.readouterr().out.strip() == ""
 
 
 def test_in_session_dispatch_records_worktree_and_verify_runs_there(tmp_path, monkeypatch, capsys):

@@ -37,6 +37,7 @@ values = {
     "ale_host": request.get("host") or "local",
     "ale_herdr_kind": request.get("herdr_kind") or request.get("harness") or "claude",
     "ale_usage_from": request.get("usage_from") or "",
+    "ale_remote_worktree": request.get("remote_worktree") or "",
     "ale_argc": 0,
     "ale_argdir": "",
 }
@@ -150,6 +151,10 @@ herdr_run() {
 
 case "$ale_mode" in
     headless)
+        if [ "$ale_host" != local ]; then
+            echo "ale-spawn: headless mode cannot run on remote host $ale_host" >&2
+            exit 2
+        fi
         if [ "$ale_argc" -eq 0 ]; then
             echo "ale-spawn: unknown executor: ${ale_harness:-$ale_executor} (no headless argv)" >&2
             exit 2
@@ -191,9 +196,9 @@ case "$ale_mode" in
         herdr_exec=${ALE_HERDR_EXEC:-$ale_herdr}
         if [ "$ale_host" != local ]; then
             herdr_host=$ale_host
-            pane_cwd=${ALE_REMOTE_WORKTREE:-}
+            pane_cwd=$ale_remote_worktree
             [ -n "$pane_cwd" ] || {
-                echo "ale-spawn: host $ale_host needs ALE_REMOTE_WORKTREE (remote worktree not provisioned)" >&2
+                echo "ale-spawn: host $ale_host needs the request's remote_worktree (remote worktree not provisioned)" >&2
                 exit 2
             }
         else

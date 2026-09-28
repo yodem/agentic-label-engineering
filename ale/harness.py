@@ -149,6 +149,9 @@ def route(label: dict, roster: dict, lane: Optional[str] = None,
     name = normalize(chosen)
     model = assignment.get("model") or resolved["model"]
     mode = derive_mode(lane if lane is not None else labels.get("lane"), name, roster, mode_hint(chosen), model)
-    return {"harness": name, "model": model, "mode": mode,
-            "host": derive_host(mode, labels.get("locality"), roster),
+    host = derive_host(mode, labels.get("locality"), roster)
+    if host != LOCAL and mode == "headless":
+        # The only remote path is a herdr pane on that host; a headless argv would run locally.
+        mode = "pane"
+    return {"harness": name, "model": model, "mode": mode, "host": host,
             "resolved_from": "pin" if (pinned or assignment.get("model")) else "roster"}

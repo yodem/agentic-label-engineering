@@ -117,8 +117,11 @@ def test_route_pins_and_derives(tmp_path, label_t01):
     label_t01["assignments"] = [{"kind": "executor", "role": label_t01["labels"]["role"],
                                  "model_tier": label_t01["labels"]["model_tier"], "executor": "codex",
                                  "model": "gpt-6-luna", "trigger": "ready"}]
-    assert H.route(label_t01, roster) == {"harness": "codex", "model": "gpt-6-luna", "mode": "headless",
+    # Remote work runs in a herdr pane on that host: headless would run on this machine.
+    assert H.route(label_t01, roster) == {"harness": "codex", "model": "gpt-6-luna", "mode": "pane",
                                           "host": "dev-server", "resolved_from": "pin"}
+    label_t01["labels"]["locality"] = "local"
+    assert H.route(label_t01, roster)["mode"] == "headless"
 
 
 def test_assignment_executor_codex_validates(roster, label_t01):
