@@ -2,6 +2,7 @@ import json
 import os
 
 from ale import events as E
+from ale.cli import main
 from ale.labeling import exclude as EXCL
 
 from judge_fakes import drive_run, read_calls, setup_repo
@@ -51,3 +52,36 @@ def test_the_same_run_calls_the_judge_when_nothing_is_excluded(tmp_path, monkeyp
     _exclude(roster_path, [str(tmp_path / "somewhere-else")])
     drive_run(repo, roster_path)
     assert read_calls(log_path)
+
+
+def test_explicit_project_cwd_excludes_verify_and_dispatch_judge_calls(tmp_path, monkeypatch):
+    repo, roster_path, _roster, log_path = setup_repo(tmp_path, monkeypatch, "shadow", "conflict")
+    project_cwd = os.path.join(repo, "wt")
+    os.makedirs(project_cwd)
+    _exclude(roster_path, [repo])
+    run = tmp_path / "outside-run"
+    (run / "labels").mkdir(parents=True)
+    label = {
+        "schema_version": "1.0", "run_id": "run-1", "task_id": "T1", "title": "Secret task",
+        "labels": {"role": "backend", "model_tier": "standard", "lane": "inline",
+                   "risk": "low", "effort": "S"},
+        "context": {"spec_path": "spec.md", "pointers": [], "allowed_paths": ["change.txt"],
+                    "depends_on": [], "worktree": {"mode": "none", "branch": None, "base": None}},
+        "acceptance": [{"id": "A1", "cmd": "false", "expect": "exit0"}],
+        "assignments": [{"kind": "monitor", "role": "monitor", "model_tier": "standard",
+                         "executor": "claude-headless", "trigger": "on_breach"}],
+    }
+    (run / "labels" / "T1.json").write_text(json.dumps(label))
+    events = str(run / "events.jsonl")
+    E.append_event(events, E.make_event("run_started", "run-1", 1))
+    E.append_event(events, E.make_event("breach", "run-1", 2, "T1", None, 1,
+                                        breach="stuck", detail="no progress"))
+    E.append_event(events, E.make_event("claimed", "run-1", 3, "T1", "worker", 1))
+    E.append_event(events, E.make_event("submitted", "run-1", 4, "T1", "worker", 1, summary="done"))
+    monkeypatch.chdir(tmp_path)
+
+    common = ["--run-dir", str(run), "--roster", roster_path]
+    assert main(["verify", "--task", "T1", "--cwd", project_cwd] + common) == 1
+    assert read_calls(log_path) == []
+    assert main(["dispatch", "--spawn", "--cwd", project_cwd] + common) == 0
+    assert read_calls(log_path) == []

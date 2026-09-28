@@ -68,6 +68,31 @@ def test_verify_in_the_task_worktree_commits_the_verified_tree(tmp_path):
     assert _git(worktree, "status", "--porcelain", "--", "change.txt") == ""
 
 
+def test_verify_rejects_out_of_scope_worktree_changes_before_commit(tmp_path, capsys):
+    repo, run, roster, worktree, events = _setup(tmp_path)
+    base = _git(worktree, "rev-parse", "HEAD")
+    (worktree / "credentials.txt").write_text("secret\n")
+
+    assert _verify(run, roster, worktree) == 1
+    assert "path_violation: credentials.txt" in capsys.readouterr().err
+    recorded = E.read_events(str(events))
+    assert recorded[-1]["type"] == "rejected"
+    assert recorded[-1]["evidence"]["path_violations"] == ["credentials.txt"]
+    assert not any(event["type"] == "accepted" for event in recorded)
+    assert _git(worktree, "rev-parse", "HEAD") == base
+    assert "?? credentials.txt" in _git(worktree, "status", "--porcelain")
+
+
+def test_real_verify_records_changed_files_in_rendered_evidence(tmp_path, capsys):
+    repo, run, roster, worktree, events = _setup(tmp_path)
+    assert _verify(run, roster, worktree) == 0
+
+    assert main(["evidence", "T1", "--run-dir", str(run), "--roster", roster]) == 0
+    output = capsys.readouterr().out
+    assert "- `change.txt`" in output
+    assert "- none recorded" not in output
+
+
 def test_verify_with_nothing_changed_records_head_without_a_new_commit(tmp_path):
     repo, run, roster, worktree, events = _setup(tmp_path, write=False)
     base = _git(worktree, "rev-parse", "HEAD")

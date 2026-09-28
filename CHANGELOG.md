@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Verification now rejects out-of-scope worktree changes before commit, records validated files in evidence, keeps judge exclusions tied to explicit project roots, and dispatches stacked children before integrating their accepted parent.
+
 ## 0.2.14 (2026-09-27)
 
 - Stacked tasks. `context.worktree.stack: true` (or `ale plan bake --stack`) lets a task with one dependency start from that dependency's accepted commit instead of waiting for integration. `ale verify` in a task's own worktree now commits the verified tree (`ale: <task> <title>`, `evidence.commit`), and `ale integrate` merges that tip after checking it still matches `evidence.tree`. Integrate enforces parent-first order; reopening an accepted parent emits `restack_needed`, and `ale restack --task T` rebases the child onto the parent's new commit (`restacked`) and sends it back to verification. `ale run` follows the same order.
