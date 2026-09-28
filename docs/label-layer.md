@@ -27,7 +27,24 @@ Executors never commit. Verification in the task's own worktree records the chan
 
 After `ale init-run`, `context.allowed_paths` is frozen for that run. If the scope must change, use a focused fix task rather than editing the initialized label. `ale reopen` returns a rejected or accepted-but-unintegrated task to verification after the lead addresses the failure or makes a post-review change; an integrated task cannot be reopened. `ale fix` creates a work task for failed acceptance checks. A parent can have at most two fix tasks, and a fix task cannot create another fix task. After that, escalate the decision to the lead.
 
-Binding an in-session subagent before it is spawned remains a deferred design question. Dispatch currently creates the configured per-task worktree for `claude-subagent` assignments, but does not bind a live in-session subagent as part of dispatch.
+For an in-session task, dispatch creates the per-task worktree, records `spawned` (with `mode: in-session` and the worktree), saves the request as `requests/<agent>.in-session.json` and prints it; the lead starts the subagent. Every later dispatch prints that request again while the task is still unclaimed, without a second `spawned` event, so a lead that lost its session can recover the task.
+
+## Harness, mode and host
+
+`ale/harness.py` decides these by code; `ale plan route <plan> --task T [--lane L] --json` prints the result (`harness`, `model`, `mode`, `host`, `resolved_from`).
+
+| Input | Rule |
+| --- | --- |
+| Harness | The executor assignment's `executor` if set (a pin), else the roster row for `(role, model_tier)`. Legacy ids normalize: `claude-headless`, `claude-subagent`, `claude_code`, `herdr-pane` → `claude`; `codex-exec` → `codex`; `pi-print` → `pi`. Roster `harnesses` adds or overrides entries (`headless` argv with `{model}` and `{prompt}`, `usage_from`, `herdr_kind`, `in_session`, `family`). |
+| Model | `assignments[0].model` when pinned (requires a non-empty `pin_reason`), else the roster row. The model stays owned by the roster: re-baking follows roster changes for unpinned tasks. |
+| Mode | A legacy id fixes its mode (`claude-headless` stays headless). Otherwise: `pane` lane → `pane`; `inline`/`workflow` → `in-session` when the harness can run in-session and the model is Anthropic (or of unknown family), else `headless`. A non-Anthropic model never runs in-session. |
+| Host | `in-session`, locality `local`, or no roster `remote_host` → `local`; otherwise the `remote_host` name. Remote headless work runs as a pane on that host. |
+
+Baked plan blocks show a derived `route` (`harness`, `model`, `mode`). Bake rewrites it on every run and never reads it back; when only `route` changed, bake patches that key and keeps the rest of a hand-formatted block byte-for-byte. Dispatch requests carry `executor` (the spawn id `bin/ale-spawn` understands), `harness`, `mode`, `host`, `family` (for cross-family review gates), `argv`, `usage_from` and `herdr_kind`. `bin/ale-spawn` switches on `mode`; a headless request for a remote host exits 2. A remote task needs `ALE_REMOTE_WORKTREE_<TASK>` (or `ALE_REMOTE_WORKTREE` when it is the only remote task in the dispatch); without one, dispatch records one `released` with reason `remote worktree not provisioned`. Non-claude harnesses do not receive the Claude-only harness sections of an agent definition.
+
+## Deep references
+
+When a task's agent has a refs entry and runs on the local host, dispatch runs its `ck items get` commands (no shell, 30 s timeout; any other command is refused) and writes `<run-dir>/refs/<task>.md`, whose first line is `ALE-REFS-TOKEN: <8 hex>`, and records `refs_fetched`. The prompt section is `Deep reference (required: read before you edit)` with the prefetched path and the acknowledgement command `$ALE_BIN refs-ack --token <token> --summary "…"`. Lookup order: `<role>/<sub>`, `<role>/<name>`, the name without its role prefix, `<role>/_default` for default agents, then `<role>`. The hook records `refs_read` (`via: hook`) when an executor runs `ck items get` or reads the prefetched file; `refs-ack` records `via: ack` with `token_ok`. `ale verify` reports `refs_read: true|false|null` (null when the task has no refs) and `refs_token_mismatch`; it never changes the verify outcome.
 
 Use `ale timeline [--task TASK] [--json]` for the event stream. Use `ale meta [--json]` for per-task, per-agent, and run usage metadata; add `--csv` for CSV output.
 
