@@ -1300,6 +1300,11 @@ def cmd_verify(a) -> int:
     if st["state"] != "submitted":
         raise CliError(FAIL, "task %s is %s, not submitted" % (a.task, st["state"]))
     label, owner, attempt = c.labels[a.task], st["owner"], st["attempt"]
+    latest = _latest_spawn(c, a.task)
+    if a.reject is None and not a.cwd and latest and latest.get("remote_worktree") and not latest.get("worktree"):
+        # Verifying here would run acceptance in the lead's checkout and accept with no evidence.
+        raise CliError(FAIL, "remote task %s has no local worktree yet: fetch it back and run "
+                             "ale register-worktree first" % a.task)
     cwd = _task_project_root(c, a.task, a.cwd)
     if a.reject is not None:
         reason = a.reject[:TEXT_MAX]
@@ -1866,8 +1871,12 @@ def _refs_read_status(c: "Ctx", task_id: str, attempt: Optional[int], roster_pat
         configured = False
     if not fetched and not configured:
         return None, False
-    reads = [e for e in events if e.get("type") == "refs_read" and e.get("task_id") == task_id
-             and e.get("attempt") == attempt]
+    # A read counts from the latest fetch on, whatever the attempt: a reopen starts a new attempt
+    # without a new dispatch, so the chapter already read is still the one in force.
+    last_fetch = max((index for index, e in enumerate(events)
+                      if e.get("type") == "refs_fetched" and e.get("task_id") == task_id), default=-1)
+    reads = [e for index, e in enumerate(events) if index > last_fetch and e.get("type") == "refs_read"
+             and e.get("task_id") == task_id and (last_fetch >= 0 or e.get("attempt") == attempt)]
     # A token-less ack only counts when no fetch ever produced a token to echo.
     tokenless_ok = not any(e.get("ok") and e.get("token") for e in fetched)
     if any(e.get("via") == "hook" or (e.get("via") == "ack" and (
@@ -1885,15 +1894,19 @@ def _make_dispatch_request(c: Ctx, due: dict, project_cwd: str, n: int) -> dict:
     assignment["roster"] = c.roster_path if hasattr(c, "roster_path") else _resolve_roster(argparse.Namespace())
     plan = worktree_plan(label, c.run_dir, c.run_id)
     request_cwd = project_cwd
+    remote = (due.get("host") or "local") != "local"
     if plan:
         _resolve_plan_base(c, label, plan)
-        request_cwd = plan["path"]
+        # A remote task's worktree is on the remote host; its prompt resolves reads from the checkout.
+        request_cwd = project_cwd if remote else plan["path"]
     request = spawn_request(label, assignment, c.run_dir, c.run_id, n=n,
                             cwd=request_cwd, worktree=plan, agent=routed_agent)
     request["executor"] = due["executor"]
     request["model"] = due["model"]
     for key in ("harness", "mode", "host", "family"):
         request[key] = due.get(key)
+    if remote and plan:
+        request["remote_base"] = plan.get("base")  # the commit the remote worktree must start from
     request["trigger_instance"] = due["trigger_instance"]
     request["env"]["ALE_ROSTER"] = c.roster_path if hasattr(c, "roster_path") else "roster.json"
     if due["kind"] == "monitor":
@@ -2012,6 +2025,8 @@ def _append_spawned(c: Ctx, due: dict, request: dict, plan: Optional[dict]) -> N
              "trigger_instance": due["trigger_instance"]}
     if due.get("mode") == "in-session":
         extra["mode"] = "in-session"
+    if request.get("remote_worktree"):
+        extra.update({"host": due.get("host"), "remote_worktree": request["remote_worktree"]})
     if plan:
         extra.update({"worktree": plan["path"], "branch": plan["branch"]})
         if plan.get("stack_parent"):
@@ -2078,6 +2093,13 @@ def cmd_dispatch(a) -> int:
                     request["remote_worktree"] = remote_worktree
                 label = c.labels[item["task_id"]]
                 plan = worktree_plan(label, c.run_dir, c.run_id)
+                remote = (item.get("host") or "local") != "local" and request.get("remote_worktree")
+                if remote:
+                    # The worktree lives on the remote host; the round trip's fetch-back registers
+                    # the local copy (ale register-worktree) before verify. The local launcher runs
+                    # from the project checkout; the pane itself uses remote_worktree.
+                    plan = None
+                    request["cwd"] = project_cwd
                 if plan:
                     _resolve_plan_base(c, label, plan)
                     parent_spawn = _latest_spawn(c, item["task_id"])

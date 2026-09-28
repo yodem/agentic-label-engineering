@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.2 (2026-09-29)
+
+- A remote task no longer gets a local worktree: dispatch records `host` and `remote_worktree` on `spawned`, and fetch-back registers the local copy before verify; `ale verify` refuses a remote task until then, and requests carry `remote_base`.
+- `refs_read` counts reads since the task's latest fetch, so reopening a task no longer reports its handbook chapter as unread.
+
 ## 0.3.1 (2026-09-28)
 
 - `ale rescope` changes a task's `allowed_paths` or `depends_on` after `init-run` as lead-authored `label_changed` events with a reason, refusing cycles, unknown dependencies, overlaps with independent tasks and terminal tasks; a started task may only widen its paths. Label files are no longer edited by hand.
