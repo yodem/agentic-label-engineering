@@ -2804,6 +2804,107 @@ def _label_path(run_dir: str, task_id: str) -> str:
     return os.path.join(run_dir, "labels", "%s.json" % task_id)
 
 
+_UNSTARTED = ("planned", "ready", "released", "rejected")
+
+
+def _rescope_glob(pattern: str) -> str:
+    value = pattern.strip()
+    while value.startswith("./"):
+        value = value[2:]
+    if not value or value.startswith("/") or ".." in value.split("/"):
+        raise CliError(USAGE, "path %r must be relative to the repository and stay inside it" % pattern)
+    if value.endswith("/"):
+        raise CliError(USAGE, "path %r names a directory; use %s**" % (pattern, value))
+    return value
+
+
+def _rescoped(values: List[str], add: List[str], remove: List[str], what: str) -> List[str]:
+    missing = [item for item in remove if item not in values]
+    if missing:
+        raise CliError(USAGE, "cannot remove %s not in scope: %s" % (what, ", ".join(missing)))
+    result = [item for item in values if item not in remove]
+    result.extend(item for item in add if item not in result)
+    return result
+
+
+def _related(labels: dict, left: str, right: str, ancestors: dict) -> bool:
+    """Dependent (directly or transitively) or a fix task and its parent: overlap is allowed."""
+    fixes = lambda tid: labels[tid].get("fixes")  # noqa: E731
+    return (left in ancestors.get(right, set()) or right in ancestors.get(left, set())
+            or fixes(left) == right or fixes(right) == left
+            or (fixes(left) is not None and fixes(left) == fixes(right)))
+
+
+def cmd_rescope(a) -> int:
+    """Change a task's allowed_paths or depends_on after init-run, as lead-authored label events.
+
+    A task that has not started may change freely. Once started (claimed, working, submitted),
+    only --add-path is allowed: widening cannot turn files the executor already wrote into
+    path violations, while removing paths or changing dependencies would.
+    """
+    reason = (a.reason or "").strip()
+    if not reason:
+        raise CliError(USAGE, "--reason is required")
+    if not (a.add_path or a.remove_path or a.add_dep or a.remove_dep):
+        raise CliError(USAGE, "nothing to change: pass --add-path, --remove-path, --add-dep or --remove-dep")
+    add_paths = [_rescope_glob(item) for item in a.add_path or []]
+    remove_paths = [_rescope_glob(item) for item in a.remove_path or []]
+    c = Ctx(a)
+    st = c.task(a.task)
+    if st["state"] in E.TERMINAL or st.get("integrated"):
+        raise CliError(FAIL, "task %s is %s; reopen it before changing its scope" %
+                       (a.task, "integrated" if st.get("integrated") else st["state"]))
+    started = st["state"] not in _UNSTARTED
+    if started and (remove_paths or a.add_dep or a.remove_dep):
+        raise CliError(FAIL, "task %s is %s: only --add-path is allowed once it has started "
+                             "(release or reject it first)" % (a.task, st["state"]))
+    from .stack import is_stacked
+
+    label = c.labels[a.task]
+    if (a.add_dep or a.remove_dep) and is_stacked(label) and _latest_spawn(c, a.task):
+        raise CliError(FAIL, "task %s is stacked and already spawned; its dependencies cannot change" % a.task)
+    context = label.get("context", {})
+    old_paths, old_deps = list(context.get("allowed_paths", [])), list(context.get("depends_on", []))
+    new_paths = _rescoped(old_paths, add_paths, remove_paths, "path")
+    new_deps = _rescoped(old_deps, a.add_dep or [], a.remove_dep or [], "dependency")
+    if not new_paths and old_paths:
+        raise CliError(FAIL, "allowed_paths cannot become empty")
+    unknown = [dep for dep in new_deps if dep not in c.labels]
+    if unknown or a.task in new_deps:
+        raise CliError(FAIL, "unknown dependency: %s" % ", ".join(unknown or [a.task]))
+    candidate = copy.deepcopy(c.labels)
+    candidate[a.task].setdefault("context", {}).update(allowed_paths=new_paths, depends_on=new_deps)
+    if D._has_cycle(candidate):
+        raise CliError(FAIL, "rescope would create a dependency cycle")
+    ancestors = L._ancestors(candidate)
+    for other in sorted(candidate):
+        if other == a.task or _related(candidate, a.task, other, ancestors):
+            continue
+        theirs = candidate[other].get("context", {}).get("allowed_paths", [])
+        clash = next(((mine, their) for mine in new_paths for their in theirs if L.globs_overlap(mine, their)), None)
+        if clash:
+            raise CliError(FAIL, "rescope would overlap independent task %s: %s vs %s" % (other, clash[0], clash[1]))
+    # Only problems this change introduces block it; pre-existing ones are not the rescope's to fix.
+    before = set(L.check_labelset(c.labels, c.roster))
+    introduced = [err for err in L.check_labelset(candidate, c.roster) if err not in before
+                  and "overlap" not in err]  # overlap was checked above with the ancestor/fix rules
+    if introduced:
+        raise CliError(FAIL, "rescope makes the labels invalid:\n  " + "\n  ".join(introduced))
+    changes = [(field, old, new) for field, old, new in
+               (("context.allowed_paths", old_paths, new_paths), ("context.depends_on", old_deps, new_deps))
+               if old != new]
+    if not changes:
+        print("%s: scope unchanged" % a.task)
+        return OK
+    H.write_atomic(_label_path(c.run_dir, a.task), json.dumps(candidate[a.task], indent=2, sort_keys=True))
+    for field, old, new in changes:
+        c.emit("label_changed", a.task, None, st["attempt"], field=field, old=old, new=new,
+               reason=reason[:TEXT_MAX])
+        print("%s: %s %s -> %s" % (a.task, field, json.dumps(old), json.dumps(new)))
+    _record_decision(c, "Rescoped %s (%s): %s" % (a.task, st["state"], reason[:TEXT_MAX]))
+    return OK
+
+
 def cmd_relabel(a) -> int:
     if a.field == "lane" or (a.field not in CAS.FIELDS and a.field not in ("assignments", "sub", "phase", "acceptance")):
         raise CliError(USAGE, "field %s cannot be relabeled or adjudicated" % a.field)
@@ -3795,6 +3896,12 @@ def _parser() -> argparse.ArgumentParser:
     us.add_argument("--source", default="self_report", choices=["adapter", "self_report", "unknown"])
     add("decide", cmd_decide).add_argument("--text", required=True)
     add("label", cmd_label).add_argument("--no-judge", action="store_true")
+    rs = add("rescope", cmd_rescope, task=True)
+    rs.add_argument("--add-path", action="append", metavar="GLOB")
+    rs.add_argument("--remove-path", action="append", metavar="GLOB")
+    rs.add_argument("--add-dep", action="append", metavar="TASK")
+    rs.add_argument("--remove-dep", action="append", metavar="TASK")
+    rs.add_argument("--reason", required=True)
     rl = add("relabel", cmd_relabel, task=True)
     rl.add_argument("--field", required=True)
     rl.add_argument("--value", required=True)
