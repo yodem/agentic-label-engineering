@@ -6,7 +6,7 @@ if [ "$#" -ne 1 ]; then
 fi
 
 request=$1
-eval "$(python3 -c '
+ale_assignments=$(python3 -c '
 import json
 import shlex
 import sys
@@ -32,7 +32,52 @@ values = {
     "ale_read_only": env.get("ALE_READ_ONLY", ""),
     "ale_deny_tools": ",".join(env.get("ALE_DENY_TOOLS", [])),
     "ale_herdr": "",
+    "ale_harness": request.get("harness") or "",
+    "ale_mode": request.get("mode") or "",
+    "ale_host": request.get("host") or "local",
+    "ale_herdr_kind": request.get("herdr_kind") or request.get("harness") or "claude",
+    "ale_usage_from": request.get("usage_from") or "",
+    "ale_argc": 0,
+    "ale_argdir": "",
 }
+# A request written before harness routing names only a legacy executor id: derive the
+# harness, mode and argv the same way dispatch does now.
+if not values["ale_mode"] or (request.get("argv") is None and values["ale_mode"] == "headless"):
+    import os
+    sys.path[:0] = [path for path in (env.get("ALE_IMPORT_ROOT"),
+                                      os.path.join(os.path.dirname(sys.argv[2]), "..")) if path]
+    try:
+        from ale import harness as H
+    except ImportError:
+        H = None
+    executor = request.get("executor") or ""
+    if H is not None and executor:
+        name = request.get("harness") or H.normalize(executor)
+        values["ale_harness"] = name
+        values["ale_mode"] = values["ale_mode"] or H.mode_hint(executor) or "headless"
+        entry = H.registry({}).get(name)
+        if entry and request.get("argv") is None:
+            prompt = ""
+            if os.path.isfile(request.get("prompt_file") or ""):
+                with open(request["prompt_file"], encoding="utf-8") as handle:
+                    prompt = handle.read()
+            request["argv"] = H.render_argv(entry["headless"], request.get("model") or None, prompt)
+            values["ale_usage_from"] = values["ale_usage_from"] or entry.get("usage_from") or ""
+            values["ale_herdr_kind"] = request.get("herdr_kind") or entry.get("herdr_kind") or "claude"
+# The headless argv goes one file per argument (the prompt may hold any byte but NUL);
+# the shell rebuilds "$@" from them with set --, so argv text is never evaluated.
+argv = request.get("argv")
+if isinstance(argv, list) and argv and all(isinstance(arg, str) for arg in argv):
+    import tempfile
+    argdir = tempfile.mkdtemp(prefix="ale-spawn-")
+    for index, arg in enumerate(argv):
+        with open("%s/%d" % (argdir, index), "w", encoding="utf-8") as out:
+            out.write(arg)
+    values["ale_argc"] = len(argv)
+    values["ale_argdir"] = argdir
+elif argv is not None:
+    print("ale-spawn: request argv must be a list of strings", file=sys.stderr)
+    sys.exit(2)
 for key, value in env.items():
     if key == "ALE_HERDR_EXEC":
         values["ale_herdr"] = value
@@ -40,7 +85,9 @@ for key, value in env.items():
         values["ale_plugin_root"] = value
 for key, value in values.items():
     print("%s=%s" % (key, shlex.quote(str(value))))
-' "$request")"
+' "$request" "$0") || exit $?
+eval "$ale_assignments"
+if [ -n "$ale_argdir" ]; then trap 'rm -rf "$ale_argdir"' EXIT; fi
 
 safe_agent=$(printf '%s' "$ale_agent" | tr '[:upper:].' '[:lower:]-' | sed 's/[^a-z0-9_-]/-/g; s/^[^a-z]*/agent-/; s/\(.*\)\(.\{32\}\)$/\2/')
 safe_agent=$(printf '%s' "$safe_agent" | cut -c 1-32)
@@ -93,81 +140,71 @@ run_argv() {
     "$@"
 }
 
-prompt_text=
-if [ -f "$ale_prompt" ]; then
-    prompt_text=$(cat "$ale_prompt")
-fi
+herdr_run() {
+    if [ -n "$herdr_host" ]; then
+        run_argv python3 "$herdr_exec" --host "$herdr_host" "$@"
+    else
+        run_argv python3 "$herdr_exec" "$@"
+    fi
+}
 
-case "$ale_executor" in
-    herdr-pane)
+case "$ale_mode" in
+    headless)
+        if [ "$ale_argc" -eq 0 ]; then
+            echo "ale-spawn: unknown executor: ${ale_harness:-$ale_executor} (no headless argv)" >&2
+            exit 2
+        fi
+        # Rebuild "$@" from the request argv, one argument per file (never evaluated).
+        set --
+        i=0
+        while [ "$i" -lt "$ale_argc" ]; do
+            arg=$(cat "$ale_argdir/$i"; printf x)
+            arg=${arg%x}
+            set -- "$@" "$arg"
+            if [ "$i" -eq 0 ] && [ "$ale_harness" = claude ]; then
+                if [ -n "$ALE_PLUGIN_ROOT" ]; then set -- "$@" --plugin-dir "$ALE_PLUGIN_ROOT"; fi
+                if [ "$ale_kind" = "monitor" ] && [ "$ALE_READ_ONLY" = "1" ]; then
+                    ale_deny_tools=${ale_deny_tools:+$ale_deny_tools,}
+                    ale_deny_tools="${ale_deny_tools}Write,Edit,MultiEdit,NotebookEdit"
+                fi
+                if [ -n "$ale_deny_tools" ]; then set -- "$@" --disallowedTools "$ale_deny_tools"; fi
+            fi
+            i=$((i + 1))
+        done
+        rm -rf "$ale_argdir"
+        if [ -n "$ale_task" ]; then
+            if [ -n "$ale_usage_from" ]; then
+                set -- --usage-from "$ale_usage_from" -- "$@"
+            else
+                set -- -- "$@"
+            fi
+            run_argv "$(dirname "$0")/ale-exec" --task "$ale_task" --agent "$ale_agent" "$@" </dev/null
+        else
+            run_argv "$@" </dev/null
+        fi
+        ;;
+    pane)
         [ -n "${ALE_HERDR_EXEC:-$ale_herdr}" ] || {
             echo "ale-spawn: ALE_HERDR_EXEC is required" >&2
             exit 2
         }
         herdr_exec=${ALE_HERDR_EXEC:-$ale_herdr}
-        if [ -n "${ALE_HERDR_HOST:-}" ]; then
-            run_argv python3 "$herdr_exec" start --cwd "$ale_cwd" --host "$ALE_HERDR_HOST" || exit $?
+        if [ "$ale_host" != local ]; then
+            herdr_host=$ale_host
+            pane_cwd=${ALE_REMOTE_WORKTREE:-}
+            [ -n "$pane_cwd" ] || {
+                echo "ale-spawn: host $ale_host needs ALE_REMOTE_WORKTREE (remote worktree not provisioned)" >&2
+                exit 2
+            }
         else
-            run_argv python3 "$herdr_exec" start --cwd "$ale_cwd" || exit $?
+            herdr_host=${ALE_HERDR_HOST:-}
+            pane_cwd=$ale_cwd
         fi
-        run_argv python3 "$herdr_exec" send "$safe_agent" --spec "$ale_prompt"
-        ;;
-    claude-headless|codex-exec|pi-print)
-        if [ -n "$ale_task" ]; then
-            prefix="$(dirname "$0")/ale-exec"
-        else
-            prefix=
-        fi
-        case "$ale_executor" in
-            claude-headless)
-                set -- claude
-                if [ -n "$ale_model" ]; then set -- "$@" --model "$ale_model"; fi
-                if [ -n "$ALE_PLUGIN_ROOT" ]; then
-                    set -- "$@" --plugin-dir "$ALE_PLUGIN_ROOT"
-                fi
-                if [ "$ale_kind" = "monitor" ] && [ "$ALE_READ_ONLY" = "1" ]; then
-                    ale_deny_tools=${ale_deny_tools:+$ale_deny_tools,}
-                    ale_deny_tools="${ale_deny_tools}Write,Edit,MultiEdit,NotebookEdit"
-                fi
-                if [ -n "$ale_deny_tools" ]; then
-                    set -- "$@" --disallowedTools "$ale_deny_tools"
-                fi
-                set -- "$@" -p "$prompt_text"
-                if [ -n "$prefix" ]; then
-                    run_argv "$prefix" --task "$ale_task" --agent "$ale_agent" -- "$@"
-                else
-                    run_argv "$@"
-                fi
-                ;;
-            codex-exec)
-                if [ -n "$prefix" ]; then
-                    if [ -n "$ale_model" ]; then
-                        run_argv "$prefix" --task "$ale_task" --agent "$ale_agent" --usage-from codex-json -- codex exec --json --model "$ale_model" "$prompt_text"
-                    else
-                        run_argv "$prefix" --task "$ale_task" --agent "$ale_agent" --usage-from codex-json -- codex exec --json "$prompt_text"
-                    fi
-                else
-                    if [ -n "$ale_model" ]; then
-                        run_argv codex exec --json --model "$ale_model" "$prompt_text"
-                    else
-                        run_argv codex exec --json "$prompt_text"
-                    fi
-                fi
-                ;;
-            pi-print)
-                set -- pi --mode json
-                if [ -n "$ale_model" ]; then set -- "$@" --model "$ale_model"; fi
-                set -- "$@" -p "$prompt_text"
-                if [ -n "$prefix" ]; then
-                    run_argv "$prefix" --task "$ale_task" --agent "$ale_agent" --usage-from pi-json -- "$@"
-                else
-                    run_argv "$@"
-                fi
-                ;;
-        esac
+        herdr_run start "$safe_agent" --kind "$ale_herdr_kind" --cwd "$pane_cwd" || exit $?
+        herdr_run send "$safe_agent" --spec "$ale_prompt"
         ;;
     *)
-        echo "ale-spawn: unknown executor: $ale_executor" >&2
+        echo "ale-spawn: unknown mode: $ale_mode" >&2
         exit 2
         ;;
 esac

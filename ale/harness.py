@@ -17,7 +17,7 @@ LOCAL = "local"
 BUILTIN: Dict[str, dict] = {
     "claude": {"headless": ["claude", "--model", "{model}", "-p", "{prompt}"], "usage_from": None,
                "herdr_kind": "claude", "in_session": True, "family": "anthropic"},
-    "codex": {"headless": ["codex", "exec", "--json", "--model", "{model}", "{prompt}"],
+    "codex": {"headless": ["codex", "exec", "--json", "--skip-git-repo-check", "--model", "{model}", "{prompt}"],
               "usage_from": "codex-json", "herdr_kind": "codex", "in_session": False, "family": "openai"},
     "pi": {"headless": ["pi", "--mode", "json", "--model", "{model}", "-p", "{prompt}"],
            "usage_from": "pi-json", "herdr_kind": "pi", "in_session": False},
@@ -111,6 +111,19 @@ def family(harness_name: Optional[str], model: Optional[str], roster: dict) -> O
         if lowered.startswith(prefix):
             return name
     return registry(roster).get(normalize(harness_name) or "", {}).get("family")
+
+
+def render_argv(template: List[str], model: Optional[str], prompt: str) -> List[str]:
+    """A headless argv with ``{model}`` and ``{prompt}`` filled in. With no model, an argument
+    that names ``{model}`` is dropped, together with the flag right before it (``--model``)."""
+    out: List[str] = []
+    for index, arg in enumerate(template):
+        if "{model}" in arg and model is None:
+            if out and out[-1].startswith("-") and index > 0 and template[index - 1] == out[-1]:
+                out.pop()
+            continue
+        out.append(arg.replace("{model}", model or "").replace("{prompt}", prompt))
+    return out
 
 
 def spawn_id(harness_name: str, mode: str) -> str:

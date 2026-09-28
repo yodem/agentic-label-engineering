@@ -1646,14 +1646,15 @@ def _dispatch_assignment(label: dict, due: dict) -> dict:
         if assignment.get("kind") == due["kind"] and assignment.get("trigger", "ready") == due["trigger"]:
             result = dict(assignment)
             result.update({"model_tier": due["model_tier"], "executor": due["executor"], "model": due["model"],
-                           "roster": due.get("roster", "roster.json")})
+                           "harness": due.get("harness"), "roster": due.get("roster", "roster.json")})
             return result
     return {"kind": due["kind"], "role": due["role"], "model_tier": due["model_tier"],
-            "executor": due["executor"], "model": due["model"], "trigger": due["trigger"]}
+            "executor": due["executor"], "model": due["model"], "harness": due.get("harness"),
+            "trigger": due["trigger"]}
 
 
 def _make_dispatch_request(c: Ctx, due: dict, project_cwd: str, n: int) -> dict:
-    from .dispatch import spawn_request, worktree_plan
+    from .dispatch import headless_fields, spawn_request, worktree_plan
 
     label = c.labels[due["task_id"]]
     ref = (label.get("routing") or {}).get("agent") or {}
@@ -1672,7 +1673,7 @@ def _make_dispatch_request(c: Ctx, due: dict, project_cwd: str, n: int) -> dict:
                             cwd=request_cwd, worktree=plan, agent=routed_agent)
     request["executor"] = due["executor"]
     request["model"] = due["model"]
-    for key in ("harness", "mode", "host"):
+    for key in ("harness", "mode", "host", "family"):
         request[key] = due.get(key)
     request["trigger_instance"] = due["trigger_instance"]
     request["env"]["ALE_ROSTER"] = c.roster_path if hasattr(c, "roster_path") else "roster.json"
@@ -1686,7 +1687,9 @@ def _make_dispatch_request(c: Ctx, due: dict, project_cwd: str, n: int) -> dict:
             breach["last_heartbeat_step"] = c.task(due["task_id"]).get("last_step")
         request["breach"] = breach
         request["prompt_file"] = render_prompt(
-            label, dict(assignment, breach=breach, handoff_path=request["handoff_path"], cwd=request["cwd"]), routed_agent)
+            label, dict(assignment, breach=breach, handoff_path=request["handoff_path"], cwd=request["cwd"],
+                        harness=request["harness"]), routed_agent)
+    request.update(headless_fields(request, c.roster, request["prompt_file"]))
     return request
 
 
@@ -1837,6 +1840,16 @@ def cmd_dispatch(a) -> int:
                         if not reuses_parent:
                             _create_worktree(plan, project_cwd)
                         _run_worktree_setup(c, label, plan["path"], project_cwd)
+                    # Record the spawn (and its worktree) so verify runs in the task worktree.
+                    _append_spawned(c, item, request, plan)
+                    continue
+                if (not a.no_exec and (item.get("host") or "local") != "local"
+                        and not os.environ.get("ALE_REMOTE_WORKTREE")):
+                    # Never run a remote-routed task locally by surprise.
+                    print("releasing %s: remote worktree not provisioned for host %s" %
+                          (item["task_id"], item["host"]), file=sys.stderr)
+                    c.emit("released", item["task_id"], None, c.state()["tasks"][item["task_id"]]["attempt"],
+                           reason="remote worktree not provisioned")
                     continue
                 label = c.labels[item["task_id"]]
                 plan = worktree_plan(label, c.run_dir, c.run_id)
