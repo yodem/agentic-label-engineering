@@ -8,7 +8,7 @@
     "task_id": {"type": ["string", "null"]},
     "agent_id": {"type": ["string", "null"]},
     "attempt": {"type": ["integer", "null"]},
-    "type": {"enum": ["run_started", "label_vote", "shadow_vote", "decision_outcome", "labeled", "relabeled", "adjudicated", "dispatched", "claimed", "heartbeat", "note", "input_required", "input_answered", "relayed", "submitted", "verified", "accepted", "rejected", "failed", "canceled", "lease_expired", "released", "breach", "monitor_verdict", "usage", "decision", "run_finished", "task_added", "label_changed", "label_removed", "spawned", "integrated", "restack_needed", "restacked"]},
+    "type": {"enum": ["run_started", "label_vote", "shadow_vote", "decision_outcome", "labeled", "relabeled", "adjudicated", "dispatched", "claimed", "heartbeat", "note", "input_required", "input_answered", "relayed", "submitted", "verified", "accepted", "rejected", "failed", "canceled", "lease_expired", "released", "breach", "monitor_verdict", "usage", "decision", "run_finished", "task_added", "label_changed", "label_removed", "spawned", "integrated", "restack_needed", "restacked", "refs_fetched", "refs_read"]},
     "verdict": {"enum": ["continue", "nudge", "fix", "escalate"]},
     "agent_id_minted": {"type": "string", "minLength": 1},
     "text": {"type": "string", "maxLength": 1500},
@@ -28,6 +28,8 @@
     "calls_latency_ms": {"type": "array", "items": {"type": "number"}},
     "stack_parent": {"type": "string", "minLength": 1},
     "base_commit": {"type": "string", "minLength": 1},
-    "host": {"type": "string", "minLength": 1}
+    "host": {"type": "string", "minLength": 1},
+    "via": {"enum": ["ack", "hook"]},
+    "token_ok": {"type": ["boolean", "null"]}
   }
 }

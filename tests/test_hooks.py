@@ -1,4 +1,4 @@
-from ale.hooks import EDIT_TOOLS, decide_heartbeat, decide_pre_tool, decide_stop, session_context, target_paths
+from ale.hooks import EDIT_TOOLS, decide_heartbeat, decide_pre_tool, decide_stop, refs_read_signal, session_context, target_paths
 
 
 def binding(agent="a1"):
@@ -140,3 +140,16 @@ def test_session_context_contains_required_sections_and_cap():
 def test_session_context_handles_missing_prior_text():
     text = session_context(label(), "", "")
     assert "Executor rules" in text and "Prior handoff" in text
+
+
+def test_refs_read_signal_sees_ck_reads_and_the_prefetched_file(tmp_path):
+    refs_file = str(tmp_path / "refs" / "T01.md")
+    assert refs_read_signal("Bash", {"command": "ck items get BOOK:3"}, refs_file).startswith("hook: ck items get")
+    assert refs_read_signal("Bash", {"command": "cd x && ck items get BOOK:1"}, refs_file)
+    assert refs_read_signal("exec_command", {"cmd": "  ck items get BOOK:1"}, refs_file)
+    assert refs_read_signal("Bash", {"command": "echo ck items get"}, refs_file) is None
+    assert refs_read_signal("Bash", {"command": "ck items list"}, refs_file) is None
+    assert refs_read_signal("Read", {"file_path": refs_file}, refs_file)
+    assert refs_read_signal("Read", {"file_path": "refs/T01.md"}, refs_file, cwd=str(tmp_path))
+    assert refs_read_signal("Read", {"file_path": str(tmp_path / "other.md")}, refs_file) is None
+    assert refs_read_signal("Edit", {"file_path": refs_file}, refs_file) is None

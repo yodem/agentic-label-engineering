@@ -26,6 +26,7 @@ from . import lifecycle as LC
 from . import roster as R
 from . import verify as V
 from . import agentcat as AC
+from . import refs as REFS
 from .paths import plugin_root
 from . import watchdog as W
 from . import binding as B
@@ -1044,6 +1045,34 @@ def cmd_heartbeat(a) -> int:
     return _owned(c, a, "heartbeat", **extra)
 
 
+def cmd_refs_ack(a) -> int:
+    """Executor side: record that the deep reference was read, echoing the prefetched token.
+    Report only: it never changes the task's state and never fails on a wrong token."""
+    task_id = a.task or os.environ.get("ALE_TASK")
+    agent_id = a.agent or os.environ.get("ALE_AGENT_ID") or os.environ.get("ALE_AGENT")
+    if not task_id or not H.is_safe_id(task_id):
+        raise CliError(USAGE, "refs-ack needs a bound task (--task or ALE_TASK)")
+    if agent_id is not None and not H.is_safe_id(agent_id):
+        raise CliError(USAGE, "unsafe agent id: %r" % (agent_id,))
+    token = (a.token or "").strip()
+    if token.startswith(REFS.TOKEN_PREFIX.strip()):
+        token = token[len(REFS.TOKEN_PREFIX.strip()):].strip()
+    if not token:
+        raise CliError(USAGE, "refs-ack needs --token (the ALE-REFS-TOKEN line of the prefetched file)")
+    c = Ctx(a)
+    if task_id not in c.labels:
+        raise CliError(USAGE, "unknown task %s" % task_id)
+    expected = None
+    for event in E.read_events(c.events_path):
+        if event.get("type") == "refs_fetched" and event.get("task_id") == task_id:
+            expected = event.get("token")
+    token_ok = None if not expected else token == expected
+    c.emit("refs_read", task_id, agent_id, c.state()["tasks"][task_id]["attempt"], via="ack",
+           summary=(a.summary or "")[:TEXT_MAX], token_ok=token_ok)
+    print("refs read: %s" % {True: "token ok", False: "token mismatch", None: "no token to check"}[token_ok])
+    return OK
+
+
 def cmd_note(a) -> int:
     extra = {"text": a.text[:TEXT_MAX]}
     if a.to:
@@ -1196,6 +1225,12 @@ def cmd_verify(a) -> int:
     if evidence["required_failures"]:
         evidence["passed"] = False
     evidence.setdefault("files", [])
+    refs_read, refs_mismatch = _refs_read_status(c, a.task, attempt, _resolve_roster(a))
+    evidence["refs_read"] = refs_read
+    if refs_mismatch:
+        evidence["refs_token_mismatch"] = True
+    print("refs read: %s%s" % ({True: "yes", False: "no", None: "n/a"}[refs_read],
+                                " (token mismatch)" if refs_mismatch else ""))
     reason = None
     task_changed = None
     if a.base:
@@ -1451,6 +1486,21 @@ def _usage_for_hook(c: Ctx, binding: dict, data: dict, attempt: int) -> None:
               "usage_source": "adapter"})
 
 
+def _hook_refs_read(c: Ctx, binding: dict, state: dict, data: dict) -> None:
+    """Record, once per attempt, that the executor read its deep reference."""
+    task_id = binding["task_id"]
+    summary = HK.refs_read_signal(data.get("tool_name", ""), data.get("tool_input") or {},
+                                  _refs_file(c, task_id), data.get("cwd"))
+    if summary is None:
+        return
+    for event in E.read_events(c.events_path):
+        if (event.get("type") == "refs_read" and event.get("via") == "hook"
+                and event.get("task_id") == task_id and event.get("attempt") == state["attempt"]):
+            return
+    c.emit("refs_read", task_id, binding["agent_id"], state["attempt"], via="hook",
+           summary=summary, token_ok=None)
+
+
 def cmd_hook(a) -> int:
     try:
         data = json.load(sys.stdin)
@@ -1512,6 +1562,8 @@ def cmd_hook(a) -> int:
                 return 2
             return OK
         if event == "post-tool":
+            if state.get("owner") == binding["agent_id"]:
+                _hook_refs_read(c, binding, state, data)
             decision = HK.decide_heartbeat(state, c.now, 60, data.get("tool_name", ""), data.get("tool_input") or {})
             if decision is not None and state.get("owner") == binding["agent_id"]:
                 c.emit("heartbeat", binding["task_id"], binding["agent_id"], state["attempt"], step=decision["step"], files_modified=decision["files"], auto=True)
@@ -1653,15 +1705,89 @@ def _dispatch_assignment(label: dict, due: dict) -> dict:
             "trigger": due["trigger"]}
 
 
+def _routed_agent(label: dict) -> Optional[dict]:
+    """The catalog agent the label is routed to (a declared variant wins), or None."""
+    ref = (label.get("routing") or {}).get("agent") or {}
+    if not ref.get("key"):
+        return None
+    agent_catalog = AC.load_catalog(_agent_roots())
+    if ref.get("variant") and ref.get("path"):
+        agent_catalog[ref["key"]] = _load_variant_agent(ref["key"], ref["path"])
+    return agent_catalog.get(ref["key"])
+
+
+def _task_refs(roster_path: Optional[str], label: dict, agent: Optional[dict] = None) -> Optional[tuple]:
+    """``(key, entry, agent, refs)`` for the task's routed agent, or None without an entry."""
+    agent = agent if agent is not None else _routed_agent(label)
+    if not agent:
+        return None
+    refs = REFS.load_refs(REFS.refs_path(roster_path))
+    found = REFS.resolve(refs, agent)
+    if found is None:
+        return None
+    return found[0], found[1], agent, refs
+
+
+def _refs_file(c: "Ctx", task_id: str) -> str:
+    return os.path.join(c.run_dir, "refs", "%s.md" % task_id)
+
+
+def _prefetch_refs(c: "Ctx", item: dict, request: dict) -> None:
+    """Fetch the task's deep reference before spawn (local hosts only) and name it in the prompt.
+
+    A failed fetch is recorded and the prompt keeps the read commands; it never blocks the spawn."""
+    from .dispatch import headless_fields
+
+    if item.get("kind") == "monitor":
+        return
+    task_id = item["task_id"]
+    label = c.labels[task_id]
+    found = _task_refs(getattr(c, "roster_path", None), label)
+    if found is None:
+        return
+    key, entry, agent, refs = found
+    attempt = c.state()["tasks"][task_id]["attempt"]
+    if (item.get("host") or "local") != "local":
+        c.emit("refs_fetched", task_id, None, attempt, key=key, path=None, ok=False, bytes=0,
+               token=None, error="remote host")
+        return
+    path = _refs_file(c, task_id)
+    result = REFS.prefetch(entry, path)
+    c.emit("refs_fetched", task_id, None, attempt, key=key, path=path, ok=result["ok"],
+           bytes=result["bytes"], token=result.get("token"), error=(result.get("error") or None) and result["error"][:300])
+    if not result["ok"]:
+        print("refs prefetch for %s failed: %s" % (task_id, result["error"]), file=sys.stderr)
+        return
+    request["prompt_file"] = render_prompt(label, request, agent, refs=refs, prefetched=path)
+    request.update(headless_fields(request, c.roster, request["prompt_file"]))
+
+
+def _refs_read_status(c: "Ctx", task_id: str, attempt: Optional[int], roster_path: Optional[str]) -> tuple:
+    """``(refs_read, token_mismatch)``: None when the task has no refs; True on a hook detection,
+    an ack with the matching token, or an ack when no token was fetched; otherwise False."""
+    events = E.read_events(c.events_path)
+    fetched = [e for e in events if e.get("type") == "refs_fetched" and e.get("task_id") == task_id]
+    try:
+        configured = _task_refs(roster_path, c.labels[task_id]) is not None
+    except Exception:  # a missing variant or catalog must never change verify's outcome
+        configured = False
+    if not fetched and not configured:
+        return None, False
+    reads = [e for e in events if e.get("type") == "refs_read" and e.get("task_id") == task_id
+             and e.get("attempt") == attempt]
+    # A token-less ack only counts when no fetch ever produced a token to echo.
+    tokenless_ok = not any(e.get("ok") and e.get("token") for e in fetched)
+    if any(e.get("via") == "hook" or (e.get("via") == "ack" and (
+            e.get("token_ok") is True or (e.get("token_ok") is None and tokenless_ok))) for e in reads):
+        return True, False
+    return False, any(e.get("via") == "ack" and e.get("token_ok") is False for e in reads)
+
+
 def _make_dispatch_request(c: Ctx, due: dict, project_cwd: str, n: int) -> dict:
     from .dispatch import headless_fields, spawn_request, worktree_plan
 
     label = c.labels[due["task_id"]]
-    ref = (label.get("routing") or {}).get("agent") or {}
-    agent_catalog = AC.load_catalog(_agent_roots())
-    if ref.get("variant") and ref.get("key") and ref.get("path"):
-        agent_catalog[ref["key"]] = _load_variant_agent(ref["key"], ref["path"])
-    routed_agent = agent_catalog.get(ref.get("key"))
+    routed_agent = _routed_agent(label)
     assignment = _dispatch_assignment(label, due)
     assignment["roster"] = c.roster_path if hasattr(c, "roster_path") else _resolve_roster(argparse.Namespace())
     plan = worktree_plan(label, c.run_dir, c.run_id)
@@ -1843,6 +1969,7 @@ def cmd_dispatch(a) -> int:
                         if not reuses_parent:
                             _create_worktree(plan, project_cwd)
                         _run_worktree_setup(c, label, plan["path"], project_cwd)
+                    _prefetch_refs(c, item, request)
                     # Record the spawn (and its worktree) so verify runs in the task worktree,
                     # and keep the request so an unclaimed task can be handed out again.
                     _append_spawned(c, item, request, plan)
@@ -1865,6 +1992,7 @@ def cmd_dispatch(a) -> int:
                     if not reuses_parent:
                         _create_worktree(plan, project_cwd)
                     _run_worktree_setup(c, label, plan["path"], project_cwd)
+                _prefetch_refs(c, item, request)
                 if a.no_exec:
                     _append_spawned(c, item, request, plan)
                     continue
@@ -3530,6 +3658,11 @@ def _parser() -> argparse.ArgumentParser:
     hb.add_argument("--next", action="append")
     hb.add_argument("--auto", action="store_true")
     hb.add_argument("--throttle-s", type=float)
+    ra = add("refs-ack", cmd_refs_ack)
+    ra.add_argument("--task")
+    ra.add_argument("--agent")
+    ra.add_argument("--token")
+    ra.add_argument("--summary", default="")
     nt = add("note", cmd_note, task=True)
     nt.add_argument("--agent")
     nt.add_argument("--text", required=True)

@@ -19,5 +19,7 @@
   "decision": ["text"],
   "monitor_verdict": ["agent_id_minted", "verdict", "text"],
   "restack_needed": ["parent", "base_commit"],
-  "restacked": ["parent", "old_base", "new_base"]
+  "restacked": ["parent", "old_base", "new_base"],
+  "refs_fetched": ["key", "path", "ok", "bytes", "token"],
+  "refs_read": ["via", "summary", "token_ok"]
 }
