@@ -1,7 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.2.15 (2026-09-28)
 
+- Hook latency tests measure best-of-5 and median-of-20 against the same 50 ms / 25 ms budgets, so a loaded machine no longer fails them while a slow hook still does.
 - Verification now rejects out-of-scope worktree changes before commit, records validated files in evidence, keeps judge exclusions tied to explicit project roots, and dispatches stacked children before integrating their accepted parent.
 
 ## 0.2.14 (2026-09-27)
