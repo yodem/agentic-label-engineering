@@ -79,27 +79,33 @@ def _judge_mode(roster: dict) -> str:
     return "off"
 
 
-def _judge_roots(run_dir: Optional[str] = None, plan_path: Optional[str] = None) -> List[str]:
-    """Project roots whose task text a judge call could carry: the cwd's, the run's, the plan's."""
+def _judge_roots(run_dir: Optional[str] = None, plan_path: Optional[str] = None,
+                 project_paths: Optional[List[str]] = None) -> List[str]:
+    """Project roots whose task text a judge call could carry."""
     roots = [_git_root(os.getcwd())]
     if run_dir:
         roots.append(_git_root(run_dir))
     if plan_path:
         roots.append(_git_root(os.path.dirname(os.path.abspath(plan_path))))
+    for path in project_paths or []:
+        roots.append(_git_root(path))
     return roots
 
 
-def _make_judge(roster: dict, run_dir: Optional[str] = None, plan_path: Optional[str] = None):
+def _make_judge(roster: dict, run_dir: Optional[str] = None, plan_path: Optional[str] = None,
+                project_paths: Optional[List[str]] = None):
     judge = roster["judge"]
-    if EXCL.any_excluded(roster, _judge_roots(run_dir, plan_path)):
+    if EXCL.any_excluded(roster, _judge_roots(run_dir, plan_path, project_paths)):
         return EXCL.ExcludedJudge(judge.get("model"))
     return CommandJudge(judge.get("command") or ["jev-ask"], timeout_s=judge.get("timeout_s", 30),
                         model=judge.get("model"))
 
 
-def _shadow_judge(roster: dict, run_dir: Optional[str] = None):
+def _shadow_judge(roster: dict, run_dir: Optional[str] = None,
+                  project_paths: Optional[List[str]] = None):
     """A judge for Part B decision votes, or None unless the roster is in shadow mode."""
-    return _make_judge(roster, run_dir) if _judge_mode(roster) == "shadow" else None
+    return (_make_judge(roster, run_dir, project_paths=project_paths)
+            if _judge_mode(roster) == "shadow" else None)
 
 
 def _vote_fields(vote: dict) -> dict:
@@ -760,6 +766,18 @@ def cmd_run(a) -> int:
                     return _finish_run(context, FAIL)
             context = Ctx(c_args)
             context.roster_path = roster
+        dispatch_state = _dispatch_state(context)
+        due = __import__("ale.dispatch", fromlist=["due_assignments"]).due_assignments(
+            dispatch_state, context.labels, context.roster)
+        stack = __import__("ale.stack", fromlist=["stack_base"])
+        if any(stack.stack_base(context.labels[item["task_id"]], dispatch_state) is not None
+               for item in due):
+            result = main(["dispatch", "--spawn", "--cwd", os.getcwd(),
+                           "--run-dir", run_dir, "--roster", roster])
+            if result:
+                return _finish_run(context, result)
+            context = Ctx(c_args)
+            context.roster_path = roster
         fresh_actions = RUNNER.next_actions(
             context.state(), context.labels, E.read_events(context.events_path))
         for kind, task_id in fresh_actions:
@@ -1179,6 +1197,7 @@ def cmd_verify(a) -> int:
         evidence["passed"] = False
     evidence.setdefault("files", [])
     reason = None
+    task_changed = None
     if a.base:
         changed = [path for path in _changed_files(cwd, a.base) if path != ".ale-setup-done"]
         evidence["files"] = changed
@@ -1187,6 +1206,17 @@ def cmd_verify(a) -> int:
         evidence["path_violations"] = bad[:20]
         if bad:
             reason = "path_violation: %s" % ", ".join(bad[:5])
+    spawn = _latest_spawn(c, a.task) or {}
+    if spawn.get("worktree") and os.path.realpath(cwd) == os.path.realpath(spawn["worktree"]):
+        worktree_config = label.get("context", {}).get("worktree") or {}
+        task_changed = _task_changed_paths(cwd, worktree_config.get("setup_outputs", []))
+        if task_changed is not None and not a.base:
+            evidence["files"] = task_changed
+            bad = V.paths_within(task_changed, label["context"]["allowed_paths"],
+                                 (label.get("effective_rules") or {}).get("deny_paths", []))
+            evidence["path_violations"] = bad[:20]
+            if bad:
+                reason = "path_violation: %s" % ", ".join(bad[:5])
     if reason is None and evidence["required_failures"]:
         reason = "required command failed: %s" % evidence["required_failures"][0]["command"]
     if reason is None and not evidence["passed"]:
@@ -1195,7 +1225,7 @@ def cmd_verify(a) -> int:
     c.emit("verified", a.task, None, attempt, evidence=evidence)
     if reason is not None:
         c.emit("rejected", a.task, None, attempt, evidence=evidence, reason=reason)
-        shadow_judge = _shadow_judge(c.roster, c.run_dir)
+        shadow_judge = _shadow_judge(c.roster, c.run_dir, [cwd])
         if shadow_judge is not None:
             _emit_vote(c, a.task, _rejection_vote(c, shadow_judge, a.task, evidence, reason), "run_loop")
         c.render(a.task, owner)
@@ -1208,17 +1238,13 @@ def cmd_verify(a) -> int:
         evidence["signoff"] = a.signoff
     # Pin what was verified, so integrate can refuse later changes. Only the task's
     # own recorded worktree is pinned: that is the tree integrate commits from.
-    spawn = _latest_spawn(c, a.task) or {}
-    if spawn.get("worktree") and os.path.realpath(cwd) == os.path.realpath(spawn["worktree"]):
-        worktree_config = label.get("context", {}).get("worktree") or {}
-        task_changed = _task_changed_paths(cwd, worktree_config.get("setup_outputs", []))
-        if task_changed is not None:
-            evidence["tree"] = _task_git_tree(cwd, task_changed)
-            # Commit at accept: the verified tree becomes the task branch tip, so a
-            # dependent task can start from it and integrate only has to merge it.
-            evidence["commit"] = _commit_task_paths(
-                cwd, task_changed, "ale: %s %s" % (a.task, label.get("title", a.task)))
-            _fit(evidence)
+    if task_changed is not None:
+        evidence["tree"] = _task_git_tree(cwd, task_changed)
+        # Commit at accept: the verified tree becomes the task branch tip, so a
+        # dependent task can start from it and integrate only has to merge it.
+        evidence["commit"] = _commit_task_paths(
+            cwd, task_changed, "ale: %s %s" % (a.task, label.get("title", a.task)))
+        _fit(evidence)
     c.emit("accepted", a.task, None, attempt, evidence=evidence)
     _adjudicate_shadow_acceptance(c, a.task)
     c.render(a.task, owner)
@@ -1774,11 +1800,11 @@ def cmd_dispatch(a) -> int:
 
     c = Ctx(a)
     c.roster_path = _resolve_roster(a)
+    project_cwd = os.path.abspath(a.cwd or os.getcwd())
     # Executor routing is deterministic from tier and is never judged.
-    shadow_judge = (_shadow_judge(c.roster, c.run_dir)
+    shadow_judge = (_shadow_judge(c.roster, c.run_dir, [project_cwd])
                     if any(event.get("type") == "run_started" for event in E.read_events(c.events_path))
                     else None)
-    project_cwd = os.path.abspath(a.cwd or os.getcwd())
     lock_path = os.path.join(c.run_dir, "dispatch.lock")
     requests = []
     spawned_requests = []

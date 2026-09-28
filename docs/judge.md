@@ -24,7 +24,7 @@ A judge is any executable that follows the contract below. Point the roster at i
 }
 ```
 
-A project root (the cwd's, the run's, or the plan's git root) that matches a glob, or sits under a listed directory, makes every judge call abstain with `excluded` and run no command. `~` is expanded. Use `exclude_paths` for repositories whose task text must not leave the machine.
+A project root (the process cwd's, the run's, the plan's, or an explicit verification/dispatch cwd's git root) that matches a glob, or sits under a listed directory, makes every judge call abstain with `excluded` and run no command. `~` is expanded. Use `exclude_paths` for repositories whose task text must not leave the machine.
 
 `ale setup --judge shadow` writes a roster with collection on. The default `command` is
 `["jev-ask"]`, a name for a judge wrapper you supply. ALE does not ship one. If that command is

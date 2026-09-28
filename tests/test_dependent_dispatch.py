@@ -114,13 +114,15 @@ def test_dependent_is_held_then_spawned_from_integrated_head(tmp_path, monkeypat
                for event in read_events(str(events_path)))
 
 
-def _run_two_task_plan(tmp_path, monkeypatch, capsys, dependent_mode):
+def _run_two_task_plan(tmp_path, monkeypatch, capsys, dependent_mode, stacked=False):
     repo = _git_repo(tmp_path)
     (repo / ".ale").mkdir()
     plan = repo / "PLAN.md"
 
     def block(task_id, depends):
         filename = task_id.lower() + ".txt"
+        worktree = ({"mode": dependent_mode, "stack": True}
+                    if stacked and depends else dependent_mode)
         return """## Task %s: Task %s
 
 **Files:** `%s`
@@ -131,12 +133,12 @@ Run: `echo ok`
  "task_id":"%s", "title":"Task %s",
  "labels":{"role":"backend","model_tier":"cheap","risk":"low","effort":"S","lane":"inline"},
  "lane_reason":"bounded task", "acceptance":[{"id":"A1","cmd":"test -f %s","expect":"exit0"},{"id":"A2","cmd":"echo ok","expect":"exit0"}],
- "allowed_paths":["%s"], "depends_on":%s, "worktree":"%s",
+ "allowed_paths":["%s"], "depends_on":%s, "worktree":%s,
  "assignments":[{"kind":"executor","role":"backend","model_tier":"cheap","executor":"claude-headless","trigger":"ready"}]
 }
 ```
 """ % (task_id[1:], task_id, filename, filename, task_id, task_id,
-       filename, filename, json.dumps(depends), dependent_mode)
+       filename, filename, json.dumps(depends), json.dumps(worktree))
 
     plan.write_text(block("T1", []) + "\n" + block("T2", ["T1"]))
     fake_spawn = repo / "fake-spawn.py"
@@ -170,7 +172,13 @@ assert main(['submit', '--task', task, '--agent', agent, '--summary', 'done', '-
                       if event.get("task_id") == "T1" and event["type"] == "integrated")
     spawned = next(i for i, event in enumerate(events)
                    if event.get("task_id") == "T2" and event["type"] == "spawned")
-    assert integrated < spawned
+    if stacked:
+        assert spawned < integrated
+        spawned_event = events[spawned]
+        assert spawned_event["stack_parent"] == "T1"
+        assert spawned_event["base_commit"]
+    else:
+        assert integrated < spawned
     assert [event["task_id"] for event in events if event["type"] == "integrated"] == ["T1", "T2"]
 
 
@@ -180,3 +188,7 @@ def test_run_integrates_before_dependent_dispatch(tmp_path, monkeypatch, capsys)
 
 def test_run_does_not_deadlock_with_per_task_dependency(tmp_path, monkeypatch, capsys):
     _run_two_task_plan(tmp_path, monkeypatch, capsys, "per_task")
+
+
+def test_run_spawns_stacked_child_before_integrating_parent(tmp_path, monkeypatch, capsys):
+    _run_two_task_plan(tmp_path, monkeypatch, capsys, "per_task", stacked=True)
