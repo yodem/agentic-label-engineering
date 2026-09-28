@@ -71,3 +71,44 @@ def test_noop_change_emits_nothing(run_dir):
     ale(run_dir, "init-run")
     assert ale(run_dir, "rescope", "--task", "T01", "--add-path", "src/auth/**", "--reason", "already there") == 0
     assert _changes(run_dir) == []
+
+
+def _claim(run_dir, tid="T01"):
+    assert ale(run_dir, "claim", "--task", tid, "--agent", "a1", now=1) == 0
+
+
+def test_started_task_may_only_widen(run_dir, capsys):
+    ale(run_dir, "init-run")
+    _claim(run_dir)
+    assert ale(run_dir, "rescope", "--task", "T01", "--remove-path", "tests/auth/**", "--reason", "narrow") == 1
+    assert ale(run_dir, "rescope", "--task", "T02", "--remove-dep", "T01", "--reason", "unstarted") == 0
+    assert ale(run_dir, "rescope", "--task", "T01", "--add-path", "src/session/**", "--reason", "fix touched it") == 0
+    capsys.readouterr()
+    ale(run_dir, "status", "--json")
+    assert "src/session/**" in _label(run_dir, "T01")["context"]["allowed_paths"]
+
+
+def test_started_task_dependency_change_is_refused(run_dir):
+    ale(run_dir, "init-run")
+    _claim(run_dir, "T01")
+    edit = [c for c in _changes(run_dir)]
+    assert ale(run_dir, "rescope", "--task", "T01", "--add-dep", "T02", "--reason", "late dependency") == 1
+    assert _changes(run_dir) == edit
+
+
+def test_path_forms_are_normalized_or_refused(run_dir):
+    ale(run_dir, "init-run")
+    assert ale(run_dir, "rescope", "--task", "T01", "--add-path", "./src/session/**", "--reason", "dot") == 0
+    assert "src/session/**" in _label(run_dir, "T01")["context"]["allowed_paths"]
+    assert ale(run_dir, "rescope", "--task", "T01", "--add-path", "lib/", "--reason", "dir form") == 2
+    assert ale(run_dir, "rescope", "--task", "T01", "--add-path", "../other/**", "--reason", "escape") == 2
+
+
+def test_fix_task_overlap_does_not_block_unrelated_rescope(run_dir):
+    ale(run_dir, "init-run")
+    fix = _label(run_dir, "T01")
+    fix.update(task_id="T01.fix1", fixes="T01", title="Fix T01 acceptance")
+    fix["context"]["depends_on"] = []
+    with open(os.path.join(run_dir, "labels", "T01.fix1.json"), "w") as handle:
+        json.dump(fix, handle)
+    assert ale(run_dir, "rescope", "--task", "T02", "--add-path", "docs/extra/**", "--reason", "unrelated") == 0

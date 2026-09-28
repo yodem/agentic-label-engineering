@@ -2,7 +2,7 @@
 
 ## 0.3.1 (2026-09-28)
 
-- `ale rescope` changes a task's `allowed_paths` or `depends_on` after `init-run` as lead-authored `label_changed` events with a reason, refusing cycles, unknown dependencies, overlaps with independent tasks and terminal tasks. Label files are no longer edited by hand.
+- `ale rescope` changes a task's `allowed_paths` or `depends_on` after `init-run` as lead-authored `label_changed` events with a reason, refusing cycles, unknown dependencies, overlaps with independent tasks and terminal tasks; a started task may only widen its paths. Label files are no longer edited by hand.
 
 ## 0.3.0 (2026-09-28)
 
