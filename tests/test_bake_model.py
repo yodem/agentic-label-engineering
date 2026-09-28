@@ -135,3 +135,27 @@ def test_pin_without_reason_fails(roster, label_t01):
     assert any("pinned model needs pin_reason" in e for e in check_label(label_t01, roster))
     label_t01["assignments"][0]["pin_reason"] = "needs the long-context model"
     assert check_label(label_t01, roster) == []
+
+
+def test_route_only_change_keeps_hand_formatting(roster_path, bake_plan, edit_roster):
+    text = bake_plan(PLAN)
+    start = text.index("```ale-label", text.index("## Task 1"))
+    end = text.index("```", start + 12) + 3
+    block = json.loads(text[start + 12:end - 3])
+    hand = "```ale-label\n" + json.dumps(block, sort_keys=True, separators=(",", ":")) + "\n```"
+    text = text[:start] + hand + text[end:]
+    edit_roster(lambda r: r["routing"].__setitem__(0, dict(r["routing"][0], model="claude-haiku-9")))
+    rebaked = bake_plan(text)
+    new_block = rebaked[rebaked.index("```ale-label", rebaked.index("## Task 1")):]
+    new_block = new_block[:new_block.index("```", 12) + 3]
+    assert '"model": "claude-haiku-9"' in new_block
+    assert new_block.replace(json.dumps(_blocks(rebaked)["T1"]["route"], sort_keys=True), "R") == \
+        hand.replace(json.dumps(block["route"], sort_keys=True, separators=(",", ":")), "R").replace('"route":R', '"route": R')
+
+
+def test_duplicate_blocks_route_follows_last_block_idempotently(roster_path, bake_plan):
+    from ale.bake import _task_block
+    first = {"task_id": "T1", "assignments": [{"executor": "codex"}]}
+    last = {"task_id": "T1", "assignments": [{"executor": None}]}
+    body = "```ale-label\n%s\n```\n\n```ale-label\n%s\n```\n" % (json.dumps(first), json.dumps(last))
+    assert _task_block({"task_id": "T1", "body": body}) == last

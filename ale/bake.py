@@ -137,13 +137,36 @@ def routing_for(label: dict, roster: dict, agent=None) -> dict:
             "host": route["host"], "resolved_from": route["resolved_from"], "agent": agent}
 
 
+_ROUTE_KEY = re.compile(r'"route"\s*:\s*(?:\{[^{}]*\}|null)')
+
+
+def _without_route(block: dict) -> dict:
+    return {key: value for key, value in block.items() if key != "route"}
+
+
+def _patch_route(block_lines: List[str], route: dict, newline: str) -> List[str]:
+    """Rewrite only the ``route`` value of a hand-formatted block, or add it after the opening brace."""
+    value = '"route": ' + json.dumps(route, ensure_ascii=False, sort_keys=True)
+    text = "".join(block_lines)
+    if _ROUTE_KEY.search(text):
+        return _ROUTE_KEY.sub(lambda _match: value, text, count=1).splitlines(keepends=True)
+    body = text.split("{", 1)
+    compact = not body[1].lstrip(" \t").startswith(("\r", "\n"))
+    joiner = value + (", " if compact else "," + newline + " ")
+    rest = body[1] if compact else body[1].lstrip("\r\n")
+    prefix = body[0] + "{" + ("" if compact else newline + " ")
+    return (prefix + joiner + rest).splitlines(keepends=True)
+
+
 def _task_block(task: dict) -> dict:
     """The ale-label block already written under this task, or ``{}``."""
     try:
         blocks = extract_blocks(task.get("body") or "")
     except BakeError:
         return {}
-    return next((block for _, block in blocks if block.get("task_id") == task.get("task_id")), {})
+    # The last block wins, as in the CLI's merge of existing labels (``_plan_existing_labels``).
+    matches = [block for _, block in blocks if block.get("task_id") == task.get("task_id")]
+    return matches[-1] if matches else {}
 
 
 def skeleton_label(task: dict, run_id: str, votes: dict) -> dict:
@@ -370,8 +393,12 @@ def bake(text: str, labels) -> str:
         existing = owned[0][1] if owned else None
         complete_fields = {"task_id", "title", "labels", "lane_reason", "acceptance",
                            "allowed_paths", "depends_on", "worktree", "assignments"}
+        route_only = False
         if existing == generated:
             replacement_text = None  # Preserve byte-for-byte hand-edited blocks.
+        elif existing and "route" in generated and _without_route(existing) == _without_route(generated):
+            replacement_text = None  # Only the derived route moved: patch that key, keep the bytes.
+            route_only = True
         elif existing and not complete_fields.issubset(existing):
             replacement_block = _merge_missing(existing, generated)
             # route is derived: always the regenerated value, never a hand edit.
@@ -394,7 +421,10 @@ def bake(text: str, labels) -> str:
                     ranges.append((block_start, block_end + 1))
             for block_start, block_end in reversed(ranges):
                 if block_start == owned[0][0]:
-                    if replacement is not None:
+                    if route_only:
+                        lines[block_start:block_end] = _patch_route(lines[block_start:block_end],
+                                                                    generated["route"], newline)
+                    elif replacement is not None:
                         lines[block_start:block_end] = replacement
                 else:
                     del lines[block_start:block_end]
