@@ -6,6 +6,7 @@
     "schema_version": {"const": "1.0"},
     "refs_file": {"type": "string", "minLength": 1},
     "remote_host": {"type": ["string", "null"]},
+    "notes": {"type": "string", "maxLength": 2000},
     "harnesses": {"type": "object", "additionalProperties": {"type": "object", "properties": {
       "headless": {"type": "array", "items": {"type": "string"}}, "usage_from": {"type": ["string", "null"]},
       "herdr_kind": {"type": "string"}, "in_session": {"type": "boolean"}, "family": {"type": "string"}}}},
