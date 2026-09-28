@@ -2804,6 +2804,59 @@ def _label_path(run_dir: str, task_id: str) -> str:
     return os.path.join(run_dir, "labels", "%s.json" % task_id)
 
 
+def _rescoped(values: List[str], add: List[str], remove: List[str], what: str) -> List[str]:
+    missing = [item for item in remove if item not in values]
+    if missing:
+        raise CliError(USAGE, "cannot remove %s not in scope: %s" % (what, ", ".join(missing)))
+    result = [item for item in values if item not in remove]
+    result.extend(item for item in add if item not in result)
+    return result
+
+
+def cmd_rescope(a) -> int:
+    """Change a task's allowed_paths or depends_on after init-run, as lead-authored label events."""
+    reason = (a.reason or "").strip()
+    if not reason:
+        raise CliError(USAGE, "--reason is required")
+    if not (a.add_path or a.remove_path or a.add_dep or a.remove_dep):
+        raise CliError(USAGE, "nothing to change: pass --add-path, --remove-path, --add-dep or --remove-dep")
+    c = Ctx(a)
+    st = c.task(a.task)
+    if st["state"] in E.TERMINAL or st.get("integrated"):
+        raise CliError(FAIL, "task %s is %s; reopen it before changing its scope" %
+                       (a.task, "integrated" if st.get("integrated") else st["state"]))
+    context = c.labels[a.task].get("context", {})
+    old_paths, old_deps = list(context.get("allowed_paths", [])), list(context.get("depends_on", []))
+    new_paths = _rescoped(old_paths, a.add_path or [], a.remove_path or [], "path")
+    new_deps = _rescoped(old_deps, a.add_dep or [], a.remove_dep or [], "dependency")
+    if not new_paths and old_paths:
+        raise CliError(FAIL, "allowed_paths cannot become empty")
+    unknown = [dep for dep in new_deps if dep not in c.labels]
+    if unknown or a.task in new_deps:
+        raise CliError(FAIL, "unknown dependency: %s" % ", ".join(unknown or [a.task]))
+    candidate = copy.deepcopy(c.labels)
+    candidate[a.task].setdefault("context", {}).update(allowed_paths=new_paths, depends_on=new_deps)
+    if D._has_cycle(candidate):
+        raise CliError(FAIL, "rescope would create a dependency cycle")
+    if D._would_overlap(candidate):
+        raise CliError(FAIL, "rescope would make allowed_paths overlap with an independent task")
+    errs = L.check_labelset(candidate, c.roster)
+    if errs:
+        raise CliError(FAIL, "rescope makes the labels invalid:\n  " + "\n  ".join(errs))
+    changes = [(field, old, new) for field, old, new in
+               (("context.allowed_paths", old_paths, new_paths), ("context.depends_on", old_deps, new_deps))
+               if old != new]
+    if not changes:
+        print("%s: scope unchanged" % a.task)
+        return OK
+    H.write_atomic(_label_path(c.run_dir, a.task), json.dumps(candidate[a.task], indent=2, sort_keys=True))
+    for field, old, new in changes:
+        c.emit("label_changed", a.task, None, st["attempt"], field=field, old=old, new=new, reason=reason[:TEXT_MAX])
+        print("%s: %s %s -> %s" % (a.task, field, json.dumps(old), json.dumps(new)))
+    _record_decision(c, "Rescoped %s: %s" % (a.task, reason[:TEXT_MAX]))
+    return OK
+
+
 def cmd_relabel(a) -> int:
     if a.field == "lane" or (a.field not in CAS.FIELDS and a.field not in ("assignments", "sub", "phase", "acceptance")):
         raise CliError(USAGE, "field %s cannot be relabeled or adjudicated" % a.field)
@@ -3795,6 +3848,12 @@ def _parser() -> argparse.ArgumentParser:
     us.add_argument("--source", default="self_report", choices=["adapter", "self_report", "unknown"])
     add("decide", cmd_decide).add_argument("--text", required=True)
     add("label", cmd_label).add_argument("--no-judge", action="store_true")
+    rs = add("rescope", cmd_rescope, task=True)
+    rs.add_argument("--add-path", action="append", metavar="GLOB")
+    rs.add_argument("--remove-path", action="append", metavar="GLOB")
+    rs.add_argument("--add-dep", action="append", metavar="TASK")
+    rs.add_argument("--remove-dep", action="append", metavar="TASK")
+    rs.add_argument("--reason", required=True)
     rl = add("relabel", cmd_relabel, task=True)
     rl.add_argument("--field", required=True)
     rl.add_argument("--value", required=True)

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1 (2026-09-28)
+
+- `ale rescope` changes a task's `allowed_paths` or `depends_on` after `init-run` as lead-authored `label_changed` events with a reason, refusing cycles, unknown dependencies, overlaps with independent tasks and terminal tasks. Label files are no longer edited by hand.
+
 ## 0.3.0 (2026-09-28)
 
 - Executors name a harness: `claude`, `codex`, `pi`, or one declared under the roster's `harnesses` (headless argv with `{model}`/`{prompt}`, usage parser, herdr kind). Mode (`in-session`, `headless`, `pane`) and host are derived by code from lane, harness, model and locality; a non-Anthropic model never runs in-session, and non-in-session work goes to the roster's `remote_host` unless locality is `local`. `ale plan route` prints the decision.

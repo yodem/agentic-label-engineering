@@ -39,4 +39,4 @@ Given a plan path:
 
 5. Report the final status table, the timeline tail, and meta totals. Name the resolved agent for each task. If status output shows `agent: stale`, mention it in the report. If the command exits 6, identify the task and the reason it stopped.
 
-Never edit a label after `init-run` except through `ale relabel`. Never mark a task done by hand. Verification and integration are determined by ALE's event-backed state.
+Never edit a label after `init-run` except through `ale relabel` (label fields) or `ale rescope` (`allowed_paths`, `depends_on`, with a reason). Never mark a task done by hand. Verification and integration are determined by ALE's event-backed state.
