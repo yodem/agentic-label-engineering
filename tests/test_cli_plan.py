@@ -143,12 +143,15 @@ def test_plan_bake_preserves_hand_edited_block_bytes(tmp_path):
     roster = _roster(tmp_path)
     plan = _valid_plan(tmp_path, roster, _two_task_source())
     assert _bake_plan(plan, roster) == 0
-    from ale.bake import compile_plan, render_block
+    from ale.bake import compile_plan, render_block, routing_for
+    from ale.roster import load_roster
     text = plan.read_text()
     label = compile_plan(text)["T1"]
     label["labels"]["role"] = "frontend"
     label["assignments"][0]["executor"] = "codex-exec"
     label["context"]["pointers"] = ["manual/decision.md"]
+    # route is derived on every bake; a hand edit that matches it keeps its bytes.
+    label["routing"] = routing_for(label, load_roster(roster))
     old_block = next(block for block in text.split("```ale-label") if '"task_id": "T1"' in block)
     edited_text = text.replace("```ale-label" + old_block.split("```", 1)[0] + "```",
                                render_block(label), 1)

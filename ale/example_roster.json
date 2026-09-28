@@ -99,7 +99,7 @@
       "role": "*",
       "model_tier": "frontier",
       "executor": "claude-headless",
-      "model": "claude-opus-5"
+      "model": "claude-opus-5-5"
     },
     {
       "role": "backend",

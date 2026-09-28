@@ -97,6 +97,9 @@ def check_label(label: dict, roster: dict, catalog: dict = None) -> List[str]:
         if assignment["role"] not in roster["vocab"]["role"] and assignment["role"] != "fixer":
             errs.append("%s: assignment role=%r is not in the roster vocabulary" %
                         (tid, assignment["role"]))
+        if (assignment["kind"] == "executor" and assignment.get("model")
+                and not str(assignment.get("pin_reason") or "").strip()):
+            errs.append("%s: pinned model needs pin_reason" % tid)
         if assignment["kind"] == "monitor" and assignment["trigger"] == "ready":
             errs.append("%s: monitor assignments cannot use trigger ready" % tid)
     worktree = effective["context"]["worktree"]
