@@ -147,8 +147,8 @@ def prefetch(entry: dict, out_path: str, timeout_s: int = 30) -> dict:
             argv = shlex.split(command)
         except ValueError as exc:
             return _failure("unparseable command %r: %s" % (command, exc))
-        if not argv or argv[0] != "ck":
-            return _failure("only ck commands are prefetched: %r" % command)
+        if argv[:3] != ["ck", "items", "get"]:
+            return _failure("only 'ck items get' commands are prefetched: %r" % command)
         commands.append((command, argv))
     if not commands:
         return _failure("no ck commands to prefetch")

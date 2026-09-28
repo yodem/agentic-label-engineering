@@ -90,7 +90,8 @@ def decide_heartbeat(task_state: dict, now: float, throttle_s: float, tool_name:
 
 # A deep-reference read the hook can see: a ``ck items get`` command (alone or after
 # ``&&``/``;``), or a Read of the task's prefetched refs file.
-_CK_GET = re.compile(r"(?:^|&&|;|\|\|)\s*ck\s+items\s+get\b")
+_CK_GET = re.compile(r"(?:^|&&|;|\|\||\n)[ \t]*ck\s+items\s+get\b")
+_QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
 _SHELL_TOOLS = ("Bash", "exec_command")
 _READ_TOOLS = ("Read", "read_file")
 
@@ -102,14 +103,15 @@ def refs_read_signal(tool_name: str, tool_input: dict, refs_file: Optional[str],
         return None
     if tool_name in _SHELL_TOOLS:
         text = tool_input.get("command") or tool_input.get("cmd") or ""
-        if isinstance(text, str) and _CK_GET.search(text):
+        if isinstance(text, str) and _CK_GET.search(_QUOTED.sub("''", text)):
             return ("hook: %s" % " ".join(text.split()))[:200]
         return None
     if tool_name in _READ_TOOLS and refs_file:
         value = tool_input.get("file_path") or tool_input.get("path")
         if not isinstance(value, str) or not value:
             return None
-        path = value if os.path.isabs(value) else os.path.join(cwd or os.getcwd(), value)
+        base = cwd if isinstance(cwd, str) and cwd else os.getcwd()
+        path = value if os.path.isabs(value) else os.path.join(base, value)
         if os.path.realpath(path) == os.path.realpath(refs_file):
             return ("hook: read %s" % refs_file)[:200]
     return None

@@ -294,3 +294,29 @@ def test_hook_records_a_ck_read_once_per_attempt(run, tmp_path, monkeypatch):
     assert "ck items get BOOK:3" in read["summary"]
     assert main(["submit", "--task", "T1", "--agent", agent, "--summary", "done"] + _common(run_dir, roster)) == 0
     assert _verify_evidence(run_dir, roster)["refs_read"] is True
+
+
+def test_prefetch_refuses_ck_commands_other_than_items_get(tmp_path):
+    result = R.prefetch(dict(ENTRY, read_first="ck books create x"), str(tmp_path / "o.md"))
+    assert not result["ok"] and "items get" in result["error"]
+
+
+def test_hook_ck_detection_edges():
+    from ale.hooks import refs_read_signal
+    assert refs_read_signal("Bash", {"command": "cd x\nck items get B:1"}, None)
+    assert refs_read_signal("Bash", {"command": "echo 'foo;ck items get B:1'"}, None) is None
+    assert refs_read_signal("Read", {"file_path": "r.md"}, "/nope/r.md", cwd=["not", "a", "str"]) is None
+
+
+def test_refs_status_survives_catalog_errors(monkeypatch, tmp_path):
+    import ale.cli as cli
+
+    class _Ctx:
+        events_path = str(tmp_path / "events.jsonl")
+        labels = {"T1": {}}
+    open(_Ctx.events_path, "w").close()
+
+    def boom(*_args):
+        raise cli.CliError(2, "variant file missing")
+    monkeypatch.setattr(cli, "_task_refs", boom)
+    assert cli._refs_read_status(_Ctx(), "T1", 1, None) == (None, False)

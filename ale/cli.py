@@ -1767,11 +1767,18 @@ def _refs_read_status(c: "Ctx", task_id: str, attempt: Optional[int], roster_pat
     an ack with the matching token, or an ack when no token was fetched; otherwise False."""
     events = E.read_events(c.events_path)
     fetched = [e for e in events if e.get("type") == "refs_fetched" and e.get("task_id") == task_id]
-    if not fetched and _task_refs(roster_path, c.labels[task_id]) is None:
+    try:
+        configured = _task_refs(roster_path, c.labels[task_id]) is not None
+    except Exception:  # a missing variant or catalog must never change verify's outcome
+        configured = False
+    if not fetched and not configured:
         return None, False
     reads = [e for e in events if e.get("type") == "refs_read" and e.get("task_id") == task_id
              and e.get("attempt") == attempt]
-    if any(e.get("via") == "hook" or (e.get("via") == "ack" and e.get("token_ok") is not False) for e in reads):
+    # A token-less ack only counts when no fetch ever produced a token to echo.
+    tokenless_ok = not any(e.get("ok") and e.get("token") for e in fetched)
+    if any(e.get("via") == "hook" or (e.get("via") == "ack" and (
+            e.get("token_ok") is True or (e.get("token_ok") is None and tokenless_ok))) for e in reads):
         return True, False
     return False, any(e.get("via") == "ack" and e.get("token_ok") is False for e in reads)
 
