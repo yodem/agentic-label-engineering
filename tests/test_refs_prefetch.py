@@ -320,3 +320,16 @@ def test_refs_status_survives_catalog_errors(monkeypatch, tmp_path):
         raise cli.CliError(2, "variant file missing")
     monkeypatch.setattr(cli, "_task_refs", boom)
     assert cli._refs_read_status(_Ctx(), "T1", 1, None) == (None, False)
+
+
+def test_read_survives_reopen(run, monkeypatch):
+    run_dir, roster = run
+    _dispatch(run_dir, roster)
+    agent = _claim_submit(run_dir, roster)
+    monkeypatch.setenv("ALE_TASK", "T1")
+    monkeypatch.setenv("ALE_AGENT", agent)
+    assert main(["refs-ack", "--token", _token(run_dir), "--summary", "x"] + _common(run_dir, roster)) == 0
+    assert _verify_evidence(run_dir, roster)["refs_read"] is True
+    assert main(["reopen", "--task", "T1", "--reason", "post-review change"] + _common(run_dir, roster)) == 0
+    # attempt 2 has no new dispatch or fetch: the chapter read on attempt 1 is still in force
+    assert _verify_evidence(run_dir, roster)["refs_read"] is True

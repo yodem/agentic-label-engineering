@@ -314,3 +314,22 @@ def test_in_session_dispatch_records_worktree_and_verify_runs_there(tmp_path, mo
     assert main(["submit", "--task", "T1", "--agent", request["agent_id"], "--summary", "done"] + common) == 0
     monkeypatch.chdir(str(repo))
     assert main(["verify", "--task", "T1"] + common) == 0
+
+
+def test_remote_task_gets_no_local_worktree(tmp_path, monkeypatch):
+    repo = _git_repo(tmp_path)
+    roster = _roster(tmp_path, remote_host="dev-server")
+    run = _run(tmp_path, _label(executor="codex", mode="per_task"))
+    spawn = tmp_path / "spawn"
+    spawn.write_text("#!/bin/sh\nexit 0\n")
+    spawn.chmod(spawn.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("ALE_SPAWN_BIN", str(spawn))
+    monkeypatch.setenv("ALE_REMOTE_WORKTREE", "/srv/wt/T1")
+
+    assert main(["dispatch", "--spawn", "--run-dir", str(run), "--roster", roster, "--cwd", str(repo)]) == 0
+    (spawned,) = [e for e in read_events(str(run / "events.jsonl")) if e["type"] == "spawned"]
+    assert spawned["host"] == "dev-server" and spawned["remote_worktree"] == "/srv/wt/T1"
+    assert "worktree" not in spawned
+    assert not (run / "wt").exists()
+    worktrees = subprocess.run(["git", "worktree", "list"], cwd=str(repo), capture_output=True, text=True).stdout
+    assert len(worktrees.strip().splitlines()) == 1
