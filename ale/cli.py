@@ -3152,7 +3152,7 @@ def cmd_relabel(a) -> int:
         old = labels[a.field]
         labels[a.field] = a.value
         label["labels"] = labels
-        if a.field in ("sub", "phase"):
+        if a.field in ("role", "sub", "phase"):
             catalog = AC.load_catalog(_agent_roots())
             ref = AC.resolve_agent(catalog, labels.get("role", "general"), labels.get("sub"), labels.get("phase") or "implement")
             if ref.get("matched") == "general" and labels.get("role") in ("frontend", "backend", "devops") and labels.get("sub"):

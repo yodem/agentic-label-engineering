@@ -177,3 +177,13 @@ def test_interactive_adjudicate_records_exactly_one_event(run_dir, monkeypatch):
     assert adjudicated[0]["field"] == "role"
     assert adjudicated[0]["value"] == "backend"
     assert adjudicated[0]["by"] == "human"
+
+
+def test_relabel_role_reroutes_agent_and_rules(run_dir):
+    # A role relabel must re-resolve the agent: a stale backend agent keeps
+    # deny_paths ["frontend/**"] and rejects legitimate full-stack diffs at verify.
+    assert ale(run_dir, "relabel", "--task", "T01", "--field", "role", "--value", "general", "--reason", "spans backend+frontend", now=10) == 0
+    label = _read_label(run_dir)
+    assert label["labels"]["role"] == "general"
+    assert label["routing"]["agent"]["key"] == "general"
+    assert label["effective_rules"]["deny_paths"] == []
