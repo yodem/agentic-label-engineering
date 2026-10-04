@@ -221,3 +221,25 @@ def test_item5_promotion_progress_counts_runs_outside_the_window(tmp_path):
 
     assert report["runs"]["done"] == 1   # only the recent run is in the window
     assert report["promotions"]["role"]["cases"] == 2
+
+
+def _single_task_run(base, run_id, task_events, task_label=None):
+    run_dir = run_dir_for(base, run_id)
+    events = run_header(run_id, T0, ["T1"]) + task_events
+    path = write_run(base, run_id, [task_label or label("T1", run_id)], events)
+    return A.load_run(entry(path, run_id))
+
+
+def _cases(report, evaluator):
+    return [row for row in report["case_results"] if row["evaluator"] == evaluator]
+
+
+# Item 8: a think-only task (worktree.mode none) claimed in-session is n/a for dispatch_worktree.
+def test_item8_think_only_task_claimed_in_session_is_na_for_dispatch_worktree(tmp_path):
+    events = [ev("claimed", "r", T0 + 10, "T1", "lead-session"),
+              ev("submitted", "r", T0 + 20, "T1", "lead-session", summary="notes"),
+              ev("verified", "r", T0 + 30, "T1", evidence=evidence([])),
+              ev("accepted", "r", T0 + 30, "T1", evidence=evidence([]))]
+    run = _single_task_run(tmp_path, "r", events, label("T1", "r", worktree_mode="none"))
+
+    assert _cases(_report([run]), "ale.task.dispatch_worktree") == []

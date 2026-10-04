@@ -365,7 +365,8 @@ def _write_has_worktree(row, ctx):
 
 
 def _dispatch_worktree(row, ctx):
-    if row["spawned_by"] == "none" and not row["claimed"]:
+    # A task with no worktree (think-only) needs none from dispatch.
+    if row["worktree_mode"] == "none" or (row["spawned_by"] == "none" and not row["claimed"]):
         return None
     return _verdict(row["spawned_by"] == "dispatch", "worktree from dispatch",
                     "worktree from %s" % ("register-worktree" if row["spawned_by"] == "register"
