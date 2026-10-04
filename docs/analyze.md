@@ -3,7 +3,9 @@
 ALE scores its own runs. `ale analyze` grades every indexed run against bars that were
 committed before the first measurement (the online half). `ale eval cases` replays a
 regression suite grown from real run failures (the offline half). Both append rows to one
-eval ledger, and both exit 1 when something is wrong, so either one can gate CI. No model is
+eval ledger. `ale analyze` exits 1 when a check is breached or an active case regressed, and
+`ale eval cases --ci` exits 1 when a case fails or regressed (without `--ci` it only reports),
+so either one can gate CI. No model is
 called anywhere in scoring.
 
 ```text
@@ -26,8 +28,10 @@ spellings; when a directory appears twice, the later row wins. An index that can
 prints a warning and never fails `init-run`.
 
 `ale analyze --backfill DIR` (repeatable) indexes runs that predate the index: every
-`.ale/runs/<dir>/` under `DIR` holding both `labels/` and `events.jsonl`, skipping `.git`,
-`node_modules` and a run's own `wt/` worktrees. Backfilled entries take `run_id` and
+`.ale/runs/<dir>/` under `DIR` holding both `labels/` and `events.jsonl`, where the `.ale/runs`
+directory is at most 7 levels below `DIR`. It never descends into `.git`, `node_modules`, `__pycache__`,
+`.venv`, `venv`, `.tox`, `.mypy_cache` or `.pytest_cache`, nor below a `.ale/runs/` entry (so a
+run's own `wt/` worktrees are never walked). Backfilled entries take `run_id` and
 `roster_hash` from the event log and leave `ale_version` null. Backfill is idempotent.
 
 A case id names the run as `<repo>:<run dir name>` (for `<repo>/.ale/runs/<dir>`), not by its
@@ -161,7 +165,8 @@ when looking for regressions.
 Exit codes: with `--ci`, 1 when any active case fails or an active case regressed (an offline
 row whose latest score is below its best before; online rows and retired cases never count);
 otherwise 0. A file with no active case (empty, or every case retired) checks nothing: it
-prints `no active cases` on stderr and exits 1 with `--ci`, 0 without. A cases file that cannot be read, or holds an invalid line, an unknown kind or a
+prints `no active cases` on stderr and exits 1 with `--ci`, 0 without. A cases file that
+cannot be read, or holds an invalid line, an unknown kind, a non-boolean `active` or a
 duplicate id, exits 2.
 
 ### Case format
