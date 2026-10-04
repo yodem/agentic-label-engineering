@@ -2425,7 +2425,9 @@ def cmd_integrate(a) -> int:
         if changed:
             _commit_task_paths(worktree, changed,
                                "ale: %s %s" % (a.task, c.labels[a.task].get("title", a.task)))
-    base_status = subprocess.run(["git", "status", "--porcelain"], cwd=checkout,
+    # Untracked files (provenance sidecars, .DS_Store) never block a merge of tracked work;
+    # git merge itself refuses if one would be overwritten.
+    base_status = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"], cwd=checkout,
                                  capture_output=True, text=True)
     if base_status.returncode != 0:
         raise CliError(FAIL, base_status.stderr.strip() or "git status failed")

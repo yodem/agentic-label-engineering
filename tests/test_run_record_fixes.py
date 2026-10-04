@@ -162,3 +162,34 @@ def test_legacy_spawn_without_base_commit_diffs_from_head(tmp_path, monkeypatch)
 
     assert _submit_and_verify(run, roster, worktree, events) == 0
     assert _of_type(events, "accepted")[-1]["evidence"]["files"] == ["b.txt"]
+
+
+# Fix 4: untracked files in the checkout do not block integrate.
+
+def _accepted_task(tmp_path):
+    repo, run, roster, worktree, events = _dispatched(tmp_path)
+    (worktree / "a.txt").write_text("done\n")
+    assert _submit_and_verify(run, roster, worktree, events) == 0
+    return repo, run, roster
+
+
+def _integrate(repo, run, roster):
+    return main(["integrate", "--task", "T1", "--run-dir", str(run), "--roster", roster,
+                 "--cwd", str(repo)])
+
+
+def test_integrate_ignores_untracked_files_in_the_checkout(tmp_path):
+    repo, run, roster = _accepted_task(tmp_path)
+    (repo / ".ale-provenance.json").write_text("{}\n")
+    (repo / ".DS_Store").write_text("finder\n")
+
+    assert _integrate(repo, run, roster) == 0
+    assert (repo / "a.txt").read_text() == "done\n"
+
+
+def test_integrate_still_refuses_a_modified_tracked_file(tmp_path, capsys):
+    repo, run, roster = _accepted_task(tmp_path)
+    (repo / "base.txt").write_text("edited\n")
+
+    assert _integrate(repo, run, roster) == 1
+    assert "uncommitted changes: base.txt" in capsys.readouterr().err
