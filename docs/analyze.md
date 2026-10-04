@@ -137,10 +137,11 @@ score is below the best score recorded for it before.
 
 `$ALE_HOME/.ale/fixes.jsonl` holds one record per fix:
 `{evaluator, commit, ts or date, note, cases_added}`. `ts` is ISO 8601 (`Z` or a `+HH:MM`
-offset, millisecond or microsecond fractions); `date` (`YYYY-MM-DD`) is the fallback. The report
-measures the check's pass rate over the window's cases from runs that started after the fix:
-`holding` (n >= `min_n` and rate >= bar), `regressed` (n >= `min_n` and rate < bar), `pending`
-(fewer results), or `invalid` when neither `ts` nor `date` parses.
+offset, millisecond or microsecond fractions); `date` (`YYYY-MM-DD`) is the fallback, used when
+`ts` is absent or does not parse. The report measures the check's pass rate over the window's
+cases from runs that started after the fix: `holding` (n >= `min_n` and rate >= bar),
+`regressed` (n >= `min_n` and rate < bar), `pending` (fewer results), or `invalid` when neither
+`ts` nor `date` parses.
 
 ## `ale eval cases`
 

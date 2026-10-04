@@ -347,3 +347,15 @@ def test_analyze_with_an_unwritable_home_warns_and_keeps_the_exit_code(tmp_path,
     captured = capsys.readouterr()
     assert "report not written" in captured.err and "Traceback" not in captured.err
     assert "# ALE analyze" in captured.out
+
+
+def test_a_fix_record_falls_back_to_date_when_ts_does_not_parse():
+    from ale import analyze
+    report = {"min_n": 3, "case_results": [], "checks": {}}
+    fixes = [{"evaluator": "a", "ts": "not a time", "date": "2026-10-01"},
+             {"evaluator": "b", "date": "2026-10-01"},
+             {"evaluator": "c", "ts": "2026-10-01T10:00:00.123+03:00", "date": "garbage"},
+             {"evaluator": "d", "ts": "nope", "date": "also nope"},
+             {"evaluator": "e"}]
+    status = {item["evaluator"]: item["status"] for item in analyze.fix_statuses(report, fixes)}
+    assert status == {"a": "pending", "b": "pending", "c": "pending", "d": "invalid", "e": "invalid"}
