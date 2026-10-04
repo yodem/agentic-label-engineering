@@ -243,3 +243,20 @@ def test_item8_think_only_task_claimed_in_session_is_na_for_dispatch_worktree(tm
     run = _single_task_run(tmp_path, "r", events, label("T1", "r", worktree_mode="none"))
 
     assert _cases(_report([run]), "ale.task.dispatch_worktree") == []
+
+
+# Item 9: evidence.files_count / files_truncated feed files_changed and path_scope_checked.
+def test_item9_truncated_evidence_counts_its_files(tmp_path):
+    truncated = dict(evidence([]), files_count=40, files_truncated=True)
+    events = [ev("spawned", "r", T0 + 1, "T1", agent_id_minted="T1-x", assignment_kind="executor",
+                 executor="codex-exec", worktree=os.path.join(run_dir_for(tmp_path, "r"), "wt", "T1"),
+                 branch="ale/r/T1", pane="p"),
+              ev("claimed", "r", T0 + 10, "T1", "T1-x"),
+              ev("submitted", "r", T0 + 20, "T1", "T1-x", summary="big"),
+              ev("verified", "r", T0 + 30, "T1", evidence=truncated),
+              ev("accepted", "r", T0 + 30, "T1", evidence=truncated)]
+    run = _single_task_run(tmp_path, "r", events)
+
+    assert A.task_rows(run)[0]["files_changed"] == 40
+    [scope] = _cases(_report([run]), "ale.task.path_scope_checked")
+    assert scope["passed"] is True and scope["reason"] == "verified against 40 files"

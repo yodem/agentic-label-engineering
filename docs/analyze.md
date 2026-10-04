@@ -75,7 +75,7 @@ pass rate over the window is below its bar with at least `min_n` (3) results. Th
 | Check | Premise (else n/a) | Passes when | Bar |
 | --- | --- | --- | --- |
 | `ale.task.first_pass` | the lead verified the task | its first lead verdict was an accept | 0.70 |
-| `ale.task.path_scope_checked` | accepted, `worktree.mode` not `none`, the accept recorded a file list | that file list is not empty | 0.90 |
+| `ale.task.path_scope_checked` | accepted, `worktree.mode` not `none`, the accept recorded a file list | that file list is not empty (a list verify truncated counts as its `files_count`) | 0.90 |
 | `ale.task.write_has_worktree` | the task changed files (a verified file list, an integrate, or a `register-worktree` spawn) | its `worktree.mode` is not `none` | 0.90 |
 | `ale.task.dispatch_worktree` | the task was spawned or claimed and its `worktree.mode` is not `none` | its worktree came from a dispatch `spawned`, not `register-worktree` or no spawn | 0.75 |
 | `ale.task.resolved` | the run is stale or done | the task is accepted, removed or superseded | 0.90 |

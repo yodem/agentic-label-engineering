@@ -241,11 +241,17 @@ def _row(run: dict, task_id: str, label: dict, task_events: List[dict], st: Opti
     evidence = (accepting or {}).get("evidence")
     verified_files = (list(evidence["files"]) if isinstance(evidence, dict)
                       and isinstance(evidence.get("files"), list) else None)
+    # verify trims a long file list to fit the event (files_truncated) and keeps the full count
+    # in files_count, so a truncated list, even an empty one, still stands for files_count files.
+    verified_count = None
+    if verified_files is not None:
+        count = evidence.get("files_count")
+        verified_count = count if _number(count) and count >= len(verified_files) else len(verified_files)
     integrations = [e for e in task_events if e["type"] == "integrated" and _lead(e)]
     if integrations and isinstance(integrations[-1].get("files"), list):
         files_changed = len(integrations[-1]["files"])
     else:
-        files_changed = len(verified_files) if verified_files is not None else None
+        files_changed = verified_count
     usage = [e for e in task_events if e["type"] == "usage"]
     asks: Dict[object, int] = {}
     for event in task_events:
@@ -278,7 +284,8 @@ def _row(run: dict, task_id: str, label: dict, task_events: List[dict], st: Opti
         "first_verify_passed": first_verify_passed, "attempts": attempts,
         "rejects": sum(1 for e in verdicts if e["type"] == "rejected"),
         "reopens": sum(1 for e in task_events if e["type"] == "reopened"),
-        "verified_files": verified_files, "acceptance_relabeled": acceptance_relabeled,
+        "verified_files": verified_files, "verified_files_count": verified_count,
+        "acceptance_relabeled": acceptance_relabeled,
         "paths_widened": paths_widened,
         "claim_to_accept_s": (accepting["ts"] - claims[0]["ts"]) if claims and accepting else None,
         "files_changed": files_changed, "usage_tokens": sum(_tokens(e) for e in usage) if usage else None,
@@ -353,12 +360,13 @@ def _first_pass(row, ctx):
 def _path_scope_checked(row, ctx):
     if row["state"] != "accepted" or row["worktree_mode"] == "none" or row["verified_files"] is None:
         return None
-    return _verdict(bool(row["verified_files"]), "verified against %d files" % len(row["verified_files"]),
+    count = row["verified_files_count"]
+    return _verdict(bool(count), "verified against %d files" % count,
                     "accepted with an empty verified file list")
 
 
 def _write_has_worktree(row, ctx):
-    if not (row["verified_files"] or row["integrated"] or row["spawned_by"] == "register"):
+    if not (row["verified_files_count"] or row["integrated"] or row["spawned_by"] == "register"):
         return None
     return _verdict(row["worktree_mode"] != "none", "worktree.mode %s" % row["worktree_mode"],
                     "changed files with worktree.mode none")
