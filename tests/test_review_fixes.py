@@ -167,3 +167,46 @@ def test_item4_6_register_worktree_records_diff_base_and_base_ref(tmp_path):
 
     event = SF.spawned(run, "T1")[-1]
     assert event["diff_base"] == base and event["base_ref"] == "main"
+
+
+# Item 7: verify diffs against merge-base HEAD <base_ref>, so merged upstream work is not blamed.
+def test_item7_task_branch_that_merges_upstream_verifies_with_only_its_own_files(tmp_path, capsys):
+    repo, run, roster = SF.make_run(tmp_path, {"T1": SF.label("T1")})
+    _on_branch(repo)
+    assert SF.dispatch(run, roster, repo) == 0
+    worktree = run / "wt" / "T1"
+    (repo / "upstream.txt").write_text("someone else\n")
+    subprocess.run(["git", "add", "upstream.txt"], cwd=str(repo), check=True)
+    subprocess.run(["git", "commit", "-qm", "upstream"], cwd=str(repo), check=True)
+    (worktree / "t1.txt").write_text("mine\n")
+    subprocess.run(["git", "add", "t1.txt"], cwd=str(worktree), check=True)
+    subprocess.run(["git", "commit", "-qm", "work"], cwd=str(worktree), check=True)
+    subprocess.run(["git", "merge", "-q", "--no-edit", "main"], cwd=str(worktree), check=True)
+    (worktree / "t1.txt").write_text("mine, edited after the merge\n")
+    assert SF.ale(run, roster, "claim", "--task", "T1", "--agent", "a") == 0
+    assert SF.ale(run, roster, "submit", "--task", "T1", "--agent", "a", "--summary", "x") == 0
+    capsys.readouterr()
+
+    assert SF.ale(run, roster, "verify", "--task", "T1", "--cwd", str(worktree)) == 0, capsys.readouterr().err
+
+    accepted = [e for e in SF.E.read_events(str(run / "events.jsonl")) if e["type"] == "accepted"][-1]
+    assert accepted["evidence"]["files"] == ["t1.txt"]
+
+
+def test_item7_without_base_ref_verify_falls_back_to_diff_base(tmp_path, capsys):
+    repo, run, roster = SF.make_run(tmp_path, {"T1": SF.label("T1")})
+    subprocess.run(["git", "checkout", "-q", "--detach"], cwd=str(repo), check=True)
+    assert SF.dispatch(run, roster, repo) == 0
+    worktree = run / "wt" / "T1"
+    (worktree / "t1.txt").write_text("mine\n")
+    subprocess.run(["git", "add", "t1.txt"], cwd=str(worktree), check=True)
+    subprocess.run(["git", "commit", "-qm", "work"], cwd=str(worktree), check=True)
+    (worktree / "stray.txt").write_text("untracked and out of scope\n")
+    assert SF.ale(run, roster, "claim", "--task", "T1", "--agent", "a") == 0
+    assert SF.ale(run, roster, "submit", "--task", "T1", "--agent", "a", "--summary", "x") == 0
+    capsys.readouterr()
+
+    assert SF.ale(run, roster, "verify", "--task", "T1", "--cwd", str(worktree)) == 1
+    assert "path_violation: stray.txt" in capsys.readouterr().err
+    verified = [e for e in SF.E.read_events(str(run / "events.jsonl")) if e["type"] == "verified"][-1]
+    assert verified["evidence"]["files"] == ["stray.txt", "t1.txt"]

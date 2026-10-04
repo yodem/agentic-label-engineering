@@ -1237,6 +1237,30 @@ def _is_commit(cwd: str, ref: str) -> bool:
     return proc.returncode == 0
 
 
+def _verify_base(cwd: str, spawn: dict, events: List[dict]) -> Optional[str]:
+    """The commit verify diffs a task worktree against.
+
+    ``git merge-base HEAD <base_ref>`` when ``base_ref`` resolves, so an executor that merged or
+    rebased onto the updated base is not blamed for upstream files; else the branch's recorded
+    ``diff_base`` (or a later restack's base); else None (diff against HEAD only). The merge-base
+    is used only when it is not older than the recorded base: a stacked task's base, or one from
+    a label's own ``worktree.base``, is not on ``base_ref``, and diffing from further back would
+    count the parent's files as the task's."""
+    recorded = _branch_base(events, spawn.get("branch"))
+    if recorded and not _is_commit(cwd, recorded):
+        recorded = None
+    base_ref = spawn.get("base_ref")
+    if base_ref:
+        merged = subprocess.run(["git", "merge-base", "HEAD", "refs/heads/" + base_ref], cwd=cwd,
+                                capture_output=True, text=True)
+        ref_base = merged.stdout.strip() if merged.returncode == 0 else ""
+        if ref_base and (recorded is None or subprocess.run(
+                ["git", "merge-base", "--is-ancestor", recorded, ref_base], cwd=cwd,
+                capture_output=True).returncode == 0):
+            return ref_base
+    return recorded
+
+
 def _task_changed_paths(cwd: str, setup_outputs: List[str],
                         base: Optional[str] = None) -> Optional[List[str]]:
     """Task paths changed in ``cwd``: against ``base`` (the commit the task branch was created
@@ -1371,9 +1395,8 @@ def cmd_verify(a) -> int:
         if bad:
             reason = "path_violation: %s" % ", ".join(bad[:5])
     spawn = _latest_spawn(c, a.task) or {}
-    # The commit the task branch now starts from: its recorded diff_base, or a later restack's.
-    spawn_base = _branch_base(E.read_events(c.events_path), spawn.get("branch")) if spawn else None
     if spawn.get("worktree") and os.path.realpath(cwd) == os.path.realpath(spawn["worktree"]):
+        spawn_base = _verify_base(cwd, spawn, E.read_events(c.events_path))
         setup_outputs = (label.get("context", {}).get("worktree") or {}).get("setup_outputs", [])
         task_pending = _task_changed_paths(cwd, setup_outputs)
         task_changed = task_pending
