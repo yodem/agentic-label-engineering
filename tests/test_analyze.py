@@ -500,13 +500,13 @@ def test_cli_if_due_runs_again_after_due_after_days(tmp_path, ale_home, monkeypa
     assert os.path.exists(os.path.join(_reports(ale_home), "2023-11-22.md"))
 
 
-def test_cli_twice_a_day_overwrites_the_report_and_appends_ledger_rows(tmp_path, ale_home, now_env):
+def test_cli_twice_a_day_overwrites_the_report_and_dedupes_ledger_rows(tmp_path, ale_home, now_env):
     _index(good_run(tmp_path, "r", T0), "r")
     assert main(["analyze"]) == 0
     first = len(EL.read_rows())
     assert main(["analyze"]) == 0
     rows = EL.read_rows()
-    assert len(rows) == 2 * first
+    assert len(rows) == first   # unchanged scores are not appended again
     assert len(EL.latest_by_case(rows)) == first
     assert sorted(glob.glob(os.path.join(_reports(ale_home), "*.md"))) == [
         os.path.join(_reports(ale_home), "2023-11-15.md")]

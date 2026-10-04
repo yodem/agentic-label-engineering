@@ -118,7 +118,7 @@ Unless `--no-write`:
 | `reports/<date>.json` | The full report, including every case result. |
 | `reports/findings.json` | Open findings keyed by check id: `value`, `bar`, `n`, `first_seen`, `last_seen`, `examples` (case ids), and the latest `fix` record for that check. A finding keeps its `first_seen` across reports. |
 | `reports/promotions.json` | The promotion proposals. |
-| `eval-ledger.jsonl` | One row per case result: `tool: "ale"`, `case_kind: "online"`, `run_id` `analyze-<generated>`, `metadata.run_dir`, `metadata.scored_run_id`. |
+| `eval-ledger.jsonl` | One row per case result whose `(case_id, evaluator)` is new or whose `score` or `passed` changed since its latest row: `tool: "ale"`, `case_kind: "online"`, `run_id` `analyze-<generated>`, `metadata.run_dir`, `metadata.scored_run_id`. |
 
 A report, index or ledger file that cannot be written (say `$ALE_HOME/.ale` is not a
 directory) prints a warning on stderr; the report is still printed and the exit code still
@@ -137,8 +137,10 @@ in it. When the default cases file is missing or unreadable, `ale analyze` warns
 
 `$ALE_HOME/.ale/eval-ledger.jsonl` is append-only and never rewritten. A row is
 `{run_id, timestamp, tool, tool_version, config_hash, case_id, case_kind, case_category,
-evaluator, score, passed, reason, metadata}`. Readers keep the latest row per
-`(case_id, evaluator)`, so re-running a report is safe. A case **regressed** when its latest
+evaluator, score, passed, reason, metadata}`. `ale analyze` dedupes on write: it appends a
+row only when its `(case_id, evaluator)` has no row yet or its latest row differs in `score` or
+`passed`, so re-running a report over unchanged runs adds nothing. Readers keep the latest row
+per `(case_id, evaluator)`. A case **regressed** when its latest
 score is below the best score recorded for it before.
 
 ## Fix records

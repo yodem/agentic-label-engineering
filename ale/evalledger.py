@@ -1,7 +1,7 @@
 """The eval ledger: append-only JSONL rows, one per scored case and evaluator.
 
-Rows are never rewritten. Readers dedupe on the latest row per ``(case_id, evaluator)``, so
-re-running an analysis on the same day is safe.
+Rows are never rewritten. ``ale analyze`` appends a row only when its ``(case_id, evaluator)``
+is new or its score or verdict changed; readers still take the latest row per key.
 """
 from __future__ import annotations
 
@@ -42,6 +42,38 @@ def append_rows(rows: List[dict], home=None) -> None:
         os.write(fd, data)
     finally:
         os.close(fd)
+
+
+def _changed(rows: List[dict], existing: List[dict]) -> List[dict]:
+    """The rows whose ``(case_id, evaluator)`` has no row yet, or whose latest row differs in
+    ``score`` or ``passed``."""
+    latest = {key: (row.get("score"), row.get("passed")) for key, row in latest_by_case(existing).items()}
+    out = []
+    for row in rows:
+        key = (row.get("case_id"), row.get("evaluator"))
+        value = (row.get("score"), row.get("passed"))
+        if latest.get(key) != value:
+            out.append(row)
+            latest[key] = value
+    return out
+
+
+def append_changed_rows(rows: List[dict], home=None) -> int:
+    """Dedupe on write: append only the rows that change their case's latest score or verdict, so
+    re-running an analysis over unchanged runs adds nothing. Returns the number appended."""
+    if not rows:
+        return 0
+    path = ledger_path(home)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)   # read and append under one lock
+        fresh = _changed(rows, read_rows(home))
+        if fresh:
+            os.write(fd, "".join(json.dumps(row, sort_keys=True) + "\n" for row in fresh).encode("utf-8"))
+    finally:
+        os.close(fd)
+    return len(fresh)
 
 
 def read_rows(home=None) -> List[dict]:

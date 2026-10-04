@@ -3431,9 +3431,10 @@ def cmd_analyze(a) -> int:
 
 
 def _append_ledger_rows(rows: List[dict], home: str) -> None:
-    """Append analyze rows; a ledger that cannot be written warns and never changes the exit code."""
+    """Append the analyze rows that change a case's latest score or verdict; a ledger that
+    cannot be written warns and never changes the exit code."""
     try:
-        EL.append_rows(rows, home)
+        EL.append_changed_rows(rows, home)
     except OSError as exc:
         print("ale analyze: eval ledger not updated: %s" % exc, file=sys.stderr)
 

@@ -296,3 +296,22 @@ def test_item11_init_run_in_another_repo_indexes_that_repo(tmp_path, monkeypatch
 
     [row] = RI.read_index()
     assert row["repo_root"] == os.path.realpath(str(other))
+
+
+# Item 12: analyze appends a ledger row only when (case_id, evaluator) is new or its score/passed changed.
+def test_item12_analyze_twice_appends_ledger_rows_once(tmp_path, monkeypatch, ale_home):
+    from ale import evalledger as EL
+    from ale import runindex as RI
+    from ale.cli import main
+    from analyze_fixtures import good_run
+
+    monkeypatch.setenv("ALE_NOW", str(DONE_NOW))
+    run_dir = good_run(tmp_path, "r", T0)
+    assert RI.append_run(run_dir, os.path.dirname(run_dir), "r", "0.4.0", "abcd1234")
+
+    assert main(["analyze"]) == 0
+    first = EL.read_rows()
+    assert first
+    assert main(["analyze"]) == 0
+
+    assert len(EL.read_rows()) == len(first)
