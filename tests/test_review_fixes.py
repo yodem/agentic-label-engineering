@@ -380,3 +380,14 @@ def test_item15_verify_diffs_once_with_one_commit_probe(tmp_path, monkeypatch):
     assert calls == {"_is_commit": 1, "_task_changed_paths": 1}
     accepted = [e for e in SF.E.read_events(str(run / "events.jsonl")) if e["type"] == "accepted"][-1]
     assert accepted["evidence"]["files"] == ["t1.txt"]
+
+
+# Review nit: the event schema declares diff_base and base_ref (omitted when absent, never null).
+def test_nit_event_schema_declares_diff_base_and_base_ref():
+    from ale import events as E
+
+    base = E.make_event("spawned", "r", 1, "T1", None, 1, agent_id_minted="T1-x",
+                        assignment_kind="executor", executor="codex", model=None)
+    assert E.check_event(dict(base, diff_base="a" * 40, base_ref="main")) == []
+    assert E.check_event(dict(base, diff_base=""))
+    assert E.check_event(dict(base, base_ref=None))
