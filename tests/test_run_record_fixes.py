@@ -274,3 +274,40 @@ def test_an_answered_question_may_be_asked_again_in_the_same_attempt(tmp_path, m
         assert stop() == 0
 
     assert [event["attempt"] for event in _input_required(run)] == [1, 1]
+
+
+# Fix 6: refs prefetch accepts the renamed `trove` CLI as well as `ck`.
+
+def _fake_cli(tmp_path, name):
+    import stat
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    tool = bin_dir / name
+    tool.write_text("#!/bin/sh\necho '%s page' \"$@\"\n" % name)
+    tool.chmod(tool.stat().st_mode | stat.S_IEXEC)
+    return str(bin_dir)
+
+
+def test_refs_prefetch_runs_trove_and_ck_item_gets(tmp_path, monkeypatch):
+    from ale import refs as R
+
+    monkeypatch.setenv("PATH", _fake_cli(tmp_path, "trove") + os.pathsep + _fake_cli(tmp_path, "ck")
+                       + os.pathsep + os.environ["PATH"])
+    entry = {"title": "Book", "read_first": "trove items get BOOK:1", "how_to_read": "ck items get BOOK:2"}
+    out = tmp_path / "refs.md"
+    result = R.prefetch(entry, str(out))
+
+    assert result["ok"], result
+    text = out.read_text()
+    assert "trove page items get BOOK:1" in text and "ck page items get BOOK:2" in text
+
+
+def test_refs_prefetch_still_refuses_other_commands(tmp_path):
+    from ale import refs as R
+
+    result = R.prefetch({"title": "Book", "read_first": "rm -rf BOOK"}, str(tmp_path / "o.md"))
+
+    assert not result["ok"]
+    assert "'ck items get'" in result["error"] and "'trove items get'" in result["error"]
+    assert not (tmp_path / "o.md").exists()

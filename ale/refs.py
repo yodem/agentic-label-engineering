@@ -26,6 +26,8 @@ FIELDS = ("title", "how_to_read", "read_first")
 HEADING = "Deep reference (required: read before you edit)"
 TOKEN_PREFIX = "ALE-REFS-TOKEN: "
 PREFETCH_COMMANDS = ("read_first", "how_to_read")
+# The CandleKeep CLI was renamed from ``ck`` to ``trove``; both spellings are prefetched.
+PREFETCH_PREFIXES = (["ck", "items", "get"], ["trove", "items", "get"])
 _MAX = 300
 
 
@@ -133,7 +135,7 @@ def _failure(error: str) -> dict:
 def prefetch(entry: dict, out_path: str, timeout_s: int = 30) -> dict:
     """Run the entry's ``read_first`` then ``how_to_read`` commands into ``out_path``.
 
-    Only commands whose argv[0] is ``ck`` run (shlex split, no shell). Any failure is
+    Only ``ck items get`` and ``trove items get`` commands run (shlex split, no shell). Any failure is
     soft: ``{"ok": False, "bytes": 0, "error": ...}`` and nothing is written. On success
     the file starts with ``ALE-REFS-TOKEN: <8 hex>`` (sha256 of the fetched pages) and
     the result carries ``token``.
@@ -147,18 +149,18 @@ def prefetch(entry: dict, out_path: str, timeout_s: int = 30) -> dict:
             argv = shlex.split(command)
         except ValueError as exc:
             return _failure("unparseable command %r: %s" % (command, exc))
-        if argv[:3] != ["ck", "items", "get"]:
-            return _failure("only 'ck items get' commands are prefetched: %r" % command)
+        if argv[:3] not in PREFETCH_PREFIXES:
+            return _failure("only 'ck items get' or 'trove items get' commands are prefetched: %r" % command)
         commands.append((command, argv))
     if not commands:
-        return _failure("no ck commands to prefetch")
+        return _failure("no ck or trove commands to prefetch")
     pages = []
     for command, argv in commands:
         try:
             proc = subprocess.run(argv, capture_output=True, text=True, timeout=timeout_s,
                                   stdin=subprocess.DEVNULL)
         except FileNotFoundError:
-            return _failure("ck not found on PATH")
+            return _failure("%s not found on PATH" % argv[0])
         except subprocess.TimeoutExpired:
             return _failure("%s timed out after %ss" % (command, timeout_s))
         except OSError as exc:
