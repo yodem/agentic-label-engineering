@@ -108,8 +108,12 @@ def _task_fields(lines: List[str], start: int, end: int) -> Tuple[List[str], Lis
 
 
 def _task_id(raw: str) -> str:
-    """``3`` -> ``T3``; a letter-prefixed id (``T2``, ``P1``) is kept as written."""
-    return raw if raw[:1].isalpha() else "T" + raw
+    """``3`` -> ``T3``; a letter-prefixed id keeps its number with the prefix upper-cased
+    (``T2`` -> ``T2``, ``t2`` -> ``T2``, ``p1a`` -> ``P1a``)."""
+    if not raw[:1].isalpha():
+        return "T" + raw
+    digits = next(index for index, char in enumerate(raw) if char.isdigit())
+    return raw[:digits].upper() + raw[digits:]
 
 
 def _locality(files: List[str]) -> str:

@@ -64,3 +64,10 @@ def test_letter_prefixed_heading_id_is_kept_as_written():
 
     assert [task["task_id"] for task in tasks] == ["T2", "T3"]
     assert tasks[1]["depends_on"] == ["T2"]
+
+
+def test_letter_prefix_is_upper_cased():
+    tasks = parse_plan("### Task t2: Two\nbody\n### Task p3: Three\nafter task t2.\n")
+
+    assert [task["task_id"] for task in tasks] == ["T2", "P3"]
+    assert tasks[1]["depends_on"] == ["T2"]
