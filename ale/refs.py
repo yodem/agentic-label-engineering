@@ -128,6 +128,11 @@ def render_section(refs: Dict[str, dict], agent: dict, prefetched: Optional[str]
     return "\n".join(lines)
 
 
+def allowed_command(argv: List[str]) -> bool:
+    """Whether ``prefetch`` may run ``argv``: only ``ck items get`` or ``trove items get``."""
+    return list(argv[:3]) in PREFETCH_PREFIXES
+
+
 def _failure(error: str) -> dict:
     return {"ok": False, "bytes": 0, "error": error}
 
@@ -149,7 +154,7 @@ def prefetch(entry: dict, out_path: str, timeout_s: int = 30) -> dict:
             argv = shlex.split(command)
         except ValueError as exc:
             return _failure("unparseable command %r: %s" % (command, exc))
-        if argv[:3] not in PREFETCH_PREFIXES:
+        if not allowed_command(argv):
             return _failure("only 'ck items get' or 'trove items get' commands are prefetched: %r" % command)
         commands.append((command, argv))
     if not commands:
