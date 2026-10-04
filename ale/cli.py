@@ -1982,6 +1982,20 @@ def _record_base_commit(plan: dict, label: dict, project_cwd: str) -> None:
         plan["base_commit"] = proc.stdout.strip()
 
 
+def _warn_stale_base(c: Ctx, project_cwd: str) -> None:
+    """Warn once when the checkout's HEAD is behind its upstream: task worktrees branch from it.
+    Reads the last fetch only (no fetch here) and never fails the dispatch."""
+    proc = subprocess.run(["git", "rev-list", "--count", "HEAD..@{u}"], cwd=project_cwd,
+                          capture_output=True, text=True)
+    behind = proc.stdout.strip()
+    if proc.returncode != 0 or not behind.isdigit() or int(behind) <= 0:
+        return
+    message = ("ale dispatch: base HEAD is %s commit(s) behind its upstream; fetch and fast-forward first"
+               % int(behind))
+    print(message, file=sys.stderr)
+    c.emit("note", None, None, None, lead=True, text=message)
+
+
 def _create_worktree(plan: dict, project_cwd: str) -> None:
     base = plan.get("base") or "HEAD"
     path = os.path.abspath(plan["path"])
@@ -2107,6 +2121,8 @@ def cmd_dispatch(a) -> int:
                       (task_id, dependency_id), file=sys.stderr)
             due = due_assignments(dispatch_state, c.labels, c.roster)
             remote_due = [item for item in due if (item.get("host") or "local") != "local"]
+            if due and not (a.json or a.dry_run) and (a.spawn or a.no_exec):
+                _warn_stale_base(c, project_cwd)
             for index, item in enumerate(due, 1):
                 request = _make_dispatch_request(c, item, project_cwd, index)
                 requests.append(request)

@@ -311,3 +311,45 @@ def test_refs_prefetch_still_refuses_other_commands(tmp_path):
     assert not result["ok"]
     assert "'ck items get'" in result["error"] and "'trove items get'" in result["error"]
     assert not (tmp_path / "o.md").exists()
+
+
+# Fix 7: dispatch warns, once, when the checkout is behind its upstream.
+
+def _behind_checkout(tmp_path, ahead):
+    upstream = tmp_path / "up.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(upstream)], check=True)
+    seed = _repo(tmp_path / "seed")
+    subprocess.run(["git", "push", "-q", str(upstream), "HEAD:refs/heads/main"], cwd=str(seed), check=True)
+    repo = tmp_path / "repo"
+    subprocess.run(["git", "clone", "-q", "-b", "main", str(upstream), str(repo)], check=True)
+    for index in range(ahead):
+        _commit(seed, "later-%d.txt" % index, "later\n")
+    subprocess.run(["git", "push", "-q", str(upstream), "HEAD:refs/heads/main"], cwd=str(seed), check=True)
+    subprocess.run(["git", "fetch", "-q"], cwd=str(repo), check=True)
+    return repo
+
+
+def _notes(run):
+    return [event["text"] for event in E.read_events(str(run / "events.jsonl")) if event["type"] == "note"]
+
+
+def test_dispatch_warns_once_when_base_is_behind_upstream(tmp_path, capsys):
+    repo = _behind_checkout(tmp_path, ahead=1)
+    run, roster = _run(tmp_path)
+
+    assert main(["dispatch", "--no-exec", "--run-dir", str(run), "--roster", roster,
+                 "--cwd", str(repo)]) == 0
+    message = "ale dispatch: base HEAD is 1 commit(s) behind its upstream; fetch and fast-forward first"
+    assert message in capsys.readouterr().err
+    assert _notes(run) == [message]
+    assert _spawned(run)[-1]["base_commit"] == _git(repo, "rev-parse", "HEAD")
+
+
+def test_dispatch_is_silent_when_base_is_current(tmp_path, capsys):
+    repo = _behind_checkout(tmp_path, ahead=0)
+    run, roster = _run(tmp_path)
+
+    assert main(["dispatch", "--no-exec", "--run-dir", str(run), "--roster", roster,
+                 "--cwd", str(repo)]) == 0
+    assert "behind its upstream" not in capsys.readouterr().err
+    assert _notes(run) == []
