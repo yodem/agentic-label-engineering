@@ -88,9 +88,9 @@ def decide_heartbeat(task_state: dict, now: float, throttle_s: float, tool_name:
     return {"step": ("auto: %s %s" % (tool_name, target))[:200], "files": paths}
 
 
-# A deep-reference read the hook can see: a ``ck items get`` command (alone or after
+# A deep-reference read the hook can see: a ``ck items get`` or ``trove items get`` command (alone or after
 # ``&&``/``;``), or a Read of the task's prefetched refs file.
-_CK_GET = re.compile(r"(?:^|&&|;|\|\||\n)[ \t]*ck\s+items\s+get\b")
+_CK_GET = re.compile(r"(?:^|&&|;|\|\||\n)[ \t]*(?:ck|trove)\s+items\s+get\b")
 _QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
 _SHELL_TOOLS = ("Bash", "exec_command")
 _READ_TOOLS = ("Read", "read_file")

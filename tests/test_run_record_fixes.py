@@ -431,3 +431,14 @@ def test_empty_file_note_says_no_diff_ran_outside_the_task_worktree(tmp_path):
 
     assert [event["text"] for event in _of_type(events, "note")] == [
         "verify: no changed files recorded; verified outside the task worktree, so no diff ran"]
+
+
+# Review fix: a `trove items get` shell read earns refs_read like `ck items get`.
+
+def test_refs_read_signal_counts_trove_and_ck_item_gets():
+    from ale import hooks as HK
+
+    for command in ("trove items get BOOK:1", "cd x && trove items get BOOK:1", "ck items get BOOK:1"):
+        assert HK.refs_read_signal("Bash", {"command": command}, None), command
+    for command in ("trove items list", "echo 'trove items get BOOK:1'", "mytrove items get BOOK:1"):
+        assert HK.refs_read_signal("Bash", {"command": command}, None) is None, command
