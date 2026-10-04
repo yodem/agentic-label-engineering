@@ -10,8 +10,11 @@ class PlanParseError(ValueError):
     """Raised when a plan cannot provide a usable task list."""
 
 
+# One task-id grammar for headings and references: an optional letter prefix,
+# digits, an optional lower-case letter suffix (``3``, ``T2``, ``P1a``).
+_TASK_ID = r"[A-Za-z]{0,3}[0-9]+[a-z]?"
 _HEADING = re.compile(
-    r"^#{2,4}\s+(?:Task|Step|Phase)\s+([A-Za-z]{0,3}[0-9]+[a-z]?)\b[:. ](.*)$"
+    r"^#{2,4}\s+(?:Task|Step|Phase)\s+(" + _TASK_ID + r")\b[:. ](.*)$"
 )
 _NUMBERED = re.compile(r"^(\d+)\.\s+(.*)$")
 _CHECKBOX = re.compile(r"^- \[ \]\s+(.*)$")
@@ -21,8 +24,8 @@ _FENCE = re.compile(r"^\s*([`~]{3,})(.*)$")
 _FILE_LINE = re.compile(r"^\s*(?:[-*]\s+)?(?:\*\*Files:\*\*|Files:|Create:|Modify:|Test:)")
 _BACKTICK = re.compile(r"`([^`]+)`")
 _COMMAND = re.compile(r"Run:\s*`([^`]+)`")
-_DEPENDENCY = re.compile(r"\b(?:depends\s+on|after)\s+Task\s+([A-Za-z]{0,3}[0-9]+)\b", re.I)
-_CONSUMES = re.compile(r"\bConsumes:\s*.*?\bTask\s+([A-Za-z]{0,3}[0-9]+)\b", re.I)
+_DEPENDENCY = re.compile(r"\b(?:depends\s+on|after)\s+Task\s+(" + _TASK_ID + r")\b", re.I)
+_CONSUMES = re.compile(r"\bConsumes:\s*.*?\bTask\s+(" + _TASK_ID + r")\b", re.I)
 _GIT_WRITE = re.compile(r"^git\s+(?:add|commit|push)(?:\s|$)", re.I)
 
 
