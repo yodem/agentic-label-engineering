@@ -281,6 +281,12 @@ def _plan_run_id(path: str, supplied: Optional[str]) -> str:
 
 
 def _resolve_run_dir(a, plan_path: str = None) -> str:
+    """The run directory, always absolute: every path recorded under it (spawned worktrees,
+    requests, prompts) must still resolve when read from another working directory."""
+    return os.path.abspath(_run_dir_choice(a, plan_path))
+
+
+def _run_dir_choice(a, plan_path: str = None) -> str:
     explicit = getattr(a, "run_dir", None)
     if explicit:
         return explicit
@@ -1211,7 +1217,16 @@ def _changed_files(cwd: str, base: str) -> List[str]:
     return sorted(set(out))
 
 
-def _task_changed_paths(cwd: str, setup_outputs: List[str]) -> Optional[List[str]]:
+def _is_commit(cwd: str, ref: str) -> bool:
+    proc = subprocess.run(["git", "rev-parse", "--verify", "--quiet", ref + "^{commit}"], cwd=cwd,
+                          capture_output=True, text=True)
+    return proc.returncode == 0
+
+
+def _task_changed_paths(cwd: str, setup_outputs: List[str],
+                        base: Optional[str] = None) -> Optional[List[str]]:
+    """Task paths changed in ``cwd``: against ``base`` (the commit the task branch was created
+    from, so committed work counts too) when it is a commit there, else against HEAD."""
     inside = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], cwd=cwd,
                             capture_output=True, text=True)
     if inside.returncode != 0 or inside.stdout.strip() != "true":
@@ -1220,7 +1235,7 @@ def _task_changed_paths(cwd: str, setup_outputs: List[str]) -> Optional[List[str
                           capture_output=True, text=True)
     if head.returncode != 0:
         return None
-    changed = _changed_files(cwd, "HEAD")
+    changed = _changed_files(cwd, base if base and _is_commit(cwd, base) else "HEAD")
     return [path for path in changed
             if "__pycache__" not in path and not path.endswith(".pyc")
             and path != ".ale-setup-done"
@@ -1331,6 +1346,8 @@ def cmd_verify(a) -> int:
                                 " (token mismatch)" if refs_mismatch else ""))
     reason = None
     task_changed = None
+    task_pending = None  # task paths changed against HEAD: what commit-at-accept commits
+    compared = "--base %s" % a.base if a.base else None  # what the file list was diffed against
     if a.base:
         changed = [path for path in _changed_files(cwd, a.base) if path != ".ale-setup-done"]
         evidence["files"] = changed
@@ -1340,9 +1357,21 @@ def cmd_verify(a) -> int:
         if bad:
             reason = "path_violation: %s" % ", ".join(bad[:5])
     spawn = _latest_spawn(c, a.task) or {}
+    # The commit the task branch now starts from: the spawn's base_commit, or a later restack's.
+    from .stack import current_base
+    spawn_base = current_base(E.read_events(c.events_path), spawn["task_id"]) if spawn else None
     if spawn.get("worktree") and os.path.realpath(cwd) == os.path.realpath(spawn["worktree"]):
-        worktree_config = label.get("context", {}).get("worktree") or {}
-        task_changed = _task_changed_paths(cwd, worktree_config.get("setup_outputs", []))
+        setup_outputs = (label.get("context", {}).get("worktree") or {}).get("setup_outputs", [])
+        task_pending = _task_changed_paths(cwd, setup_outputs)
+        task_changed = task_pending
+        if task_pending is not None and spawn_base and _is_commit(cwd, spawn_base):
+            # Committed work counts (diff from the base), and so does an uncommitted change that
+            # cancels a committed one (diff from HEAD): check the union of both.
+            against_base = _task_changed_paths(cwd, setup_outputs, base=spawn_base) or []
+            task_changed = sorted(set(task_pending) | set(against_base))
+            compared = compared or "base %s" % spawn_base[:12]
+        elif task_pending is not None:
+            compared = compared or "HEAD"
         if task_changed is not None and not a.base:
             evidence["files"] = task_changed
             bad = V.paths_within(task_changed, label["context"]["allowed_paths"],
@@ -1371,13 +1400,21 @@ def cmd_verify(a) -> int:
         evidence["signoff"] = a.signoff
     # Pin what was verified, so integrate can refuse later changes. Only the task's
     # own recorded worktree is pinned: that is the tree integrate commits from.
-    if task_changed is not None:
-        evidence["tree"] = _task_git_tree(cwd, task_changed)
+    if task_pending is not None:
+        # Paths already committed on the task branch are in HEAD; every task path still
+        # changed against HEAD (edits, additions, deletions) is staged.
+        evidence["tree"] = _task_git_tree(cwd, task_pending)
         # Commit at accept: the verified tree becomes the task branch tip, so a
         # dependent task can start from it and integrate only has to merge it.
         evidence["commit"] = _commit_task_paths(
-            cwd, task_changed, "ale: %s %s" % (a.task, label.get("title", a.task)))
+            cwd, task_pending, "ale: %s %s" % (a.task, label.get("title", a.task)))
         _fit(evidence)
+    from .dispatch import worktree_mode
+    if not evidence.get("files") and worktree_mode(label) != "none":
+        # An accept checked against no file list is a record the feedback loop cannot score.
+        c.emit("note", a.task, None, attempt, lead=True,
+               text=("verify: no changed files found against %s" % compared) if compared else
+                    "verify: no changed files recorded; verified outside the task worktree, so no diff ran")
     c.emit("accepted", a.task, None, attempt, evidence=evidence)
     _adjudicate_shadow_acceptance(c, a.task)
     c.render(a.task, owner)
@@ -1682,6 +1719,8 @@ def cmd_hook(a) -> int:
                 c.emit("note", binding["task_id"], binding["agent_id"], state["attempt"], text="auto-stop-block: " + decision["reason"])
                 print(json.dumps({"decision": "block", "reason": decision["reason"]}))
             elif decision["action"] == "input_required":
+                if HK.input_pending(E.read_events(c.events_path), binding["task_id"], state["attempt"]):
+                    return OK  # already asked in this attempt: let the session stop, emit nothing
                 c.emit("input_required", binding["task_id"], binding["agent_id"], state["attempt"], question=decision["question"])
                 print(json.dumps({"decision": "block", "reason": decision["question"]}))
             elif decision["action"] == "submit":
@@ -1937,6 +1976,43 @@ def _resolve_plan_base(c: Ctx, label: dict, plan: dict) -> dict:
     return plan
 
 
+def _record_base_commit(c: Ctx, plan: dict, label: dict, project_cwd: str) -> None:
+    """Set ``plan["base_commit"]``: the commit the task branch was created from (its merge-base
+    with the plan base), which verify diffs against. A stacked label keeps today's rule (only a
+    spawn on its parent's accepted commit records one), because ale.stack reads a spawned
+    ``base_commit`` as the stack base. A fix task works in its parent's worktree, so it takes the
+    parent's base (a fresh merge-base would include a stacked parent's own parent's files)."""
+    from .stack import current_base, stack_parent
+
+    if plan.get("base_commit"):
+        return
+    if label.get("fixes"):
+        parent_base = current_base(E.read_events(c.events_path), label["fixes"])
+        if parent_base:
+            plan["base_commit"] = parent_base
+        return
+    if stack_parent(label) is not None:
+        return
+    proc = subprocess.run(["git", "merge-base", plan.get("base") or "HEAD", "refs/heads/" + plan["branch"]],
+                          cwd=project_cwd, capture_output=True, text=True)
+    if proc.returncode == 0 and proc.stdout.strip():
+        plan["base_commit"] = proc.stdout.strip()
+
+
+def _warn_stale_base(c: Ctx, project_cwd: str) -> None:
+    """Warn once when the checkout's HEAD is behind its upstream: task worktrees branch from it.
+    Reads the last fetch only (no fetch here) and never fails the dispatch."""
+    proc = subprocess.run(["git", "rev-list", "--count", "HEAD..@{u}"], cwd=project_cwd,
+                          capture_output=True, text=True)
+    behind = proc.stdout.strip()
+    if proc.returncode != 0 or not behind.isdigit() or int(behind) <= 0:
+        return
+    message = ("ale dispatch: base HEAD is %s commit(s) behind its upstream; fetch and fast-forward first"
+               % int(behind))
+    print(message, file=sys.stderr)
+    c.emit("note", None, None, None, lead=True, text=message)
+
+
 def _create_worktree(plan: dict, project_cwd: str) -> None:
     base = plan.get("base") or "HEAD"
     path = os.path.abspath(plan["path"])
@@ -2030,7 +2106,9 @@ def _append_spawned(c: Ctx, due: dict, request: dict, plan: Optional[dict]) -> N
     if plan:
         extra.update({"worktree": plan["path"], "branch": plan["branch"]})
         if plan.get("stack_parent"):
-            extra.update({"stack_parent": plan["stack_parent"], "base_commit": plan["base_commit"]})
+            extra["stack_parent"] = plan["stack_parent"]
+        if plan.get("base_commit"):
+            extra["base_commit"] = plan["base_commit"]
     c.emit("spawned", due["task_id"], None, c.state()["tasks"][due["task_id"]]["attempt"],
            pane=request.get("executor_pane"), **extra)
 
@@ -2060,6 +2138,8 @@ def cmd_dispatch(a) -> int:
                       (task_id, dependency_id), file=sys.stderr)
             due = due_assignments(dispatch_state, c.labels, c.roster)
             remote_due = [item for item in due if (item.get("host") or "local") != "local"]
+            if due and not (a.json or a.dry_run) and (a.spawn or a.no_exec):
+                _warn_stale_base(c, project_cwd)
             for index, item in enumerate(due, 1):
                 request = _make_dispatch_request(c, item, project_cwd, index)
                 requests.append(request)
@@ -2076,6 +2156,7 @@ def cmd_dispatch(a) -> int:
                         reuses_parent = bool(label.get("fixes") and parent_spawn and parent_spawn.get("worktree"))
                         if not reuses_parent:
                             _create_worktree(plan, project_cwd)
+                        _record_base_commit(c, plan, label, project_cwd)
                         _run_worktree_setup(c, label, plan["path"], project_cwd)
                     _prefetch_refs(c, item, request)
                     # Record the spawn (and its worktree) so verify runs in the task worktree,
@@ -2106,6 +2187,7 @@ def cmd_dispatch(a) -> int:
                     reuses_parent = bool(label.get("fixes") and parent_spawn and parent_spawn.get("worktree"))
                     if not reuses_parent:
                         _create_worktree(plan, project_cwd)
+                    _record_base_commit(c, plan, label, project_cwd)
                     _run_worktree_setup(c, label, plan["path"], project_cwd)
                 _prefetch_refs(c, item, request)
                 if a.no_exec:
@@ -2378,7 +2460,9 @@ def cmd_integrate(a) -> int:
         if changed:
             _commit_task_paths(worktree, changed,
                                "ale: %s %s" % (a.task, c.labels[a.task].get("title", a.task)))
-    base_status = subprocess.run(["git", "status", "--porcelain"], cwd=checkout,
+    # Untracked files (provenance sidecars, .DS_Store) never block a merge of tracked work;
+    # git merge itself refuses if one would be overwritten.
+    base_status = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"], cwd=checkout,
                                  capture_output=True, text=True)
     if base_status.returncode != 0:
         raise CliError(FAIL, base_status.stderr.strip() or "git status failed")

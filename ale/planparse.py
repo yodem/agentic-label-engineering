@@ -11,16 +11,18 @@ class PlanParseError(ValueError):
 
 
 _HEADING = re.compile(
-    r"^#{2,4}\s+(?:Task|Step|Phase)\s+([0-9]+[a-z]?)\b[:. ](.*)$"
+    r"^#{2,4}\s+(?:Task|Step|Phase)\s+([A-Za-z]{0,3}[0-9]+[a-z]?)\b[:. ](.*)$"
 )
 _NUMBERED = re.compile(r"^(\d+)\.\s+(.*)$")
 _CHECKBOX = re.compile(r"^- \[ \]\s+(.*)$")
 _FENCE = re.compile(r"^\s*([`~]{3,})(.*)$")
-_FILE_LINE = re.compile(r"^(?:\*\*Files:\*\*|Create:|Modify:|Test:)")
+# A file line may be a bullet: the superpowers writing-plans template lists
+# "- Create: `path`" under a bare "**Files:**" line.
+_FILE_LINE = re.compile(r"^\s*(?:[-*]\s+)?(?:\*\*Files:\*\*|Files:|Create:|Modify:|Test:)")
 _BACKTICK = re.compile(r"`([^`]+)`")
 _COMMAND = re.compile(r"Run:\s*`([^`]+)`")
-_DEPENDENCY = re.compile(r"\b(?:depends\s+on|after)\s+Task\s+([0-9]+)\b", re.I)
-_CONSUMES = re.compile(r"\bConsumes:\s*.*?\bTask\s+([0-9]+)\b", re.I)
+_DEPENDENCY = re.compile(r"\b(?:depends\s+on|after)\s+Task\s+([A-Za-z]{0,3}[0-9]+)\b", re.I)
+_CONSUMES = re.compile(r"\bConsumes:\s*.*?\bTask\s+([A-Za-z]{0,3}[0-9]+)\b", re.I)
 _GIT_WRITE = re.compile(r"^git\s+(?:add|commit|push)(?:\s|$)", re.I)
 
 
@@ -105,6 +107,15 @@ def _task_fields(lines: List[str], start: int, end: int) -> Tuple[List[str], Lis
     return files, commands, dependencies
 
 
+def _task_id(raw: str) -> str:
+    """``3`` -> ``T3``; a letter-prefixed id keeps its number with the prefix upper-cased
+    (``T2`` -> ``T2``, ``t2`` -> ``T2``, ``p1a`` -> ``P1a``)."""
+    if not raw[:1].isalpha():
+        return "T" + raw
+    digits = next(index for index, char in enumerate(raw) if char.isdigit())
+    return raw[:digits].upper() + raw[digits:]
+
+
 def _locality(files: List[str]) -> str:
     local_markers = ("~/Library/", "~/.ssh/", "Library/Application Support/")
     for path in files:
@@ -147,7 +158,7 @@ def parse_plan(text: str) -> List[Dict[str, object]]:
 
     ids = []
     for position, (_, _, number) in enumerate(candidates, 1):
-        task_id = "T{}".format(number if selected_kind == "heading" else position)
+        task_id = _task_id(number) if selected_kind == "heading" else "T{}".format(position)
         if task_id in ids:
             raise PlanParseError("duplicate task id {}".format(task_id))
         ids.append(task_id)
@@ -159,7 +170,7 @@ def parse_plan(text: str) -> List[Dict[str, object]]:
         files, commands, raw_dependencies = _task_fields(lines, start, end)
         depends_on = []
         for raw_id in raw_dependencies:
-            dependency = "T{}".format(raw_id)
+            dependency = _task_id(raw_id)
             if dependency in known and dependency != ids[position] and dependency not in depends_on:
                 depends_on.append(dependency)
         body = "\n".join(lines[start + 1:end]).strip()
