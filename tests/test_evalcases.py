@@ -373,3 +373,13 @@ def test_a_case_without_active_is_active(tmp_path):
     case = inline()
     del case["active"]
     assert EC.is_active(EC.load_cases(write_cases(tmp_path, [case]))[0])
+
+
+def test_analyze_without_a_cases_file_warns_and_exits_by_the_checks(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(EC, "default_cases_path", lambda: str(tmp_path / "missing.jsonl"))
+    _ledger_drop("live-case")
+    index = str(tmp_path / "empty-index.jsonl")
+    assert main(["analyze", "--no-write", "--index", index, "--since", "all"]) == 0
+    captured = capsys.readouterr()
+    assert "offline cases not read" in captured.err and "Traceback" not in captured.err
+    assert "live-case" not in captured.out

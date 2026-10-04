@@ -127,7 +127,8 @@ follows the checks.
 for a usage error (a bad `--since`, `ALE_NOW` or thresholds file). Offline regressions count
 only the active cases of the default cases file (the bundled `evalcases/cases.jsonl`), in the
 exit code and in **What regressed** alike, so a retired case never gates the report or lingers
-in it.
+in it. When the default cases file is missing or unreadable, `ale analyze` warns on stderr
+(`offline cases not read: …`), ignores offline regressions and exits by the checks alone.
 
 ## The eval ledger
 
