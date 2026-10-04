@@ -556,3 +556,34 @@ def test_cli_explicit_index_and_thresholds(tmp_path, ale_home, now_env, capsys):
         json.dump(th, handle)
     assert main(["analyze", "--index", index, "--no-write"]) == 0
     assert main(["analyze", "--index", index, "--thresholds", th_path, "--no-write"]) == 1
+
+
+# --- review fixes ----------------------------------------------------------------------------
+
+def test_a_rejected_fix_task_whose_parent_was_accepted_is_superseded_not_open(tmp_path):
+    run_dir = run_dir_for(tmp_path, "r")
+    fix = label("T1F", "r", role="fixer")
+    fix["fixes"] = "T1"
+    a, f = "T1-executor-backend-1", "T1F-executor-fixer-1"
+    bad = evidence(["src/a.py"], passed=False)
+    good = evidence(["src/a.py"])
+    events = run_header("r", T0, ["T1", "T1F"]) + good_task("r", "T1", T0 + 100, run_dir)[:2] + [
+        ev("submitted", "r", T0 + 130, "T1", a, summary="first"),
+        ev("verified", "r", T0 + 140, "T1", evidence=bad),
+        ev("rejected", "r", T0 + 140, "T1", evidence=bad, reason="A1"),
+        ev("task_added", "r", T0 + 150, "T1F", label_file="T1F.json", reason="fix"),
+        ev("claimed", "r", T0 + 160, "T1F", f),
+        ev("submitted", "r", T0 + 170, "T1F", f, summary="fix"),
+        ev("verified", "r", T0 + 180, "T1F", evidence=bad),
+        ev("rejected", "r", T0 + 180, "T1F", evidence=bad, reason="A1"),
+        ev("reopened", "r", T0 + 190, "T1", attempt=2, reason="fixed by hand"),
+        ev("verified", "r", T0 + 200, "T1", attempt=3, evidence=good),
+        ev("accepted", "r", T0 + 200, "T1", attempt=3, evidence=good),
+    ]
+    run = load(write_run(tmp_path, "r", [label("T1", "r"), fix], events), "r")
+    states = {row["task_id"]: row["state"] for row in A.task_rows(run)}
+    assert states == {"T1": "accepted", "T1F": "superseded"}
+    assert A.run_status(run, STALE_NOW, 72 * HOUR) == "done"
+    report = report_for([run], now=STALE_NOW)
+    assert [r["score"] for r in results(report, "ale.task.resolved")] == [1.0, 1.0]
+    assert one(report, "ale.run.no_stale_open")["score"] == 1.0

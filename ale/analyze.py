@@ -31,7 +31,7 @@ from .validate import load_schema
 _HERE = os.path.dirname(os.path.abspath(__file__))
 THRESHOLDS_PATH = os.path.join(_HERE, "schema", "analyze_thresholds.json")
 EXAMPLE_ROSTER = os.path.join(_HERE, "example_roster.json")
-CLOSED = ("accepted", "failed", "canceled", "removed")
+CLOSED = ("accepted", "failed", "canceled", "removed", "superseded")
 EFFORTS = ("S", "M", "L")
 # Keys the reducer reads unconditionally for event types that are not in event_types.json.
 _EXTRA_REQUIRED = {"reopened": ("reason",)}
@@ -274,6 +274,15 @@ def _row(run: dict, task_id: str, label: dict, task_events: List[dict], st: Opti
     }
 
 
+def _mark_superseded(tasks: Dict[str, dict], labels: Dict[str, dict]) -> None:
+    """The board's rule (ale/board.py build_snapshot, health_verdict): a rejected fix task
+    whose ``fixes`` parent is accepted is ``superseded``, a closed state, not an open one."""
+    for task_id, st in tasks.items():
+        parent = (labels.get(task_id) or {}).get("fixes")
+        if st.get("state") == "rejected" and parent and (tasks.get(parent) or {}).get("state") == "accepted":
+            st["state"] = "superseded"
+
+
 def _analysis(run: dict) -> dict:
     cached = run.get("_analysis")
     if cached is not None:
@@ -287,6 +296,7 @@ def _analysis(run: dict) -> dict:
     for event in run["events"]:
         if event.get("task_id") is not None:
             by_task.setdefault(event["task_id"], []).append(event)
+    _mark_superseded(state["tasks"], labels)
     started = _run_started_ts(run)
     rows = []
     for task_id in sorted(set(labels) | removed):
@@ -351,7 +361,7 @@ def _dispatch_worktree(row, ctx):
 def _resolved(row, ctx):
     if ctx["status"] not in ("stale", "done"):
         return None
-    return _verdict(row["state"] in ("accepted", "removed"), "task %s" % row["state"],
+    return _verdict(row["state"] in ("accepted", "removed", "superseded"), "task %s" % row["state"],
                     "%s run left the task %s" % (ctx["status"], row["state"]))
 
 
