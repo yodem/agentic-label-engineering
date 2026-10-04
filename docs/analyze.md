@@ -154,7 +154,8 @@ current results still count as the latest when looking for regressions.
 
 Exit codes: with `--ci`, 1 when any active case fails or an active case regressed (an offline
 row whose latest score is below its best before; online rows and retired cases never count);
-otherwise 0. A cases file that cannot be read, or holds an invalid line, an unknown kind or a
+otherwise 0. A file with no active case (empty, or every case retired) checks nothing: it
+prints `no active cases` on stderr and exits 1 with `--ci`, 0 without. A cases file that cannot be read, or holds an invalid line, an unknown kind or a
 duplicate id, exits 2.
 
 ### Case format

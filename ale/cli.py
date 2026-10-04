@@ -3458,6 +3458,9 @@ def cmd_eval_cases(a) -> int:
     except EC.CaseError as exc:
         raise CliError(USAGE, str(exc))
     active = [case for case in cases if EC.is_active(case)]
+    if not active:
+        print("ale eval cases: no active cases in %s; nothing was checked" % path, file=sys.stderr)
+        return FAIL if a.ci else OK
     run_id = "cases-" + EL.iso_ts()
     digest = EC.config_hash()
     rows = []

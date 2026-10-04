@@ -309,3 +309,15 @@ def test_analyze_ignores_a_retired_cases_regression(tmp_path, monkeypatch, capsy
     assert main(["analyze", "--no-write", "--index", index, "--since", "all"]) == 0
     out = capsys.readouterr().out
     assert "retired-case" not in out and "unknown-case" not in out and "Nothing regressed." in out
+
+
+def test_ci_with_no_active_cases_exits_1(tmp_path, capsys):
+    empty = tmp_path / "empty.jsonl"
+    empty.write_text("", encoding="utf-8")
+    assert main(["eval", "cases", "--cases", str(empty), "--ci", "--no-record"]) == 1
+    assert "no active cases" in capsys.readouterr().err
+    retired = write_cases(tmp_path, [inline("old", active=False)])
+    assert main(["eval", "cases", "--cases", retired, "--ci", "--no-record"]) == 1
+    # Without --ci it is reported, not gated.
+    assert main(["eval", "cases", "--cases", retired, "--no-record"]) == 0
+    assert "no active cases" in capsys.readouterr().err
