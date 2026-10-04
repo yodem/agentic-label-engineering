@@ -667,7 +667,7 @@ def evaluate(runs: List[dict], thresholds: dict, now: float, since_s: Optional[f
         "checks": _checks(cases, thresholds),
         "metrics": _metrics(rows),
         "calibration": _calibration(rows, thresholds.get("calibration") or {}),
-        "promotions": _promotions(current),
+        "promotions": _promotions(kept),   # cumulative: promotion needs every judged case
         "previous": previous,
         "case_results": cases,
     }

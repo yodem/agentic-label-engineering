@@ -210,3 +210,14 @@ def test_item7_without_base_ref_verify_falls_back_to_diff_base(tmp_path, capsys)
     assert "path_violation: stray.txt" in capsys.readouterr().err
     verified = [e for e in SF.E.read_events(str(run / "events.jsonl")) if e["type"] == "verified"][-1]
     assert verified["evidence"]["files"] == ["stray.txt", "t1.txt"]
+
+
+# Item 5: promotion progress is cumulative over every indexed run, not the window.
+def test_item5_promotion_progress_counts_runs_outside_the_window(tmp_path):
+    old = _judged_run(tmp_path, "2026-09-01-old", T0 - 30 * 24 * HOUR)
+    recent = _judged_run(tmp_path, "2026-10-01-new", T0)
+
+    report = _report([old, recent], since_s=7 * 24 * HOUR)
+
+    assert report["runs"]["done"] == 1   # only the recent run is in the window
+    assert report["promotions"]["role"]["cases"] == 2

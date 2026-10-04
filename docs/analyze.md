@@ -102,8 +102,9 @@ the previous `saturation_windows - 1` dated reports: tighten or retire), **Fix s
 accepted task, claim-to-accept p50 and p90, tokens per accepted task, unknown-usage share),
 **Calibration** (effort buckets with n >= 5 must be monotonic in duration and files changed;
 role/effort/risk groups with n >= 3 whose reject rate or median duration is at least 2x the
-median group), and **Promotions** (judge promotion progress per field from the roster;
-proposals only, nothing is applied).
+median group), and **Promotions** (judge promotion progress per field from the roster,
+counted over every indexed run, not only the window, with cases keyed by run key; proposals
+only, nothing is applied).
 
 ### Files written
 
