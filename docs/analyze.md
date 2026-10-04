@@ -166,7 +166,8 @@ ledger: `case_kind: "offline"`, `evaluator` `ale.case.<kind>`, `run_id` `cases-<
 `tool_version` the ALE version, and `config_hash` the first 12 hex digits of the sha256 of the
 ALE version plus the bytes of `ale/schema/analyze_thresholds.json`. With `--no-record`, or when the
 ledger cannot be written (a warning on stderr), the current results still count as the latest
-when looking for regressions.
+when looking for regressions. Unlike `ale analyze`, it does not dedupe on write: every recorded
+run appends all its rows, so each CI run stays in the ledger.
 
 Exit codes: with `--ci`, 1 when any active case fails or an active case regressed (an offline
 row whose latest score is below its best before; online rows and retired cases never count);
