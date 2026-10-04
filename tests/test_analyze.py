@@ -647,3 +647,16 @@ def test_an_unreadable_event_log_is_skipped_with_the_warning(tmp_path, ale_home,
     finally:
         os.chmod(events_path, 0o644)
     assert "ale analyze: skipped %s (missing)" % os.path.realpath(locked) in capsys.readouterr().err
+
+
+def test_the_runs_own_labeled_event_wins_over_the_index_entry(tmp_path):
+    run_dir = good_run(tmp_path, "r", T0)                     # labeled events carry abcd1234
+    run = A.load_run(entry(run_dir, "r", roster_hash="fromindex", ale_version="0.3.0"))
+    assert run["roster_hash"] == "abcd1234" and run["ale_version"] == "0.3.0"
+    legacy_dir = write_run(tmp_path, "legacy", [label("T1", "legacy")],
+                           good_task("legacy", "T1", T0, run_dir_for(tmp_path, "legacy")))
+    legacy = A.load_run(entry(legacy_dir, "legacy", roster_hash="fromindex"))
+    assert legacy["roster_hash"] == "fromindex"               # no labeled event: index fallback
+    stamped_dir = write_run(tmp_path, "stamped", [label("T1", "stamped")],
+                            [ev("run_started", "stamped", T0, attempt=None, ale_version="0.4.0")])
+    assert A.load_run(entry(stamped_dir, "stamped", ale_version="0.3.0"))["ale_version"] == "0.4.0"

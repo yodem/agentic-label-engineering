@@ -158,11 +158,15 @@ def load_run(entry: dict) -> Optional[dict]:
         return None   # unreadable (permissions, I/O): the caller skips it like a missing run
     run_id = next((e["run_id"] for e in events if isinstance(e.get("run_id"), str) and e["run_id"]),
                   None) or entry.get("run_id") or os.path.basename(run_dir)
-    roster_hash = entry.get("roster_hash") or next(
-        (str(e["roster_hash"]) for e in events if e["type"] == "labeled" and e.get("roster_hash")), None)
+    # The run's own record wins; the index entry is the fallback for runs that lack one.
+    roster_hash = next((str(e["roster_hash"]) for e in events
+                        if e["type"] == "labeled" and e.get("roster_hash")), None) or entry.get("roster_hash")
+    ale_version = next((str(e["ale_version"]) for e in events
+                        if e["type"] in ("run_started", "labeled") and e.get("ale_version")),
+                       None) or entry.get("ale_version")
     return {"run_id": run_id, "run_key": run_key(run_dir), "run_dir": run_dir,
             "repo_root": entry.get("repo_root"), "labels": labels, "events": events,
-            "skipped_lines": skipped, "roster_hash": roster_hash, "ale_version": entry.get("ale_version")}
+            "skipped_lines": skipped, "roster_hash": roster_hash, "ale_version": ale_version}
 
 
 # --- per-task outcome rows -------------------------------------------------------------------
