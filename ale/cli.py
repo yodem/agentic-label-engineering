@@ -53,6 +53,7 @@ from .runs import list_runs
 from . import runindex as RI
 from . import analyze as AN
 from . import evalledger as EL
+from . import evalcases as EC
 
 
 _HERDR_RUNNER = subprocess.run
@@ -3288,7 +3289,8 @@ def _day_number(day: str) -> int:
 
 
 def cmd_analyze(a) -> int:
-    """Score every indexed run against the committed thresholds; exit 1 on a breached check."""
+    """Score every indexed run against the committed thresholds; exit 1 on a breached check or
+    a regressed active offline case."""
     home = RI.ale_home()
     index = a.index or RI.index_path(home)
     raw_now = os.environ.get("ALE_NOW")
@@ -3310,7 +3312,10 @@ def cmd_analyze(a) -> int:
             print("ale analyze: not due (last report %s)" % dated[-1])
             return OK
     for root in a.backfill or []:
-        RI.backfill([root], index=index)
+        try:
+            RI.backfill([root], index=index)
+        except OSError as exc:
+            print("ale analyze: run index not updated from %s: %s" % (root, exc), file=sys.stderr)
     runs = []
     for entry in RI.read_index(index=index):
         run = AN.load_run(entry)
@@ -3325,32 +3330,53 @@ def cmd_analyze(a) -> int:
         history.append({"date": day, "checks": {k: (v or {}).get("rate")
                                                 for k, v in (past.get("checks") or {}).items()}})
     report["history"] = history
-    report["offline_regressions"] = EL.regressions(
-        [row for row in EL.read_rows(home) if row.get("case_kind") == "offline"])
+    report["offline_regressions"] = EC.regressions(EL.read_rows(home), _active_case_ids())
     fixes = _read_jsonl_quiet(os.path.join(home, ".ale", "fixes.jsonl"))
     report["fixes"] = AN.fix_statuses(report, fixes)
     report["findings"] = AN.findings(report, _read_json_file(os.path.join(reports_dir, "findings.json"), {}),
                                      fixes)
     text = AN.render_markdown(report)
     if not a.no_write:
-        os.makedirs(reports_dir, exist_ok=True)
-        H.write_atomic(os.path.join(reports_dir, today + ".md"), text)
-        H.write_atomic(os.path.join(reports_dir, today + ".json"), json.dumps(report, indent=2, sort_keys=True))
-        H.write_atomic(os.path.join(reports_dir, "findings.json"),
-                       json.dumps(report["findings"], indent=2, sort_keys=True))
-        H.write_atomic(os.path.join(reports_dir, "promotions.json"),
-                       json.dumps(report["promotions"], indent=2, sort_keys=True))
+        try:
+            os.makedirs(reports_dir, exist_ok=True)
+            H.write_atomic(os.path.join(reports_dir, today + ".md"), text)
+            H.write_atomic(os.path.join(reports_dir, today + ".json"), json.dumps(report, indent=2, sort_keys=True))
+            H.write_atomic(os.path.join(reports_dir, "findings.json"),
+                           json.dumps(report["findings"], indent=2, sort_keys=True))
+            H.write_atomic(os.path.join(reports_dir, "promotions.json"),
+                           json.dumps(report["promotions"], indent=2, sort_keys=True))
+        except OSError as exc:
+            print("ale analyze: report not written: %s" % exc, file=sys.stderr)
         analyze_id = "analyze-" + report["generated"]
-        EL.append_rows([EL.make_row(analyze_id, case.get("tool_version"), case.get("config_hash"),
-                                    case["case_id"], case["case_kind"], case["case_category"],
-                                    case["evaluator"], case["score"], case["passed"], case["reason"],
-                                    dict(case.get("metadata") or {}, scored_run_id=case.get("run_id")))
-                        for case in report["case_results"]], home)
+        _append_ledger_rows([EL.make_row(analyze_id, case.get("tool_version"), case.get("config_hash"),
+                                         case["case_id"], case["case_kind"], case["case_category"],
+                                         case["evaluator"], case["score"], case["passed"], case["reason"],
+                                         dict(case.get("metadata") or {}, scored_run_id=case.get("run_id")))
+                             for case in report["case_results"]], home)
     if a.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
         sys.stdout.write(text)
-    return FAIL if any(check["breached"] for check in report["checks"].values()) else OK
+    breached = any(check["breached"] for check in report["checks"].values())
+    return FAIL if breached or report["offline_regressions"] else OK
+
+
+def _append_ledger_rows(rows: List[dict], home: str) -> None:
+    """Append analyze rows; a ledger that cannot be written warns and never changes the exit code."""
+    try:
+        EL.append_rows(rows, home)
+    except OSError as exc:
+        print("ale analyze: eval ledger not updated: %s" % exc, file=sys.stderr)
+
+
+def _active_case_ids() -> List[str]:
+    """Ids of the active cases in the default cases file: only these can regress, so a retired
+    case never gates ``ale analyze`` or lingers in its report."""
+    try:
+        return [case["id"] for case in EC.load_cases(EC.default_cases_path()) if EC.is_active(case)]
+    except EC.CaseError as exc:
+        print("ale analyze: offline cases not read: %s" % exc, file=sys.stderr)
+        return []
 
 
 def _read_jsonl_quiet(path: str) -> List[dict]:
@@ -3435,6 +3461,49 @@ def _write_jsonl(path: str, rows: List[dict]) -> None:
     with open(path, "w", encoding="utf-8") as f:
         for row in rows:
             f.write(json.dumps(row, sort_keys=True) + "\n")
+
+
+def cmd_eval_cases(a) -> int:
+    """Run the active offline cases; ``--ci`` exits 1 on a failed case or an offline regression."""
+    from . import __version__
+    path = a.cases or EC.default_cases_path()
+    try:
+        cases = EC.load_cases(path)
+    except EC.CaseError as exc:
+        raise CliError(USAGE, str(exc))
+    active = [case for case in cases if EC.is_active(case)]
+    if not active:
+        print("ale eval cases: no active cases in %s; nothing was checked" % path, file=sys.stderr)
+        return FAIL if a.ci else OK
+    run_id = "cases-" + EL.iso_ts()
+    digest = EC.config_hash()
+    rows = []
+    failed = 0
+    for case in active:
+        result = EC.run_case(case)
+        failed += 0 if result["passed"] else 1
+        print("%s %s: %s" % ("PASS" if result["passed"] else "FAIL", case["id"], result["reason"]))
+        rows.append(EL.make_row(run_id, __version__, digest, case["id"], "offline", case.get("category"),
+                                "ale.case.%s" % case["kind"], result["score"], result["passed"],
+                                result["reason"], {"source_run": case.get("source_run"),
+                                                   "difficulty": case.get("difficulty"),
+                                                   "cases_path": os.path.abspath(path)}))
+    recorded = False
+    if not a.no_record:
+        try:
+            EL.append_rows(rows)
+            recorded = True
+        except OSError as exc:
+            print("ale eval cases: eval ledger not updated: %s" % exc, file=sys.stderr)
+    # An unrecorded pass (--no-record, or a ledger that cannot be written) still counts as the latest.
+    history = EL.read_rows() + ([] if recorded else rows)
+    regressed = EC.regressions(history, [case["id"] for case in active])
+    for row in regressed:
+        print("REGRESSED %s: score %.2f < best %.2f" % (row["case_id"], float(row["score"]), row["best_before"]))
+    print("eval cases: %d passed, %d failed, %d regressed, %d inactive (%s, config %s)%s" % (
+        len(active) - failed, failed, len(regressed), len(cases) - len(active), path, digest,
+        "" if recorded else ", not recorded"))
+    return FAIL if a.ci and (failed or regressed) else OK
 
 
 def cmd_eval_corpus(a) -> int:
@@ -4194,6 +4263,11 @@ def _parser() -> argparse.ArgumentParser:
     an.add_argument("--thresholds", help="thresholds file (default: ale/schema/analyze_thresholds.json)")
     ev = sub.add_parser("eval")
     evsub = ev.add_subparsers(dest="eval_cmd")
+    ecs = evsub.add_parser("cases", help="run the offline regression cases (evalcases/cases.jsonl)")
+    ecs.set_defaults(fn=cmd_eval_cases)
+    ecs.add_argument("--cases", help="cases file (default: <plugin root>/evalcases/cases.jsonl)")
+    ecs.add_argument("--ci", action="store_true", help="exit 1 on a failed active case or an offline regression")
+    ecs.add_argument("--no-record", action="store_true", help="append no rows to the eval ledger")
     ec = evsub.add_parser("corpus")
     ec.set_defaults(fn=cmd_eval_corpus)
     ec.add_argument("--ledger", required=True)

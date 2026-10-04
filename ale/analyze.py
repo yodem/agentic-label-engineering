@@ -673,17 +673,23 @@ def evaluate(runs: List[dict], thresholds: dict, now: float, since_s: Optional[f
 # --- findings, fixes, saturation -------------------------------------------------------------
 
 def fix_statuses(report: dict, fixes: List[dict]) -> List[dict]:
-    """Each fix record with the check's pass rate over runs started after it (its ``ts``, else
-    its ``date``): ``holding`` (n >= min_n, rate >= bar), ``regressed`` (n >= min_n, rate < bar),
+    """Each fix record with the check's pass rate over runs started after it (its ``ts`` when
+    that parses, else its ``date``): ``holding`` (n >= min_n, rate >= bar), ``regressed`` (n >= min_n, rate < bar),
     ``invalid`` (no parseable timestamp), else ``pending``."""
     min_n = int(report.get("min_n", 3))
     out = []
-    def stamp(fix: dict):
-        return fix.get("ts") if fix.get("ts") is not None else fix.get("date")
+    def stamp(fix: dict) -> Optional[float]:
+        # ``ts`` when it parses, else ``date``; None only when neither does.
+        for key in ("ts", "date"):
+            if fix.get(key) is not None:
+                moment = _epoch(fix[key])
+                if moment is not None:
+                    return moment
+        return None
 
-    for fix in sorted((f for f in fixes if isinstance(f, dict)), key=lambda f: _epoch(stamp(f)) or 0.0):
+    for fix in sorted((f for f in fixes if isinstance(f, dict)), key=lambda f: stamp(f) or 0.0):
         evaluator = fix.get("evaluator")
-        since = _epoch(stamp(fix))
+        since = stamp(fix)
         after = [c for c in report.get("case_results", [])
                  if c["evaluator"] == evaluator and since is not None and c.get("ts") is not None
                  and c["ts"] >= since]
