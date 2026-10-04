@@ -391,3 +391,30 @@ def test_nit_event_schema_declares_diff_base_and_base_ref():
     assert E.check_event(dict(base, diff_base="a" * 40, base_ref="main")) == []
     assert E.check_event(dict(base, diff_base=""))
     assert E.check_event(dict(base, base_ref=None))
+
+
+# Review nit: a pre-fix 0.4.0 spawn that carries only base_commit (not stacked) is still the diff base.
+def test_nit_legacy_spawn_with_only_base_commit_is_the_diff_base(tmp_path, monkeypatch, capsys):
+    from ale import cli
+
+    monkeypatch.setattr(cli, "_record_diff_base", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "_checkout_branch", lambda *args, **kwargs: None)
+    repo, run, roster = SF.make_run(tmp_path, {"T1": SF.label("T1")})
+    assert SF.dispatch(run, roster, repo) == 0
+    events_path = str(run / "events.jsonl")
+    spawn = SF.spawned(run, "T1")[-1]
+    assert not {"base_commit", "diff_base", "base_ref"} & set(spawn)
+    legacy = dict(spawn, ts=spawn["ts"] + 1, base_commit=SF.git(repo, "rev-parse", "HEAD"))
+    SF.E.append_event(events_path, legacy)
+    worktree = run / "wt" / "T1"
+    (worktree / "t1.txt").write_text("committed\n")
+    subprocess.run(["git", "add", "t1.txt"], cwd=str(worktree), check=True)
+    subprocess.run(["git", "commit", "-qm", "work"], cwd=str(worktree), check=True)
+    assert SF.ale(run, roster, "claim", "--task", "T1", "--agent", "a") == 0
+    assert SF.ale(run, roster, "submit", "--task", "T1", "--agent", "a", "--summary", "x") == 0
+    capsys.readouterr()
+
+    assert SF.ale(run, roster, "verify", "--task", "T1", "--cwd", str(worktree)) == 0, capsys.readouterr().err
+
+    accepted = [e for e in SF.E.read_events(events_path) if e["type"] == "accepted"][-1]
+    assert accepted["evidence"]["files"] == ["t1.txt"]   # a HEAD-only diff would find nothing
