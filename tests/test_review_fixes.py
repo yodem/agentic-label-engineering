@@ -260,3 +260,15 @@ def test_item9_truncated_evidence_counts_its_files(tmp_path):
     assert A.task_rows(run)[0]["files_changed"] == 40
     [scope] = _cases(_report([run]), "ale.task.path_scope_checked")
     assert scope["passed"] is True and scope["reason"] == "verified against 40 files"
+
+
+# Item 10: only a lead-authored input_answered (agent_id None) answers an ask.
+def test_item10_executor_authored_answer_does_not_reopen_the_ask():
+    from ale.hooks import input_pending
+
+    events = [ev("input_required", "r", 1, "T1", "T1-x", question="stuck"),
+              ev("input_answered", "r", 2, "T1", "T1-x", text="self-answer")]
+    assert input_pending(events, "T1", 1) is True
+
+    events.append(ev("input_answered", "r", 3, "T1", None, text="lead answer"))
+    assert input_pending(events, "T1", 1) is False

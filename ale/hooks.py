@@ -150,7 +150,9 @@ def input_pending(events: List[dict], task_id: str, attempt) -> bool:
             continue
         if event.get("type") == "input_required" and event.get("attempt") == attempt:
             pending = True
-        elif event.get("type") == "input_answered":
+        elif event.get("type") == "input_answered" and event.get("agent_id") is None:
+            # Only a lead answer counts, the reducer's authority rule: an executor cannot
+            # answer its own ask and so re-open the flood.
             pending = False
     return pending
 
