@@ -70,13 +70,20 @@ def _is_command(command: str) -> bool:
     return not _GIT_WRITE.match(command.strip())
 
 
-def _task_fields(lines: List[str], start: int, end: int) -> Tuple[List[str], List[str], List[str]]:
+def _task_fields(lines: List[str], fenced: List[bool], start: int,
+                 end: int) -> Tuple[List[str], List[str], List[str]]:
     files = []
     commands = []
     dependencies = []
     index = start + 1
     while index < end:
         line = lines[index]
+        if fenced[index]:
+            # A fenced line is example text (a template, a transcript), never a
+            # task's file, command or dependency; Run/Verify bash blocks are read
+            # from their opening fence below.
+            index += 1
+            continue
         if _FILE_LINE.match(line):
             for raw_path in _BACKTICK.findall(line):
                 path = _strip_range(raw_path)
@@ -167,7 +174,7 @@ def parse_plan(text: str) -> List[Dict[str, object]]:
     known = set(ids)
     for position, (start, title, _) in enumerate(candidates):
         end = candidates[position + 1][0] if position + 1 < len(candidates) else len(lines)
-        files, commands, raw_dependencies = _task_fields(lines, start, end)
+        files, commands, raw_dependencies = _task_fields(lines, fenced, start, end)
         depends_on = []
         for raw_id in raw_dependencies:
             dependency = _task_id(raw_id)
