@@ -359,3 +359,17 @@ def test_a_fix_record_falls_back_to_date_when_ts_does_not_parse():
              {"evaluator": "e"}]
     status = {item["evaluator"]: item["status"] for item in analyze.fix_statuses(report, fixes)}
     assert status == {"a": "pending", "b": "pending", "c": "pending", "d": "invalid", "e": "invalid"}
+
+
+@pytest.mark.parametrize("value", ["false", "0", 0, None])
+def test_active_must_be_a_json_boolean(tmp_path, value):
+    path = write_cases(tmp_path, [dict(inline(), active=value)])
+    with pytest.raises(EC.CaseError, match="active"):
+        EC.load_cases(path)
+    assert main(["eval", "cases", "--cases", path, "--ci", "--no-record"]) == 2
+
+
+def test_a_case_without_active_is_active(tmp_path):
+    case = inline()
+    del case["active"]
+    assert EC.is_active(EC.load_cases(write_cases(tmp_path, [case]))[0])

@@ -5,7 +5,8 @@ A case is one JSON object per line of ``evalcases/cases.jsonl``::
     {"id", "kind", "input", "expected", "category", "difficulty", "created_at", "active", "source_run"}
 
 ``input`` is inline text or JSON, or ``{"dir": "cases/<id>"}`` relative to the cases file's
-directory. Cases are never deleted; a retired case has ``"active": false``. Every evaluator is
+directory. Cases are never deleted; a retired case has ``"active": false`` (a JSON boolean:
+any other value is a load error). Every evaluator is
 an exact match on the fields ``expected`` names; ``score`` is the share of those fields that
 match and ``passed`` is ``score == 1.0``. No model is called anywhere in this module.
 """
@@ -67,6 +68,9 @@ def load_cases(path: str) -> List[dict]:
             raise CaseError("%s:%d: unknown kind %r (known: %s)" % (path, number, case["kind"], ", ".join(KINDS)))
         if not isinstance(case["expected"], dict):
             raise CaseError("%s:%d: expected must be an object" % (path, number))
+        if "active" in case and not isinstance(case["active"], bool):
+            raise CaseError("%s:%d: active must be true or false, got %s"
+                            % (path, number, json.dumps(case["active"])))
         if case["id"] in seen:
             raise CaseError("%s:%d: duplicate case id %s" % (path, number, case["id"]))
         seen.add(case["id"])
@@ -76,6 +80,7 @@ def load_cases(path: str) -> List[dict]:
 
 
 def is_active(case: dict) -> bool:
+    """A case is active unless ``active`` is ``false``; ``load_cases`` rejects any non-boolean."""
     return case.get("active", True) is not False
 
 

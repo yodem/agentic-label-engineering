@@ -176,7 +176,8 @@ One JSON object per line:
 ```
 
 `input` is inline text or JSON, or `{"dir": "cases/<id>"}` relative to the cases file. Never
-delete a case; retire it with `"active": false`. Each evaluator is an exact match on the
+delete a case; retire it with `"active": false`. `active` defaults to true and must be a JSON
+boolean: a string such as `"false"` or a number is a load error (exit 2), never silently active. Each evaluator is an exact match on the
 fields `expected` names; `score` is the share that match and a case passes at 1.0. An
 evaluator that raises scores 0 with the error as its reason.
 
