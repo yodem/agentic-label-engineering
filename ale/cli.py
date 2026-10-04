@@ -1413,8 +1413,8 @@ def cmd_verify(a) -> int:
     if not evidence.get("files") and worktree_mode(label) != "none":
         # An accept checked against no file list is a record the feedback loop cannot score.
         c.emit("note", a.task, None, attempt, lead=True,
-               text="verify: no changed files found against base %s" %
-                    (spawn_base[:12] if spawn_base else "HEAD"))
+               text=("verify: no changed files found against %s" % compared) if compared else
+                    "verify: no changed files recorded; verified outside the task worktree, so no diff ran")
     c.emit("accepted", a.task, None, attempt, evidence=evidence)
     _adjudicate_shadow_acceptance(c, a.task)
     c.render(a.task, owner)

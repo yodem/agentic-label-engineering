@@ -409,3 +409,25 @@ def test_an_uncommitted_revert_of_a_committed_change_is_committed_at_accept(tmp_
     assert evidence["tree"] == _git(worktree, "rev-parse", "HEAD^{tree}")
     assert _git(worktree, "ls-tree", "--name-only", "HEAD").splitlines() == ["b.txt", "base.txt"]
     assert _git(worktree, "status", "--porcelain", "--untracked-files=no") == ""
+
+
+# Review nit: the empty-file note names what was actually compared.
+
+def test_empty_file_note_names_an_explicit_base_override(tmp_path):
+    repo, run, roster, worktree, events = _dispatched(tmp_path)
+    E.append_event(str(events), E.make_event("submitted", "run-1", 3, "T1", "worker", 1, summary="done"))
+    assert main(["verify", "--task", "T1", "--run-dir", str(run), "--roster", roster,
+                 "--cwd", str(worktree), "--base", "HEAD"]) == 0
+
+    assert [event["text"] for event in _of_type(events, "note")] == [
+        "verify: no changed files found against --base HEAD"]
+
+
+def test_empty_file_note_says_no_diff_ran_outside_the_task_worktree(tmp_path):
+    repo, run, roster, worktree, events = _dispatched(tmp_path)
+    E.append_event(str(events), E.make_event("submitted", "run-1", 3, "T1", "worker", 1, summary="done"))
+    assert main(["verify", "--task", "T1", "--run-dir", str(run), "--roster", roster,
+                 "--cwd", str(repo)]) == 0
+
+    assert [event["text"] for event in _of_type(events, "note")] == [
+        "verify: no changed files recorded; verified outside the task worktree, so no diff ran"]
