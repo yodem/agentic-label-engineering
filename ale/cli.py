@@ -16,7 +16,7 @@ import signal
 import tempfile
 import time
 import webbrowser
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from . import __version__
 from . import events as E
@@ -1276,9 +1276,13 @@ def _verify_base(cwd: str, spawn: dict, events: List[dict]) -> Optional[str]:
 
 
 def _task_changed_paths(cwd: str, setup_outputs: List[str],
-                        base: Optional[str] = None) -> Optional[List[str]]:
-    """Task paths changed in ``cwd``: against ``base`` (the commit the task branch was created
-    from, so committed work counts too) when it is a commit there, else against HEAD."""
+                        base: Optional[str] = None) -> Optional[Tuple[List[str], List[str]]]:
+    """``(pending, changed)`` task paths in ``cwd``, or None outside a git work tree with a HEAD.
+
+    ``pending`` differs from HEAD (uncommitted and untracked: what commit-at-accept commits).
+    ``changed`` adds the diff from ``base``, a commit the caller already resolved (the one the
+    task branch starts from), so committed work counts too, and so does an uncommitted change
+    that cancels a committed one; without ``base`` it equals ``pending``."""
     inside = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], cwd=cwd,
                             capture_output=True, text=True)
     if inside.returncode != 0 or inside.stdout.strip() != "true":
@@ -1287,13 +1291,18 @@ def _task_changed_paths(cwd: str, setup_outputs: List[str],
                           capture_output=True, text=True)
     if head.returncode != 0:
         return None
-    changed = _changed_files(cwd, base if base and _is_commit(cwd, base) else "HEAD")
-    return [path for path in changed
-            if "__pycache__" not in path and not path.endswith(".pyc")
-            and path != ".ale-setup-done"
-            and not any(fnmatch.fnmatch(path, pattern)
-                        or path.startswith(pattern.rstrip("/") + "/")
-                        for pattern in setup_outputs)]
+    def task_paths(paths: List[str]) -> List[str]:
+        return [path for path in paths
+                if "__pycache__" not in path and not path.endswith(".pyc")
+                and path != ".ale-setup-done"
+                and not any(fnmatch.fnmatch(path, pattern)
+                            or path.startswith(pattern.rstrip("/") + "/")
+                            for pattern in setup_outputs)]
+
+    pending = task_paths(_changed_files(cwd, "HEAD"))
+    if not base:
+        return pending, pending
+    return pending, sorted(set(pending) | set(task_paths(_changed_files(cwd, base))))
 
 
 def _task_git_tree(cwd: str, paths: List[str]) -> str:
@@ -1367,7 +1376,8 @@ def cmd_verify(a) -> int:
     if st["state"] != "submitted":
         raise CliError(FAIL, "task %s is %s, not submitted" % (a.task, st["state"]))
     label, owner, attempt = c.labels[a.task], st["owner"], st["attempt"]
-    latest = _latest_spawn(c, a.task)
+    events = E.read_events(c.events_path)   # read once: the spawn and its base both come from it
+    latest = _latest_spawn(c, a.task, events)
     if a.reject is None and not a.cwd and latest and latest.get("remote_worktree") and not latest.get("worktree"):
         # Verifying here would run acceptance in the lead's checkout and accept with no evidence.
         raise CliError(FAIL, "remote task %s has no local worktree yet: fetch it back and run "
@@ -1408,20 +1418,14 @@ def cmd_verify(a) -> int:
         evidence["path_violations"] = bad[:20]
         if bad:
             reason = "path_violation: %s" % ", ".join(bad[:5])
-    spawn = _latest_spawn(c, a.task) or {}
+    spawn = latest or {}
     if spawn.get("worktree") and os.path.realpath(cwd) == os.path.realpath(spawn["worktree"]):
-        spawn_base = _verify_base(cwd, spawn, E.read_events(c.events_path))
+        spawn_base = _verify_base(cwd, spawn, events)
         setup_outputs = (label.get("context", {}).get("worktree") or {}).get("setup_outputs", [])
-        task_pending = _task_changed_paths(cwd, setup_outputs)
-        task_changed = task_pending
-        if task_pending is not None and spawn_base and _is_commit(cwd, spawn_base):
-            # Committed work counts (diff from the base), and so does an uncommitted change that
-            # cancels a committed one (diff from HEAD): check the union of both.
-            against_base = _task_changed_paths(cwd, setup_outputs, base=spawn_base) or []
-            task_changed = sorted(set(task_pending) | set(against_base))
-            compared = compared or "base %s" % spawn_base[:12]
-        elif task_pending is not None:
-            compared = compared or "HEAD"
+        paths = _task_changed_paths(cwd, setup_outputs, base=spawn_base)
+        if paths is not None:
+            task_pending, task_changed = paths
+            compared = compared or ("base %s" % spawn_base[:12] if spawn_base else "HEAD")
         if task_changed is not None and not a.base:
             evidence["files"] = task_changed
             bad = V.paths_within(task_changed, label["context"]["allowed_paths"],
@@ -1860,16 +1864,20 @@ def _dispatch_state(c: Ctx) -> dict:
     return state
 
 
-def _latest_spawn(c: Ctx, task_id: str) -> Optional[dict]:
+def _latest_spawn(c: Ctx, task_id: str, events: Optional[List[dict]] = None) -> Optional[dict]:
+    """The task's last ``spawned`` event (a fix task falls back to its parent's); ``events``
+    saves a re-read when the caller already holds the log."""
+    if events is None:
+        events = E.read_events(c.events_path)
     latest = None
-    for event in E.read_events(c.events_path):
+    for event in events:
         if event.get("type") == "spawned" and event.get("task_id") == task_id:
             latest = event
     if latest is None:
         label = c.labels.get(task_id, {})
         parent = label.get("fixes")
         if parent:
-            return _latest_spawn(c, parent)
+            return _latest_spawn(c, parent, events)
     return latest
 
 
@@ -2505,9 +2513,10 @@ def cmd_integrate(a) -> int:
         raise CliError(FAIL, "task %s worktree does not exist: %s" % (a.task, worktree))
     worktree_config = c.labels[a.task].get("context", {}).get("worktree") or {}
     setup_outputs = worktree_config.get("setup_outputs", [])
-    changed = _task_changed_paths(worktree, setup_outputs)
-    if changed is None:
+    paths = _task_changed_paths(worktree, setup_outputs)
+    if paths is None:
         raise CliError(FAIL, "cannot inspect task worktree")
+    changed = paths[0]
     allowed = c.labels[a.task].get("context", {}).get("allowed_paths", [])
     outside = V.paths_within(changed, allowed)
     if outside:

@@ -353,3 +353,30 @@ def test_item14_rows_drop_unused_fields_and_findings_reuse_scored_fixes(tmp_path
                                                  "examples": []}}}
     scored = [{"evaluator": "ale.task.first_pass", "status": "pending"}]
     assert A.findings(report, {}, scored)["ale.task.first_pass"]["fix"] == scored[0]
+
+
+# Item 15: verify computes changed paths once, with one _is_commit probe.
+def test_item15_verify_diffs_once_with_one_commit_probe(tmp_path, monkeypatch):
+    from ale import cli
+
+    repo, run, roster = SF.make_run(tmp_path, {"T1": SF.label("T1")})
+    _on_branch(repo)
+    assert SF.dispatch(run, roster, repo) == 0
+    worktree = run / "wt" / "T1"
+    (worktree / "t1.txt").write_text("mine\n")
+    assert SF.ale(run, roster, "claim", "--task", "T1", "--agent", "a") == 0
+    assert SF.ale(run, roster, "submit", "--task", "T1", "--agent", "a", "--summary", "x") == 0
+    calls = {"_is_commit": 0, "_task_changed_paths": 0}
+    for name in calls:
+        original = getattr(cli, name)
+
+        def counted(*args, _name=name, _original=original, **kwargs):
+            calls[_name] += 1
+            return _original(*args, **kwargs)
+        monkeypatch.setattr(cli, name, counted)
+
+    assert SF.ale(run, roster, "verify", "--task", "T1", "--cwd", str(worktree)) == 0
+
+    assert calls == {"_is_commit": 1, "_task_changed_paths": 1}
+    accepted = [e for e in SF.E.read_events(str(run / "events.jsonl")) if e["type"] == "accepted"][-1]
+    assert accepted["evidence"]["files"] == ["t1.txt"]
