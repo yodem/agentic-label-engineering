@@ -89,8 +89,8 @@ recorded when the run started, not when it is scored.
 
 The markdown report has, in order: the window and run counts (active, stale, done, skipped),
 the checks table (n, passed, rate, bar, status, up to five failing case ids), **What
-regressed** (online checks that met their bar last window and are below it now, plus offline
-case regressions from the ledger), **Weakest category** and **Weakest evaluator** (lowest mean
+regressed** (online checks that met their bar last window and are below it now, plus
+regressions of active offline cases from the ledger), **Weakest category** and **Weakest evaluator** (lowest mean
 score, top five), **Trend** (per check versus the previous window: improving, degrading or
 stable at ±0.01; and mean score per `config_hash`), **Saturated checks** (at 1.00 in this and
 the previous `saturation_windows - 1` dated reports: tighten or retire), **Fix status**,
@@ -115,9 +115,11 @@ Unless `--no-write`:
 
 ### Exit codes
 
-0 when no check is breached (offline regressions are reported but do not change the exit
-code; `ale eval cases --ci` gates on them), 1 when any check is breached, 2 for a usage error
-(a bad `--since`, `ALE_NOW` or thresholds file).
+0 when nothing is wrong, 1 when any check is breached or an active offline case regressed, 2
+for a usage error (a bad `--since`, `ALE_NOW` or thresholds file). Offline regressions count
+only the active cases of the default cases file (the bundled `evalcases/cases.jsonl`), in the
+exit code and in **What regressed** alike, so a retired case never gates the report or lingers
+in it.
 
 ## The eval ledger
 

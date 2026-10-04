@@ -3289,7 +3289,8 @@ def _day_number(day: str) -> int:
 
 
 def cmd_analyze(a) -> int:
-    """Score every indexed run against the committed thresholds; exit 1 on a breached check."""
+    """Score every indexed run against the committed thresholds; exit 1 on a breached check or
+    a regressed active offline case."""
     home = RI.ale_home()
     index = a.index or RI.index_path(home)
     raw_now = os.environ.get("ALE_NOW")
@@ -3326,8 +3327,7 @@ def cmd_analyze(a) -> int:
         history.append({"date": day, "checks": {k: (v or {}).get("rate")
                                                 for k, v in (past.get("checks") or {}).items()}})
     report["history"] = history
-    report["offline_regressions"] = EL.regressions(
-        [row for row in EL.read_rows(home) if row.get("case_kind") == "offline"])
+    report["offline_regressions"] = EC.regressions(EL.read_rows(home), _active_case_ids())
     fixes = _read_jsonl_quiet(os.path.join(home, ".ale", "fixes.jsonl"))
     report["fixes"] = AN.fix_statuses(report, fixes)
     report["findings"] = AN.findings(report, _read_json_file(os.path.join(reports_dir, "findings.json"), {}),
@@ -3351,7 +3351,18 @@ def cmd_analyze(a) -> int:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
         sys.stdout.write(text)
-    return FAIL if any(check["breached"] for check in report["checks"].values()) else OK
+    breached = any(check["breached"] for check in report["checks"].values())
+    return FAIL if breached or report["offline_regressions"] else OK
+
+
+def _active_case_ids() -> List[str]:
+    """Ids of the active cases in the default cases file: only these can regress, so a retired
+    case never gates ``ale analyze`` or lingers in its report."""
+    try:
+        return [case["id"] for case in EC.load_cases(EC.default_cases_path()) if EC.is_active(case)]
+    except EC.CaseError as exc:
+        print("ale analyze: offline cases not read: %s" % exc, file=sys.stderr)
+        return []
 
 
 def _read_jsonl_quiet(path: str) -> List[dict]:

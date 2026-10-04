@@ -274,3 +274,38 @@ def test_evalcases_is_bundled_shipped_and_release_checked():
     with open(os.path.join(REPO, "scripts", "release-check.sh"), encoding="utf-8") as handle:
         watched = next(line for line in handle if "git diff --name-only" in line)
     assert " evalcases" in watched
+
+
+# --- ale analyze gates on offline regressions of active cases ---------------------------------
+
+def _ledger_drop(case_id):
+    rows = []
+    for ts, score in (("2026-01-01T00:00:00Z", 1.0), ("2026-01-02T00:00:00Z", 0.0)):
+        row = EL.make_row("cases-x", "0.4.0", "h", case_id, "offline", "refs", "ale.case.refs",
+                          score, score == 1.0, "")
+        row["timestamp"] = ts
+        rows.append(row)
+    EL.append_rows(rows)
+
+
+def _default_cases(tmp_path, monkeypatch):
+    path = write_cases(tmp_path, [inline("live-case"), inline("retired-case", active=False)])
+    monkeypatch.setattr(EC, "default_cases_path", lambda: path)
+
+
+def test_analyze_exits_1_on_an_active_offline_regression(tmp_path, monkeypatch, capsys):
+    _default_cases(tmp_path, monkeypatch)
+    _ledger_drop("live-case")
+    index = str(tmp_path / "empty-index.jsonl")
+    assert main(["analyze", "--no-write", "--index", index, "--since", "all"]) == 1
+    assert "offline case live-case" in capsys.readouterr().out
+
+
+def test_analyze_ignores_a_retired_cases_regression(tmp_path, monkeypatch, capsys):
+    _default_cases(tmp_path, monkeypatch)
+    _ledger_drop("retired-case")
+    _ledger_drop("unknown-case")
+    index = str(tmp_path / "empty-index.jsonl")
+    assert main(["analyze", "--no-write", "--index", index, "--since", "all"]) == 0
+    out = capsys.readouterr().out
+    assert "retired-case" not in out and "unknown-case" not in out and "Nothing regressed." in out
