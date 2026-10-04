@@ -16,7 +16,6 @@ import math
 import os
 import re
 import statistics
-import time
 import warnings
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -26,6 +25,7 @@ from . import events as E
 from . import harness as HARNESS
 from .dispatch import worktree_mode
 from .labeling.shadow import summarize_shadow
+from .records import iso
 from .validate import load_schema
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -41,10 +41,6 @@ _USAGE_NUMBERS = ("gen_ai.usage.input_tokens", "gen_ai.usage.output_tokens")
 def load_thresholds(path=None) -> dict:
     with open(path or THRESHOLDS_PATH, encoding="utf-8") as handle:
         return json.load(handle)
-
-
-def iso(epoch: float) -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(epoch))
 
 
 def _epoch(value) -> Optional[float]:
@@ -241,11 +237,17 @@ def _row(run: dict, task_id: str, label: dict, task_events: List[dict], st: Opti
     evidence = (accepting or {}).get("evidence")
     verified_files = (list(evidence["files"]) if isinstance(evidence, dict)
                       and isinstance(evidence.get("files"), list) else None)
+    # verify trims a long file list to fit the event (files_truncated) and keeps the full count
+    # in files_count, so a truncated list, even an empty one, still stands for files_count files.
+    verified_count = None
+    if verified_files is not None:
+        count = evidence.get("files_count")
+        verified_count = count if _number(count) and count >= len(verified_files) else len(verified_files)
     integrations = [e for e in task_events if e["type"] == "integrated" and _lead(e)]
     if integrations and isinstance(integrations[-1].get("files"), list):
         files_changed = len(integrations[-1]["files"])
     else:
-        files_changed = len(verified_files) if verified_files is not None else None
+        files_changed = verified_count
     usage = [e for e in task_events if e["type"] == "usage"]
     asks: Dict[object, int] = {}
     for event in task_events:
@@ -254,10 +256,6 @@ def _row(run: dict, task_id: str, label: dict, task_events: List[dict], st: Opti
     changes = [e for e in task_events if e["type"] in ("label_changed", "relabeled") and _lead(e)]
     acceptance_relabeled = started is not None and any(
         e.get("field") == "acceptance" and e["ts"] >= started for e in changes)
-    paths_widened = any(
-        e["type"] == "label_changed" and e.get("field") == "context.allowed_paths"
-        and isinstance(e.get("new"), list)
-        and set(map(str, e["new"])) - set(map(str, e.get("old") or [])) for e in changes)
     executor = (first_spawn or {}).get("executor")
     headless = bool(first_spawn) and (HARNESS.mode_hint(executor) == "headless"
                                       or first_spawn.get("mode") == "headless")
@@ -277,9 +275,8 @@ def _row(run: dict, task_id: str, label: dict, task_events: List[dict], st: Opti
         "claimed_by_lead": any(str(e.get("agent_id") or "").startswith("lead") for e in claims),
         "first_verify_passed": first_verify_passed, "attempts": attempts,
         "rejects": sum(1 for e in verdicts if e["type"] == "rejected"),
-        "reopens": sum(1 for e in task_events if e["type"] == "reopened"),
-        "verified_files": verified_files, "acceptance_relabeled": acceptance_relabeled,
-        "paths_widened": paths_widened,
+        "verified_files": verified_files, "verified_files_count": verified_count,
+        "acceptance_relabeled": acceptance_relabeled,
         "claim_to_accept_s": (accepting["ts"] - claims[0]["ts"]) if claims and accepting else None,
         "files_changed": files_changed, "usage_tokens": sum(_tokens(e) for e in usage) if usage else None,
         "headless": headless, "integrated": integrated,
@@ -353,19 +350,21 @@ def _first_pass(row, ctx):
 def _path_scope_checked(row, ctx):
     if row["state"] != "accepted" or row["worktree_mode"] == "none" or row["verified_files"] is None:
         return None
-    return _verdict(bool(row["verified_files"]), "verified against %d files" % len(row["verified_files"]),
+    count = row["verified_files_count"]
+    return _verdict(bool(count), "verified against %d files" % count,
                     "accepted with an empty verified file list")
 
 
 def _write_has_worktree(row, ctx):
-    if not (row["verified_files"] or row["integrated"] or row["spawned_by"] == "register"):
+    if not (row["verified_files_count"] or row["integrated"] or row["spawned_by"] == "register"):
         return None
     return _verdict(row["worktree_mode"] != "none", "worktree.mode %s" % row["worktree_mode"],
                     "changed files with worktree.mode none")
 
 
 def _dispatch_worktree(row, ctx):
-    if row["spawned_by"] == "none" and not row["claimed"]:
+    # A task with no worktree (think-only) needs none from dispatch.
+    if row["worktree_mode"] == "none" or (row["spawned_by"] == "none" and not row["claimed"]):
         return None
     return _verdict(row["spawned_by"] == "dispatch", "worktree from dispatch",
                     "worktree from %s" % ("register-worktree" if row["spawned_by"] == "register"
@@ -601,7 +600,10 @@ def _promotions(runs: List[dict]) -> dict:
     judge = roster.get("judge") or {}
     min_cases = int((roster.get("promotion") or {}).get("min_cases", (judge.get("bar") or {}).get("min_cases", 100)))
     judged = set(DECISIONS.judged_decision_ids())
-    events = [e for run in runs for e in run["events"]]
+    # Cases are keyed by the run key, never the raw run_id: every run baked from plan.md is
+    # run ``plan``, and keying by it would merge their votes into one case per task.
+    events = [dict(e, run_id=run["run_key"]) for run in runs for e in run["events"]
+              if e["type"] in ("shadow_vote", "decision_outcome", "adjudicated", "accepted")]
     votes = [e for e in events if e["type"] == "shadow_vote" and e.get("decision") in judged]
     outcomes = [e for e in events if e["type"] == "decision_outcome" and e.get("decision") in judged]
     adjudications = [e for e in events if e["type"] == "adjudicated"
@@ -664,7 +666,7 @@ def evaluate(runs: List[dict], thresholds: dict, now: float, since_s: Optional[f
         "checks": _checks(cases, thresholds),
         "metrics": _metrics(rows),
         "calibration": _calibration(rows, thresholds.get("calibration") or {}),
-        "promotions": _promotions(current),
+        "promotions": _promotions(kept),   # cumulative: promotion needs every judged case
         "previous": previous,
         "case_results": cases,
     }
@@ -706,10 +708,11 @@ def fix_statuses(report: dict, fixes: List[dict]) -> List[dict]:
 
 
 def findings(report: dict, previous: dict, fixes: List[dict]) -> dict:
-    """Open findings keyed by check id; ``previous`` is the last ``findings.json``."""
+    """Open findings keyed by check id; ``previous`` is the last ``findings.json`` and ``fixes``
+    the fix records already scored by ``fix_statuses`` (``report["fixes"]``)."""
     today = report["generated"][:10]
     latest_fix = {}
-    for item in fix_statuses(report, fixes):
+    for item in fixes:
         latest_fix[item.get("evaluator")] = item
     out = {}
     for check_id, check in sorted(report["checks"].items()):

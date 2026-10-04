@@ -1,33 +1,32 @@
 """The eval ledger: append-only JSONL rows, one per scored case and evaluator.
 
-Rows are never rewritten. Readers dedupe on the latest row per ``(case_id, evaluator)``, so
-re-running an analysis on the same day is safe.
+Rows are never rewritten. ``ale analyze`` appends a row only when its ``(case_id, evaluator)``
+is new or its score or verdict changed; readers still take the latest row per key.
 """
 from __future__ import annotations
 
-import fcntl
 import json
 import os
-import time
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
-from .runindex import ale_home
+from .events import locked_append
+from .records import ale_home, iso, read_jsonl
 
 
 def ledger_path(home=None) -> str:
     return os.path.join(home or ale_home(), ".ale", "eval-ledger.jsonl")
 
 
-def iso_ts(epoch: Optional[float] = None) -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() if epoch is None else epoch))
-
-
 def make_row(run_id, tool_version, config_hash, case_id, case_kind, case_category,
              evaluator, score, passed, reason, metadata=None) -> dict:
-    return {"run_id": run_id, "timestamp": iso_ts(), "tool": "ale", "tool_version": tool_version,
+    return {"run_id": run_id, "timestamp": iso(), "tool": "ale", "tool_version": tool_version,
             "config_hash": config_hash, "case_id": case_id, "case_kind": case_kind,
             "case_category": case_category, "evaluator": evaluator, "score": float(score),
             "passed": bool(passed), "reason": reason, "metadata": dict(metadata or {})}
+
+
+def _encode(rows: List[dict]) -> bytes:
+    return "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows).encode("utf-8")
 
 
 def append_rows(rows: List[dict], home=None) -> None:
@@ -35,29 +34,43 @@ def append_rows(rows: List[dict], home=None) -> None:
         return
     path = ledger_path(home)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    data = "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows).encode("utf-8")
-    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        os.write(fd, data)
-    finally:
-        os.close(fd)
+    locked_append(path, _encode(rows))
+
+
+def _changed(rows: List[dict], existing: List[dict]) -> List[dict]:
+    """The rows whose ``(case_id, evaluator)`` has no row yet, or whose latest row differs in
+    ``score`` or ``passed``."""
+    latest = {key: (row.get("score"), row.get("passed")) for key, row in latest_by_case(existing).items()}
+    out = []
+    for row in rows:
+        key = (row.get("case_id"), row.get("evaluator"))
+        value = (row.get("score"), row.get("passed"))
+        if latest.get(key) != value:
+            out.append(row)
+            latest[key] = value
+    return out
+
+
+def append_changed_rows(rows: List[dict], home=None) -> int:
+    """Dedupe on write: append only the rows that change their case's latest score or verdict, so
+    re-running an analysis over unchanged runs adds nothing. Returns the number appended."""
+    if not rows:
+        return 0
+    path = ledger_path(home)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fresh: List[dict] = []
+
+    def payload() -> bytes:   # read and append under one lock
+        fresh.extend(_changed(rows, read_rows(home)))
+        return _encode(fresh)
+
+    locked_append(path, payload)
+    return len(fresh)
 
 
 def read_rows(home=None) -> List[dict]:
-    rows = []
-    try:
-        with open(ledger_path(home), "rb") as handle:
-            for line in handle:
-                try:
-                    row = json.loads(line.decode("utf-8"))
-                except (UnicodeDecodeError, ValueError):
-                    continue
-                if isinstance(row, dict) and row.get("case_id") is not None and row.get("evaluator"):
-                    rows.append(row)
-    except OSError:
-        return []
-    return rows
+    return [row for row in read_jsonl(ledger_path(home))
+            if row.get("case_id") is not None and row.get("evaluator")]
 
 
 def _ordered(rows: List[dict]) -> List[dict]:

@@ -400,9 +400,10 @@ def test_findings_track_first_seen_and_fix_status(tmp_path):
 
     fix = {"ts": T0 - 10, "evaluator": "ale.task.usage_recorded", "commit": "abc", "repo": "ale",
            "note": "record usage", "cases_added": 1}
-    assert A.findings(report, {}, [fix])["ale.task.usage_recorded"]["fix"]["status"] == "regressed"
-    late = dict(fix, ts=T0 + 10 * HOUR)
-    assert A.findings(report, {}, [late])["ale.task.usage_recorded"]["fix"]["status"] == "pending"
+    scored = A.fix_statuses(report, [fix])
+    assert A.findings(report, {}, scored)["ale.task.usage_recorded"]["fix"]["status"] == "regressed"
+    late = A.fix_statuses(report, [dict(fix, ts=T0 + 10 * HOUR)])
+    assert A.findings(report, {}, late)["ale.task.usage_recorded"]["fix"]["status"] == "pending"
     good = report_for([load(good_run(tmp_path, "g", T0), "g")])
     assert A.fix_statuses(good, [fix])[0]["status"] == "holding"
 
@@ -500,13 +501,13 @@ def test_cli_if_due_runs_again_after_due_after_days(tmp_path, ale_home, monkeypa
     assert os.path.exists(os.path.join(_reports(ale_home), "2023-11-22.md"))
 
 
-def test_cli_twice_a_day_overwrites_the_report_and_appends_ledger_rows(tmp_path, ale_home, now_env):
+def test_cli_twice_a_day_overwrites_the_report_and_dedupes_ledger_rows(tmp_path, ale_home, now_env):
     _index(good_run(tmp_path, "r", T0), "r")
     assert main(["analyze"]) == 0
     first = len(EL.read_rows())
     assert main(["analyze"]) == 0
     rows = EL.read_rows()
-    assert len(rows) == 2 * first
+    assert len(rows) == first   # unchanged scores are not appended again
     assert len(EL.latest_by_case(rows)) == first
     assert sorted(glob.glob(os.path.join(_reports(ale_home), "*.md"))) == [
         os.path.join(_reports(ale_home), "2023-11-15.md")]

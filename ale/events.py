@@ -77,10 +77,19 @@ def append_event(path: str, ev: dict) -> None:
     data = (json.dumps(ev, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
     if len(data) > MAX_EVENT_BYTES:
         raise EventError("event is %d bytes, limit %d" % (len(data), MAX_EVENT_BYTES))
+    locked_append(path, data)
+
+
+def locked_append(path: str, data) -> None:
+    """Append to ``path`` under an exclusive ``flock``. ``data`` is bytes, or a callable run under
+    the lock that returns them (so a writer can read the file and decide what to add without a
+    race); empty bytes write nothing."""
     fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
-        os.write(fd, data)
+        payload = data() if callable(data) else data
+        if payload:
+            os.write(fd, payload)
     finally:
         os.close(fd)
 

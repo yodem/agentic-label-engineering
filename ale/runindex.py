@@ -6,20 +6,16 @@ never indexed twice under two spellings.
 """
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import time
 from typing import Dict, List, Optional
 
+from .events import locked_append
+from .records import ale_home, read_jsonl
+
 _PRUNE = {".git", "node_modules", "__pycache__", ".venv", "venv", ".tox", ".mypy_cache", ".pytest_cache"}
 _HEAD_BYTES = 1 << 20
-
-
-def ale_home(env=None) -> str:
-    """``$ALE_HOME``, else the user's home directory (the index lives in ``<home>/.ale``)."""
-    env = os.environ if env is None else env
-    return env.get("ALE_HOME") or os.path.expanduser("~")
 
 
 def index_path(home=None) -> str:
@@ -31,19 +27,7 @@ def _path(home, index) -> str:
 
 
 def _read_rows(path: str) -> List[dict]:
-    rows = []
-    try:
-        with open(path, "rb") as handle:
-            for line in handle:
-                try:
-                    row = json.loads(line.decode("utf-8"))
-                except (UnicodeDecodeError, ValueError):
-                    continue
-                if isinstance(row, dict) and isinstance(row.get("run_dir"), str):
-                    rows.append(row)
-    except OSError:
-        return []
-    return rows
+    return [row for row in read_jsonl(path) if isinstance(row.get("run_dir"), str)]
 
 
 def read_index(home=None, index: Optional[str] = None) -> List[dict]:
@@ -64,15 +48,16 @@ def append_run(run_dir: str, repo_root: str, run_id: str, ale_version: str,
     row = {"ts": time.time(), "run_id": run_id, "run_dir": resolved,
            "repo_root": os.path.realpath(repo_root) if repo_root else None,
            "ale_version": ale_version, "roster_hash": roster_hash}
-    fd = os.open(path, os.O_RDWR | os.O_APPEND | os.O_CREAT, 0o644)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
+    added = []
+
+    def payload() -> bytes:   # the duplicate check and the append share one lock
         if any(entry["run_dir"] == resolved for entry in _read_rows(path)):
-            return False
-        os.write(fd, (json.dumps(row, sort_keys=True) + "\n").encode("utf-8"))
-    finally:
-        os.close(fd)
-    return True
+            return b""
+        added.append(True)
+        return (json.dumps(row, sort_keys=True) + "\n").encode("utf-8")
+
+    locked_append(path, payload)
+    return bool(added)
 
 
 def _run_facts(events_path: str, fallback: str) -> tuple:

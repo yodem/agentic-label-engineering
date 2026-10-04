@@ -22,7 +22,9 @@ Every file below lives under `$ALE_HOME/.ale/` (default `~/.ale/`). The test sui
 ## What is indexed
 
 `ale init-run` appends one line to `$ALE_HOME/.ale/index/runs.jsonl`:
-`{ts, run_id, run_dir, repo_root, ale_version, roster_hash}`. `run_dir` and `repo_root` are
+`{ts, run_id, run_dir, repo_root, ale_version, roster_hash}`. `repo_root` is the git
+repository that holds the run dir (found from the run dir, not the working directory, so
+`--run-dir` into another repository indexes that one). `run_dir` and `repo_root` are
 stored resolved (absolute, symlinks followed), so a run is never indexed twice under two
 spellings; when a directory appears twice, the later row wins. An index that cannot be written
 prints a warning and never fails `init-run`.
@@ -75,9 +77,9 @@ pass rate over the window is below its bar with at least `min_n` (3) results. Th
 | Check | Premise (else n/a) | Passes when | Bar |
 | --- | --- | --- | --- |
 | `ale.task.first_pass` | the lead verified the task | its first lead verdict was an accept | 0.70 |
-| `ale.task.path_scope_checked` | accepted, `worktree.mode` not `none`, the accept recorded a file list | that file list is not empty | 0.90 |
+| `ale.task.path_scope_checked` | accepted, `worktree.mode` not `none`, the accept recorded a file list | that file list is not empty (a list verify truncated counts as its `files_count`) | 0.90 |
 | `ale.task.write_has_worktree` | the task changed files (a verified file list, an integrate, or a `register-worktree` spawn) | its `worktree.mode` is not `none` | 0.90 |
-| `ale.task.dispatch_worktree` | the task was spawned or claimed | its worktree came from a dispatch `spawned`, not `register-worktree` or no spawn | 0.75 |
+| `ale.task.dispatch_worktree` | the task was spawned or claimed and its `worktree.mode` is not `none` | its worktree came from a dispatch `spawned`, not `register-worktree` or no spawn | 0.75 |
 | `ale.task.resolved` | the run is stale or done | the task is accepted, removed or superseded | 0.90 |
 | `ale.task.input_required_bounded` | always | at most 3 `input_required` events in any one attempt | 0.95 |
 | `ale.task.usage_recorded` | the first spawn was headless and the lead did not claim the task | it has a `usage` event | 0.50 |
@@ -102,8 +104,9 @@ the previous `saturation_windows - 1` dated reports: tighten or retire), **Fix s
 accepted task, claim-to-accept p50 and p90, tokens per accepted task, unknown-usage share),
 **Calibration** (effort buckets with n >= 5 must be monotonic in duration and files changed;
 role/effort/risk groups with n >= 3 whose reject rate or median duration is at least 2x the
-median group), and **Promotions** (judge promotion progress per field from the roster;
-proposals only, nothing is applied).
+median group), and **Promotions** (judge promotion progress per field from the roster,
+counted over every indexed run, not only the window, with cases keyed by run key; proposals
+only, nothing is applied).
 
 ### Files written
 
@@ -115,7 +118,7 @@ Unless `--no-write`:
 | `reports/<date>.json` | The full report, including every case result. |
 | `reports/findings.json` | Open findings keyed by check id: `value`, `bar`, `n`, `first_seen`, `last_seen`, `examples` (case ids), and the latest `fix` record for that check. A finding keeps its `first_seen` across reports. |
 | `reports/promotions.json` | The promotion proposals. |
-| `eval-ledger.jsonl` | One row per case result: `tool: "ale"`, `case_kind: "online"`, `run_id` `analyze-<generated>`, `metadata.run_dir`, `metadata.scored_run_id`. |
+| `eval-ledger.jsonl` | One row per case result whose `(case_id, evaluator)` is new or whose `score` or `passed` changed since its latest row: `tool: "ale"`, `case_kind: "online"`, `run_id` `analyze-<generated>`, `metadata.run_dir`, `metadata.scored_run_id`. |
 
 A report, index or ledger file that cannot be written (say `$ALE_HOME/.ale` is not a
 directory) prints a warning on stderr; the report is still printed and the exit code still
@@ -134,8 +137,10 @@ in it. When the default cases file is missing or unreadable, `ale analyze` warns
 
 `$ALE_HOME/.ale/eval-ledger.jsonl` is append-only and never rewritten. A row is
 `{run_id, timestamp, tool, tool_version, config_hash, case_id, case_kind, case_category,
-evaluator, score, passed, reason, metadata}`. Readers keep the latest row per
-`(case_id, evaluator)`, so re-running a report is safe. A case **regressed** when its latest
+evaluator, score, passed, reason, metadata}`. `ale analyze` dedupes on write: it appends a
+row only when its `(case_id, evaluator)` has no row yet or its latest row differs in `score` or
+`passed`, so re-running a report over unchanged runs adds nothing. Readers keep the latest row
+per `(case_id, evaluator)`. A case **regressed** when its latest
 score is below the best score recorded for it before.
 
 ## Fix records
@@ -161,7 +166,8 @@ ledger: `case_kind: "offline"`, `evaluator` `ale.case.<kind>`, `run_id` `cases-<
 `tool_version` the ALE version, and `config_hash` the first 12 hex digits of the sha256 of the
 ALE version plus the bytes of `ale/schema/analyze_thresholds.json`. With `--no-record`, or when the
 ledger cannot be written (a warning on stderr), the current results still count as the latest
-when looking for regressions.
+when looking for regressions. Unlike `ale analyze`, it does not dedupe on write: every recorded
+run appends all its rows, so each CI run stays in the ledger.
 
 Exit codes: with `--ci`, 1 when any active case fails or an active case regressed (an offline
 row whose latest score is below its best before; online rows and retired cases never count);

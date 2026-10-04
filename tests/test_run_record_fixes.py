@@ -77,7 +77,7 @@ def test_resolve_run_dir_is_absolute_on_every_branch(tmp_path, monkeypatch):
     assert cli._resolve_run_dir(argparse.Namespace(run_dir=None, run_id=None)) == str(tmp_path / "env-run")
 
 
-# Fix 3: every spawn records base_commit and verify diffs the task worktree from it.
+# Fix 3: every spawn records diff_base and verify diffs the task worktree from it.
 
 def _dispatched(tmp_path):
     repo = _repo(tmp_path / "repo")
@@ -105,10 +105,11 @@ def _of_type(events, kind):
     return [event for event in E.read_events(str(events)) if event["type"] == kind]
 
 
-def test_every_spawn_records_its_base_commit(tmp_path):
+def test_every_spawn_records_its_diff_base(tmp_path):
     repo, run, roster, worktree, events = _dispatched(tmp_path)
 
-    assert _spawned(run)[-1]["base_commit"] == _git(repo, "rev-parse", "HEAD")
+    assert _spawned(run)[-1]["diff_base"] == _git(repo, "rev-parse", "HEAD")
+    assert "base_commit" not in _spawned(run)[-1]   # base_commit is the stack base only
 
 
 def test_verify_lists_committed_and_uncommitted_changes_against_the_base(tmp_path):
@@ -145,7 +146,7 @@ def test_verify_with_all_changes_committed_accepts_without_a_new_commit(tmp_path
 
 def test_verify_with_nothing_changed_notes_the_base(tmp_path):
     repo, run, roster, worktree, events = _dispatched(tmp_path)
-    base = _spawned(run)[-1]["base_commit"]
+    base = _spawned(run)[-1]["diff_base"]
 
     assert _submit_and_verify(run, roster, worktree, events) == 0
     assert _of_type(events, "accepted")[-1]["evidence"]["files"] == []
@@ -153,10 +154,11 @@ def test_verify_with_nothing_changed_notes_the_base(tmp_path):
     assert notes == ["verify: no changed files found against base %s" % base[:12]]
 
 
-def test_legacy_spawn_without_base_commit_diffs_from_head(tmp_path, monkeypatch):
-    monkeypatch.setattr(cli, "_record_base_commit", lambda *args, **kwargs: None)
+def test_legacy_spawn_without_a_recorded_base_diffs_from_head(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "_record_diff_base", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "_checkout_branch", lambda *args, **kwargs: None)
     repo, run, roster, worktree, events = _dispatched(tmp_path)
-    assert "base_commit" not in _spawned(run)[-1]
+    assert not {"base_commit", "diff_base", "base_ref"} & set(_spawned(run)[-1])
     _commit(worktree, "a.txt", "committed\n")
     (worktree / "b.txt").write_text("uncommitted\n")
 
@@ -342,7 +344,7 @@ def test_dispatch_warns_once_when_base_is_behind_upstream(tmp_path, capsys):
     message = "ale dispatch: base HEAD is 1 commit(s) behind its upstream; fetch and fast-forward first"
     assert message in capsys.readouterr().err
     assert _notes(run) == [message]
-    assert _spawned(run)[-1]["base_commit"] == _git(repo, "rev-parse", "HEAD")
+    assert _spawned(run)[-1]["diff_base"] == _git(repo, "rev-parse", "HEAD")
 
 
 def test_dispatch_is_silent_when_base_is_current(tmp_path, capsys):
@@ -374,7 +376,7 @@ def test_fix_task_of_a_stacked_child_verifies_against_the_parent_base(tmp_path, 
     assert ale(run, roster, "verify", "--task", "T2", "--cwd", str(worktree)) == 1
     assert ale(run, roster, "fix", "--task", "T2") == 0
     assert dispatch(run, roster, repo) == 0
-    assert spawned(run, "T2.fix1")[-1]["base_commit"] == spawned(run, "T2")[-1]["base_commit"]
+    assert spawned(run, "T2.fix1")[-1]["diff_base"] == spawned(run, "T2")[-1]["diff_base"]
     (worktree / "t2.txt").write_text("ok\n")
     assert ale(run, roster, "claim", "--task", "T2.fix1", "--agent", "f") == 0
     assert ale(run, roster, "submit", "--task", "T2.fix1", "--agent", "f", "--summary", "x") == 0

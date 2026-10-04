@@ -10,8 +10,11 @@ class PlanParseError(ValueError):
     """Raised when a plan cannot provide a usable task list."""
 
 
+# One task-id grammar for headings and references: an optional letter prefix,
+# digits, an optional lower-case letter suffix (``3``, ``T2``, ``P1a``).
+_TASK_ID = r"[A-Za-z]{0,3}[0-9]+[a-z]?"
 _HEADING = re.compile(
-    r"^#{2,4}\s+(?:Task|Step|Phase)\s+([A-Za-z]{0,3}[0-9]+[a-z]?)\b[:. ](.*)$"
+    r"^#{2,4}\s+(?:Task|Step|Phase)\s+(" + _TASK_ID + r")\b[:. ](.*)$"
 )
 _NUMBERED = re.compile(r"^(\d+)\.\s+(.*)$")
 _CHECKBOX = re.compile(r"^- \[ \]\s+(.*)$")
@@ -21,8 +24,8 @@ _FENCE = re.compile(r"^\s*([`~]{3,})(.*)$")
 _FILE_LINE = re.compile(r"^\s*(?:[-*]\s+)?(?:\*\*Files:\*\*|Files:|Create:|Modify:|Test:)")
 _BACKTICK = re.compile(r"`([^`]+)`")
 _COMMAND = re.compile(r"Run:\s*`([^`]+)`")
-_DEPENDENCY = re.compile(r"\b(?:depends\s+on|after)\s+Task\s+([A-Za-z]{0,3}[0-9]+)\b", re.I)
-_CONSUMES = re.compile(r"\bConsumes:\s*.*?\bTask\s+([A-Za-z]{0,3}[0-9]+)\b", re.I)
+_DEPENDENCY = re.compile(r"\b(?:depends\s+on|after)\s+Task\s+(" + _TASK_ID + r")\b", re.I)
+_CONSUMES = re.compile(r"\bConsumes:\s*.*?\bTask\s+(" + _TASK_ID + r")\b", re.I)
 _GIT_WRITE = re.compile(r"^git\s+(?:add|commit|push)(?:\s|$)", re.I)
 
 
@@ -70,13 +73,20 @@ def _is_command(command: str) -> bool:
     return not _GIT_WRITE.match(command.strip())
 
 
-def _task_fields(lines: List[str], start: int, end: int) -> Tuple[List[str], List[str], List[str]]:
+def _task_fields(lines: List[str], fenced: List[bool], start: int,
+                 end: int) -> Tuple[List[str], List[str], List[str]]:
     files = []
     commands = []
     dependencies = []
     index = start + 1
     while index < end:
         line = lines[index]
+        if fenced[index]:
+            # A fenced line is example text (a template, a transcript), never a
+            # task's file, command or dependency; Run/Verify bash blocks are read
+            # from their opening fence below.
+            index += 1
+            continue
         if _FILE_LINE.match(line):
             for raw_path in _BACKTICK.findall(line):
                 path = _strip_range(raw_path)
@@ -167,7 +177,7 @@ def parse_plan(text: str) -> List[Dict[str, object]]:
     known = set(ids)
     for position, (start, title, _) in enumerate(candidates):
         end = candidates[position + 1][0] if position + 1 < len(candidates) else len(lines)
-        files, commands, raw_dependencies = _task_fields(lines, start, end)
+        files, commands, raw_dependencies = _task_fields(lines, fenced, start, end)
         depends_on = []
         for raw_id in raw_dependencies:
             dependency = _task_id(raw_id)
