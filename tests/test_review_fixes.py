@@ -81,3 +81,89 @@ def test_item3_two_runs_with_the_same_run_id_stay_two_promotion_cases(tmp_path):
     report = _report([first, second])
 
     assert report["promotions"]["role"]["cases"] == 2
+
+
+# --- spawn bases (items 4+6, 7) --------------------------------------------------------------
+
+import subprocess  # noqa: E402
+
+import stack_fixtures as SF  # noqa: E402
+
+
+def _on_branch(repo, name="main"):
+    subprocess.run(["git", "checkout", "-q", "-B", name], cwd=str(repo), check=True)
+
+
+# Items 4+6: every spawn records diff_base and base_ref; base_commit keeps its stack meaning.
+def test_item4_6_unstacked_spawn_records_diff_base_and_base_ref_but_no_base_commit(tmp_path):
+    repo, run, roster = SF.make_run(tmp_path, {"T1": SF.label("T1")})
+    _on_branch(repo)
+
+    assert SF.dispatch(run, roster, repo) == 0
+
+    event = SF.spawned(run, "T1")[-1]
+    assert event["diff_base"] == SF.git(repo, "rev-parse", "HEAD")
+    assert event["base_ref"] == "main"
+    assert "base_commit" not in event
+
+
+def test_item4_6_stacked_spawn_records_all_three(tmp_path):
+    repo, run, roster = SF.make_run(tmp_path, {"T1": SF.label("T1"), "T2": SF.label("T2", ["T1"])})
+    _on_branch(repo)
+    assert SF.dispatch(run, roster, repo) == 0
+    commit = SF.work_and_accept(run, roster, "T1")
+
+    assert SF.dispatch(run, roster, repo) == 0
+
+    event = SF.spawned(run, "T2")[-1]
+    assert event["stack_parent"] == "T1" and event["base_commit"] == commit
+    assert event["diff_base"] == commit and event["base_ref"] == "main"
+
+
+def test_item4_6_detached_checkout_records_no_base_ref(tmp_path):
+    repo, run, roster = SF.make_run(tmp_path, {"T1": SF.label("T1")})
+    subprocess.run(["git", "checkout", "-q", "--detach"], cwd=str(repo), check=True)
+
+    assert SF.dispatch(run, roster, repo) == 0
+
+    event = SF.spawned(run, "T1")[-1]
+    assert event["diff_base"] == SF.git(repo, "rev-parse", "HEAD")
+    assert "base_ref" not in event
+
+
+def test_item4_6_fix_task_takes_the_branch_diff_base_and_no_base_commit(tmp_path):
+    t2 = SF.label("T2", ["T1"])
+    t2["acceptance"] = [{"id": "A1", "cmd": "grep -q ok t2.txt", "expect": "exit0"},
+                        {"id": "A2", "cmd": "true", "expect": "exit0"}]
+    repo, run, roster = SF.make_run(tmp_path, {"T1": SF.label("T1"), "T2": t2})
+    _on_branch(repo)
+    assert SF.dispatch(run, roster, repo) == 0
+    commit = SF.work_and_accept(run, roster, "T1")
+    assert SF.dispatch(run, roster, repo) == 0
+    worktree = run / "wt" / "T2"
+    (worktree / "t2.txt").write_text("bad\n")
+    assert SF.ale(run, roster, "claim", "--task", "T2", "--agent", "a") == 0
+    assert SF.ale(run, roster, "submit", "--task", "T2", "--agent", "a", "--summary", "x") == 0
+    assert SF.ale(run, roster, "verify", "--task", "T2", "--cwd", str(worktree)) == 1
+    assert SF.ale(run, roster, "fix", "--task", "T2") == 0
+
+    assert SF.dispatch(run, roster, repo) == 0
+
+    fix = SF.spawned(run, "T2.fix1")[-1]
+    assert fix["diff_base"] == commit and fix["base_ref"] == "main"
+    assert "base_commit" not in fix and "stack_parent" not in fix
+
+
+def test_item4_6_register_worktree_records_diff_base_and_base_ref(tmp_path):
+    repo, run, roster = SF.make_run(tmp_path, {"T1": SF.label("T1")})
+    _on_branch(repo)
+    path = run / "wt" / "T1"
+    subprocess.run(["git", "worktree", "add", "-q", str(path), "-b", "ale/run-1/T1", "HEAD"],
+                   cwd=str(repo), check=True)
+    base = SF.git(repo, "rev-parse", "HEAD")
+
+    assert SF.ale(run, roster, "register-worktree", "--task", "T1", "--path", str(path),
+                  "--branch", "ale/run-1/T1", "--base", base, "--cwd", str(repo)) == 0
+
+    event = SF.spawned(run, "T1")[-1]
+    assert event["diff_base"] == base and event["base_ref"] == "main"

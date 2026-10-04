@@ -1371,9 +1371,8 @@ def cmd_verify(a) -> int:
         if bad:
             reason = "path_violation: %s" % ", ".join(bad[:5])
     spawn = _latest_spawn(c, a.task) or {}
-    # The commit the task branch now starts from: the spawn's base_commit, or a later restack's.
-    from .stack import current_base
-    spawn_base = current_base(E.read_events(c.events_path), spawn["task_id"]) if spawn else None
+    # The commit the task branch now starts from: its recorded diff_base, or a later restack's.
+    spawn_base = _branch_base(E.read_events(c.events_path), spawn.get("branch")) if spawn else None
     if spawn.get("worktree") and os.path.realpath(cwd) == os.path.realpath(spawn["worktree"]):
         setup_outputs = (label.get("context", {}).get("worktree") or {}).get("setup_outputs", [])
         task_pending = _task_changed_paths(cwd, setup_outputs)
@@ -1990,27 +1989,50 @@ def _resolve_plan_base(c: Ctx, label: dict, plan: dict) -> dict:
     return plan
 
 
-def _record_base_commit(c: Ctx, plan: dict, label: dict, project_cwd: str) -> None:
-    """Set ``plan["base_commit"]``: the commit the task branch was created from (its merge-base
-    with the plan base), which verify diffs against. A stacked label keeps today's rule (only a
-    spawn on its parent's accepted commit records one), because ale.stack reads a spawned
-    ``base_commit`` as the stack base. A fix task works in its parent's worktree, so it takes the
-    parent's base (a fresh merge-base would include a stacked parent's own parent's files)."""
-    from .stack import current_base, stack_parent
+def _branch_exists(project_cwd: str, branch: str) -> bool:
+    return subprocess.run(["git", "show-ref", "--verify", "--quiet", "refs/heads/" + branch],
+                          cwd=project_cwd).returncode == 0
 
-    if plan.get("base_commit"):
-        return
-    if label.get("fixes"):
-        parent_base = current_base(E.read_events(c.events_path), label["fixes"])
-        if parent_base:
-            plan["base_commit"] = parent_base
-        return
-    if stack_parent(label) is not None:
-        return
+
+def _checkout_branch(project_cwd: str) -> Optional[str]:
+    """The checkout's symbolic branch (``main``), or None when HEAD is detached."""
+    proc = subprocess.run(["git", "symbolic-ref", "--quiet", "--short", "HEAD"], cwd=project_cwd,
+                          capture_output=True, text=True)
+    return (proc.stdout.strip() or None) if proc.returncode == 0 else None
+
+
+def _branch_base(events: List[dict], branch: Optional[str]) -> Optional[str]:
+    """The commit ``branch`` now starts from, from the log: the last spawn on it that recorded
+    ``diff_base`` (``base_commit`` for spawns written before it existed), or a later restack of
+    a task working on it. A fix task shares its parent's branch, so it finds the parent's base."""
+    if not branch:
+        return None
+    base = None
+    branch_of = {}  # task id -> the branch its latest spawn works on
+    for event in events:
+        kind = event.get("type")
+        if kind == "spawned" and event.get("branch"):
+            branch_of[event.get("task_id")] = event["branch"]
+            if event["branch"] == branch and (event.get("diff_base") or event.get("base_commit")):
+                base = event.get("diff_base") or event.get("base_commit")
+        elif kind == "restacked" and event.get("new_base") and branch_of.get(event.get("task_id")) == branch:
+            base = event["new_base"]
+    return base
+
+
+def _record_diff_base(c: Ctx, plan: dict, project_cwd: str, branch_existed: bool) -> None:
+    """Set ``plan["diff_base"]``, the commit the worktree branch was created from: for a branch
+    created now, its merge-base with the plan base; for an existing branch (a fix task in its
+    parent's worktree, a re-dispatch), the base the log recorded for that branch."""
+    if branch_existed:
+        recorded = _branch_base(E.read_events(c.events_path), plan["branch"])
+        if recorded:
+            plan["diff_base"] = recorded
+            return
     proc = subprocess.run(["git", "merge-base", plan.get("base") or "HEAD", "refs/heads/" + plan["branch"]],
                           cwd=project_cwd, capture_output=True, text=True)
     if proc.returncode == 0 and proc.stdout.strip():
-        plan["base_commit"] = proc.stdout.strip()
+        plan["diff_base"] = proc.stdout.strip()
 
 
 def _warn_stale_base(c: Ctx, project_cwd: str) -> None:
@@ -2109,7 +2131,8 @@ def _dispatch_request_json(request: dict) -> str:
     return json.dumps(printable, sort_keys=True)
 
 
-def _append_spawned(c: Ctx, due: dict, request: dict, plan: Optional[dict]) -> None:
+def _append_spawned(c: Ctx, due: dict, request: dict, plan: Optional[dict],
+                    base_ref: Optional[str] = None) -> None:
     extra = {"agent_id_minted": request["agent_id"], "assignment_kind": due["kind"],
              "executor": due["executor"], "model": due["model"],
              "trigger_instance": due["trigger_instance"]}
@@ -2117,12 +2140,15 @@ def _append_spawned(c: Ctx, due: dict, request: dict, plan: Optional[dict]) -> N
         extra["mode"] = "in-session"
     if request.get("remote_worktree"):
         extra.update({"host": due.get("host"), "remote_worktree": request["remote_worktree"]})
+    if base_ref:
+        extra["base_ref"] = base_ref
     if plan:
         extra.update({"worktree": plan["path"], "branch": plan["branch"]})
         if plan.get("stack_parent"):
-            extra["stack_parent"] = plan["stack_parent"]
-        if plan.get("base_commit"):
-            extra["base_commit"] = plan["base_commit"]
+            # base_commit keeps its stack meaning only: ale.stack reads it as the stack base.
+            extra.update({"stack_parent": plan["stack_parent"], "base_commit": plan["base_commit"]})
+        if plan.get("diff_base"):
+            extra["diff_base"] = plan["diff_base"]
     c.emit("spawned", due["task_id"], None, c.state()["tasks"][due["task_id"]]["attempt"],
            pane=request.get("executor_pane"), **extra)
 
@@ -2152,8 +2178,10 @@ def cmd_dispatch(a) -> int:
                       (task_id, dependency_id), file=sys.stderr)
             due = due_assignments(dispatch_state, c.labels, c.roster)
             remote_due = [item for item in due if (item.get("host") or "local") != "local"]
+            base_ref = None
             if due and not (a.json or a.dry_run) and (a.spawn or a.no_exec):
                 _warn_stale_base(c, project_cwd)
+                base_ref = _checkout_branch(project_cwd)
             for index, item in enumerate(due, 1):
                 request = _make_dispatch_request(c, item, project_cwd, index)
                 requests.append(request)
@@ -2168,14 +2196,15 @@ def cmd_dispatch(a) -> int:
                         _resolve_plan_base(c, label, plan)
                         parent_spawn = _latest_spawn(c, item["task_id"])
                         reuses_parent = bool(label.get("fixes") and parent_spawn and parent_spawn.get("worktree"))
+                        branch_existed = _branch_exists(project_cwd, plan["branch"])
                         if not reuses_parent:
                             _create_worktree(plan, project_cwd)
-                        _record_base_commit(c, plan, label, project_cwd)
+                        _record_diff_base(c, plan, project_cwd, branch_existed)
                         _run_worktree_setup(c, label, plan["path"], project_cwd)
                     _prefetch_refs(c, item, request)
                     # Record the spawn (and its worktree) so verify runs in the task worktree,
                     # and keep the request so an unclaimed task can be handed out again.
-                    _append_spawned(c, item, request, plan)
+                    _append_spawned(c, item, request, plan, base_ref)
                     H.write_atomic(_in_session_request_path(c, request["agent_id"]),
                                    json.dumps(request, sort_keys=True) + "\n")
                     continue
@@ -2199,15 +2228,16 @@ def cmd_dispatch(a) -> int:
                     _resolve_plan_base(c, label, plan)
                     parent_spawn = _latest_spawn(c, item["task_id"])
                     reuses_parent = bool(label.get("fixes") and parent_spawn and parent_spawn.get("worktree"))
+                    branch_existed = _branch_exists(project_cwd, plan["branch"])
                     if not reuses_parent:
                         _create_worktree(plan, project_cwd)
-                    _record_base_commit(c, plan, label, project_cwd)
+                    _record_diff_base(c, plan, project_cwd, branch_existed)
                     _run_worktree_setup(c, label, plan["path"], project_cwd)
                 _prefetch_refs(c, item, request)
                 if a.no_exec:
-                    _append_spawned(c, item, request, plan)
+                    _append_spawned(c, item, request, plan, base_ref)
                     continue
-                _append_spawned(c, item, request, plan)
+                _append_spawned(c, item, request, plan, base_ref)
                 request_path = _write_spawn_request(c, request)
                 spawned_requests.append((item, request, request_path))
         finally:
@@ -2718,7 +2748,10 @@ def cmd_register_worktree(a) -> int:
     instance = _trigger_instance({"kind": "executor", "trigger": "ready"}, a.task, task_state, [])
     extra = {"agent_id_minted": agent_id, "assignment_kind": "executor", "executor": "external",
              "model": None, "trigger_instance": instance, "worktree": path, "branch": a.branch,
-             "base_commit": base_commit}
+             "base_commit": base_commit, "diff_base": base_commit}
+    base_ref = _checkout_branch(checkout)
+    if base_ref:
+        extra["base_ref"] = base_ref
     if a.host:
         extra["host"] = a.host
     c.emit("spawned", a.task, None, task_state["attempt"], pane=None, **extra)
