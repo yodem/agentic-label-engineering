@@ -353,3 +353,32 @@ def test_dispatch_is_silent_when_base_is_current(tmp_path, capsys):
                  "--cwd", str(repo)]) == 0
     assert "behind its upstream" not in capsys.readouterr().err
     assert _notes(run) == []
+
+
+# Review fix: a fix task reuses its parent's worktree, so it diffs from the parent's base.
+
+def test_fix_task_of_a_stacked_child_verifies_against_the_parent_base(tmp_path, capsys):
+    from stack_fixtures import ale, dispatch, label, make_run, spawned, work_and_accept
+
+    t2 = label("T2", ["T1"])
+    t2["acceptance"] = [{"id": "A1", "cmd": "grep -q ok t2.txt", "expect": "exit0"},
+                        {"id": "A2", "cmd": "true", "expect": "exit0"}]
+    repo, run, roster = make_run(tmp_path, {"T1": label("T1"), "T2": t2})
+    assert dispatch(run, roster, repo) == 0
+    work_and_accept(run, roster, "T1")
+    assert dispatch(run, roster, repo) == 0
+    worktree = run / "wt" / "T2"
+    (worktree / "t2.txt").write_text("bad\n")
+    assert ale(run, roster, "claim", "--task", "T2", "--agent", "a") == 0
+    assert ale(run, roster, "submit", "--task", "T2", "--agent", "a", "--summary", "x") == 0
+    assert ale(run, roster, "verify", "--task", "T2", "--cwd", str(worktree)) == 1
+    assert ale(run, roster, "fix", "--task", "T2") == 0
+    assert dispatch(run, roster, repo) == 0
+    assert spawned(run, "T2.fix1")[-1]["base_commit"] == spawned(run, "T2")[-1]["base_commit"]
+    (worktree / "t2.txt").write_text("ok\n")
+    assert ale(run, roster, "claim", "--task", "T2.fix1", "--agent", "f") == 0
+    assert ale(run, roster, "submit", "--task", "T2.fix1", "--agent", "f", "--summary", "x") == 0
+    capsys.readouterr()
+
+    assert ale(run, roster, "verify", "--task", "T2.fix1", "--cwd", str(worktree)) == 0, \
+        capsys.readouterr().err

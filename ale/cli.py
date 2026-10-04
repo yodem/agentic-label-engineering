@@ -1967,14 +1967,22 @@ def _resolve_plan_base(c: Ctx, label: dict, plan: dict) -> dict:
     return plan
 
 
-def _record_base_commit(plan: dict, label: dict, project_cwd: str) -> None:
+def _record_base_commit(c: Ctx, plan: dict, label: dict, project_cwd: str) -> None:
     """Set ``plan["base_commit"]``: the commit the task branch was created from (its merge-base
     with the plan base), which verify diffs against. A stacked label keeps today's rule (only a
     spawn on its parent's accepted commit records one), because ale.stack reads a spawned
-    ``base_commit`` as the stack base."""
-    from .stack import stack_parent
+    ``base_commit`` as the stack base. A fix task works in its parent's worktree, so it takes the
+    parent's base (a fresh merge-base would include a stacked parent's own parent's files)."""
+    from .stack import current_base, stack_parent
 
-    if plan.get("base_commit") or stack_parent(label) is not None:
+    if plan.get("base_commit"):
+        return
+    if label.get("fixes"):
+        parent_base = current_base(E.read_events(c.events_path), label["fixes"])
+        if parent_base:
+            plan["base_commit"] = parent_base
+        return
+    if stack_parent(label) is not None:
         return
     proc = subprocess.run(["git", "merge-base", plan.get("base") or "HEAD", "refs/heads/" + plan["branch"]],
                           cwd=project_cwd, capture_output=True, text=True)
@@ -2139,7 +2147,7 @@ def cmd_dispatch(a) -> int:
                         reuses_parent = bool(label.get("fixes") and parent_spawn and parent_spawn.get("worktree"))
                         if not reuses_parent:
                             _create_worktree(plan, project_cwd)
-                        _record_base_commit(plan, label, project_cwd)
+                        _record_base_commit(c, plan, label, project_cwd)
                         _run_worktree_setup(c, label, plan["path"], project_cwd)
                     _prefetch_refs(c, item, request)
                     # Record the spawn (and its worktree) so verify runs in the task worktree,
@@ -2170,7 +2178,7 @@ def cmd_dispatch(a) -> int:
                     reuses_parent = bool(label.get("fixes") and parent_spawn and parent_spawn.get("worktree"))
                     if not reuses_parent:
                         _create_worktree(plan, project_cwd)
-                    _record_base_commit(plan, label, project_cwd)
+                    _record_base_commit(c, plan, label, project_cwd)
                     _run_worktree_setup(c, label, plan["path"], project_cwd)
                 _prefetch_refs(c, item, request)
                 if a.no_exec:
