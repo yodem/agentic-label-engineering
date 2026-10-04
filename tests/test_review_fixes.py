@@ -339,3 +339,17 @@ def test_item13_shared_record_helpers(tmp_path, monkeypatch):
     monkeypatch.setenv("ALE_HOME", str(tmp_path / "h"))
     assert runindex.ale_home() == cli._hook_home() == str(tmp_path / "h")
     assert cli._binding_home(argparse.Namespace(home=None)) == str(tmp_path / "h")
+
+
+# Item 14: unused row fields are gone; findings() takes the already-scored report["fixes"].
+def test_item14_rows_drop_unused_fields_and_findings_reuse_scored_fixes(tmp_path, monkeypatch):
+    run = _judged_run(tmp_path, "2026-10-01-a", T0)
+    row = A.task_rows(run)[0]
+    assert "paths_widened" not in row and "reopens" not in row
+
+    monkeypatch.setattr(A, "fix_statuses", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError))
+    report = {"generated": "2026-10-04T00:00:00Z",
+              "checks": {"ale.task.first_pass": {"breached": True, "rate": 0.1, "bar": 0.7, "n": 5,
+                                                 "examples": []}}}
+    scored = [{"evaluator": "ale.task.first_pass", "status": "pending"}]
+    assert A.findings(report, {}, scored)["ale.task.first_pass"]["fix"] == scored[0]

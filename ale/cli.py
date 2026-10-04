@@ -3404,7 +3404,7 @@ def cmd_analyze(a) -> int:
     fixes = REC.read_jsonl(os.path.join(home, ".ale", "fixes.jsonl"))
     report["fixes"] = AN.fix_statuses(report, fixes)
     report["findings"] = AN.findings(report, _read_json_file(os.path.join(reports_dir, "findings.json"), {}),
-                                     fixes)
+                                     report["fixes"])
     text = AN.render_markdown(report)
     if not a.no_write:
         try:

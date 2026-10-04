@@ -256,10 +256,6 @@ def _row(run: dict, task_id: str, label: dict, task_events: List[dict], st: Opti
     changes = [e for e in task_events if e["type"] in ("label_changed", "relabeled") and _lead(e)]
     acceptance_relabeled = started is not None and any(
         e.get("field") == "acceptance" and e["ts"] >= started for e in changes)
-    paths_widened = any(
-        e["type"] == "label_changed" and e.get("field") == "context.allowed_paths"
-        and isinstance(e.get("new"), list)
-        and set(map(str, e["new"])) - set(map(str, e.get("old") or [])) for e in changes)
     executor = (first_spawn or {}).get("executor")
     headless = bool(first_spawn) and (HARNESS.mode_hint(executor) == "headless"
                                       or first_spawn.get("mode") == "headless")
@@ -279,10 +275,8 @@ def _row(run: dict, task_id: str, label: dict, task_events: List[dict], st: Opti
         "claimed_by_lead": any(str(e.get("agent_id") or "").startswith("lead") for e in claims),
         "first_verify_passed": first_verify_passed, "attempts": attempts,
         "rejects": sum(1 for e in verdicts if e["type"] == "rejected"),
-        "reopens": sum(1 for e in task_events if e["type"] == "reopened"),
         "verified_files": verified_files, "verified_files_count": verified_count,
         "acceptance_relabeled": acceptance_relabeled,
-        "paths_widened": paths_widened,
         "claim_to_accept_s": (accepting["ts"] - claims[0]["ts"]) if claims and accepting else None,
         "files_changed": files_changed, "usage_tokens": sum(_tokens(e) for e in usage) if usage else None,
         "headless": headless, "integrated": integrated,
@@ -714,10 +708,11 @@ def fix_statuses(report: dict, fixes: List[dict]) -> List[dict]:
 
 
 def findings(report: dict, previous: dict, fixes: List[dict]) -> dict:
-    """Open findings keyed by check id; ``previous`` is the last ``findings.json``."""
+    """Open findings keyed by check id; ``previous`` is the last ``findings.json`` and ``fixes``
+    the fix records already scored by ``fix_statuses`` (``report["fixes"]``)."""
     today = report["generated"][:10]
     latest_fix = {}
-    for item in fix_statuses(report, fixes):
+    for item in fixes:
         latest_fix[item.get("evaluator")] = item
     out = {}
     for check_id, check in sorted(report["checks"].items()):

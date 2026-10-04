@@ -400,9 +400,10 @@ def test_findings_track_first_seen_and_fix_status(tmp_path):
 
     fix = {"ts": T0 - 10, "evaluator": "ale.task.usage_recorded", "commit": "abc", "repo": "ale",
            "note": "record usage", "cases_added": 1}
-    assert A.findings(report, {}, [fix])["ale.task.usage_recorded"]["fix"]["status"] == "regressed"
-    late = dict(fix, ts=T0 + 10 * HOUR)
-    assert A.findings(report, {}, [late])["ale.task.usage_recorded"]["fix"]["status"] == "pending"
+    scored = A.fix_statuses(report, [fix])
+    assert A.findings(report, {}, scored)["ale.task.usage_recorded"]["fix"]["status"] == "regressed"
+    late = A.fix_statuses(report, [dict(fix, ts=T0 + 10 * HOUR)])
+    assert A.findings(report, {}, late)["ale.task.usage_recorded"]["fix"]["status"] == "pending"
     good = report_for([load(good_run(tmp_path, "g", T0), "g")])
     assert A.fix_statuses(good, [fix])[0]["status"] == "holding"
 
