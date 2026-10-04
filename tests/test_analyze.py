@@ -609,3 +609,26 @@ def test_fix_status_reads_ms_offset_and_date_fields_and_flags_an_invalid_stamp(t
     by_stamp = {str(s.get("ts", s.get("date"))): s["status"] for s in statuses}
     assert by_stamp == {"2023-11-14T12:00:00.789Z": "holding", "2023-11-14T14:00:00+02:00": "holding",
                         "2023-11-14": "holding", "last tuesday": "invalid", "None": "invalid"}
+
+
+def _claimed_by(agent):
+    def events(run_dir):
+        task = good_task("r", "T1", T0 + 100, run_dir, usage=False)
+        for event in task:
+            if event.get("agent_id") is not None:
+                event["agent_id"] = agent
+        return task
+    return events
+
+
+def test_usage_recorded_is_n_a_for_a_lead_claimed_task_despite_a_headless_spawn(tmp_path):
+    run = single_task_run(tmp_path, "r", _claimed_by("lead"))
+    row = A.task_rows(run)[0]
+    assert row["headless"] is True and row["claimed_by_lead"] is True and row["usage_tokens"] is None
+    assert results(report_for([run]), "ale.task.usage_recorded") == []
+
+
+def test_usage_recorded_fails_for_an_executor_claimed_headless_task_without_usage(tmp_path):
+    run = single_task_run(tmp_path, "r", _claimed_by("T1-executor-backend-1"))
+    assert A.task_rows(run)[0]["claimed_by_lead"] is False
+    assert one(report_for([run]), "ale.task.usage_recorded")["score"] == 0.0

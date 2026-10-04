@@ -379,7 +379,8 @@ def _input_required_bounded(row, ctx):
 
 
 def _usage_recorded(row, ctx):
-    if not row["headless"]:
+    # A lead-claimed task runs in the lead's session even when its spawn names a headless executor.
+    if not row["headless"] or row["claimed_by_lead"]:
         return None
     return _verdict(row["usage_tokens"] is not None, "usage recorded",
                     "headless task without a usage event")
