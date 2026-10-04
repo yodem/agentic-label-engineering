@@ -74,8 +74,10 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
 @pytest.fixture(autouse=True)
 def ale_home(tmp_path, monkeypatch):
     """Point ``ALE_HOME`` at a per-test directory so no test writes the real ``~/.ale``
-    (the run index, reports and eval ledger all live under it)."""
-    home = str(tmp_path / "ale-home")
+    (the run index, reports and eval ledger all live under it). It is ``tmp_path/home``,
+    the directory tests already use as ``HOME`` and ``ALE_HOME``, so launcher tests that set
+    only ``HOME`` still resolve the same ALE home."""
+    home = str(tmp_path / "home")
     monkeypatch.setenv("ALE_HOME", home)
     return home
 
