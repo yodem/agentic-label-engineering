@@ -50,6 +50,7 @@ from .evalharness import jevrun as JEVRUN
 from .evalharness import report as REPORT
 from .board import BoardServer, build_snapshot
 from .runs import list_runs
+from . import runindex as RI
 
 
 _HERDR_RUNNER = subprocess.run
@@ -584,6 +585,15 @@ def cmd_validate(a) -> int:
     return FAIL if errs else OK
 
 
+def _index_run(c: "Ctx", rhash: Optional[str]) -> None:
+    """Record the new run in the run index ($ALE_HOME/.ale/index/runs.jsonl). An index that
+    cannot be written never fails the run: ``ale analyze --backfill`` can add it later."""
+    try:
+        RI.append_run(c.run_dir, _git_root(os.getcwd()), c.run_id, __version__, rhash)
+    except OSError as exc:
+        print("ale: run index not updated: %s" % exc, file=sys.stderr)
+
+
 def cmd_init_run(a) -> int:
     c = Ctx(a)
     if not H.is_safe_id(c.run_id):
@@ -601,6 +611,7 @@ def cmd_init_run(a) -> int:
     rhash = R.roster_hash(c.roster)
     for tid, label in c.labels.items():
         c.emit("labeled", tid, None, 1, labels=label["labels"], roster_hash=rhash)
+    _index_run(c, rhash)
     judge = _shadow_judge(c.roster, c.run_dir)
     if judge is not None:
         _init_run_monitor_votes(c, judge)
@@ -3845,6 +3856,7 @@ def cmd_init_run_plan(a) -> int:
     rhash = R.roster_hash(c.roster)
     for task_id, label in c.labels.items():
         c.emit("labeled", task_id, None, 1, labels=label["labels"], roster_hash=rhash)
+    _index_run(c, rhash)
     if _judge_mode(c.roster) == "shadow":
         _import_bake_votes(c, a.plan)
         judge = _shadow_judge(c.roster, c.run_dir)
