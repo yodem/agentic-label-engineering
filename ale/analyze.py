@@ -90,6 +90,18 @@ def _valid_event(event) -> bool:
     return True
 
 
+def run_key(run_dir: str) -> str:
+    """The case-id prefix of a run: ``<repo>:<run dir name>`` for ``<repo>/.ale/runs/<dir>``.
+
+    Run ids repeat (every plan compiled from ``plan.md`` is run ``plan``) and so do run dir
+    names across repositories, so neither alone identifies a run in the ledger."""
+    path = os.path.normpath(run_dir)
+    runs = os.path.dirname(path)
+    if os.path.basename(runs) == "runs" and os.path.basename(os.path.dirname(runs)) == ".ale":
+        return "%s:%s" % (os.path.basename(os.path.dirname(os.path.dirname(runs))), os.path.basename(path))
+    return os.path.basename(path)
+
+
 def load_run(entry: dict) -> Optional[dict]:
     """Read one indexed run; None when its directory (or event log) is gone.
 
@@ -138,7 +150,7 @@ def load_run(entry: dict) -> Optional[dict]:
                   None) or entry.get("run_id") or os.path.basename(run_dir)
     roster_hash = entry.get("roster_hash") or next(
         (str(e["roster_hash"]) for e in events if e["type"] == "labeled" and e.get("roster_hash")), None)
-    return {"run_id": run_id, "run_key": os.path.basename(os.path.normpath(run_dir)), "run_dir": run_dir,
+    return {"run_id": run_id, "run_key": run_key(run_dir), "run_dir": run_dir,
             "repo_root": entry.get("repo_root"), "labels": labels, "events": events,
             "skipped_lines": skipped, "roster_hash": roster_hash, "ale_version": entry.get("ale_version")}
 
@@ -603,7 +615,8 @@ def evaluate(runs: List[dict], thresholds: dict, now: float, since_s: Optional[f
     kept = []
     for run in runs:
         if run is None or (exclude and (exclude.search(str(run.get("run_id") or ""))
-                                        or exclude.search(str(run.get("run_key") or "")))):
+                                        or exclude.search(os.path.basename(os.path.normpath(
+                                            str(run.get("run_dir") or "")))))):
             skipped += 1
             continue
         kept.append(run)

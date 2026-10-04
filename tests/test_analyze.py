@@ -221,7 +221,7 @@ def test_absolute_paths_fails_on_a_relative_spawned_worktree(tmp_path):
     run = single_task_run(tmp_path, "r", lambda d: good_task("r", "T1", T0 + 100, d,
                                                              worktree=".ale/runs/r/wt/T1"))
     result = one(report_for([run]), "ale.run.absolute_paths")
-    assert result["score"] == 0.0 and result["case_id"] == "r"
+    assert result["score"] == 0.0 and result["case_id"] == run["run_key"]
 
 
 # --- n/a premises ----------------------------------------------------------------------------
@@ -267,7 +267,9 @@ def test_breached_needs_min_n(tmp_path):
     assert two["n"] == 2 and two["rate"] == 0.0 and two["breached"] is False
     three = report_for([failing("three", 3)])["checks"]["ale.task.usage_recorded"]
     assert three["n"] == 3 and three["breached"] is True
-    assert three["examples"] == ["three/T1", "three/T2", "three/T3"]
+    key = A.run_key(run_dir_for(tmp_path, "three"))
+    assert key == "%s:three" % tmp_path.name
+    assert three["examples"] == [key + "/T1", key + "/T2", key + "/T3"]
 
 
 # --- robustness ------------------------------------------------------------------------------
@@ -297,10 +299,11 @@ def test_window_and_exclusions(tmp_path):
     old = load(good_run(tmp_path, "old", T0 - 30 * 24 * HOUR), "old")
     new = load(good_run(tmp_path, "new", T0), "new")
     excluded = load(good_run(tmp_path, "roundtrip", T0), "roundtrip")
-    report = report_for([old, new, excluded], since_s=7 * 24 * HOUR)
-    assert report["runs"]["done"] == 1 and report["runs"]["skipped"] == 1
-    assert {row["case_id"].split("/")[0] for row in report["case_results"]} == {"new"}
-    everything = report_for([old, new, excluded], since_s=None)
+    by_dir = load(good_run(tmp_path, "plan", T0, dir_name="jev-bakeoff"), "plan")
+    report = report_for([old, new, excluded, by_dir], since_s=7 * 24 * HOUR)
+    assert report["runs"]["done"] == 1 and report["runs"]["skipped"] == 2
+    assert {row["case_id"].split("/")[0] for row in report["case_results"]} == {new["run_key"]}
+    everything = report_for([old, new, excluded, by_dir], since_s=None)
     assert everything["runs"]["done"] == 2
 
 
@@ -322,10 +325,19 @@ def test_case_ids_categories_and_config_hash(tmp_path):
     run = load(good_run(tmp_path, "r", T0), "r")
     report = report_for([run])
     row = one(report, "ale.task.first_pass", "/T1")
-    assert row["case_id"] == "r/T1" and row["case_category"] == "backend/M"
+    assert row["case_id"] == run["run_key"] + "/T1" and row["case_category"] == "backend/M"
     assert row["config_hash"] == "abcd1234" and row["tool_version"] == "0.4.0"
     assert row["metadata"]["run_dir"] == run["run_dir"]
     assert one(report, "ale.run.no_stale_open")["case_category"] == "run"
+
+
+def test_run_keys_tell_apart_same_named_runs_in_two_repos(tmp_path):
+    first = A.load_run(entry(good_run(tmp_path / "repo-a", "plan", T0, dir_name="eval"), "plan"))
+    second = A.load_run(entry(good_run(tmp_path / "repo-b", "plan", T0, dir_name="eval"), "plan"))
+    assert first["run_key"] == "repo-a:eval" and second["run_key"] == "repo-b:eval"
+    cases = report_for([first, second])["case_results"]
+    assert len({(c["case_id"], c["evaluator"]) for c in cases}) == len(cases)
+    assert A.run_key("/somewhere/custom-run") == "custom-run"
 
 
 def test_case_ids_use_the_run_dir_name_when_the_run_id_differs(tmp_path):
@@ -334,7 +346,8 @@ def test_case_ids_use_the_run_dir_name_when_the_run_id_differs(tmp_path):
     run = A.load_run(entry(run_dir, "plan"))
     assert run["run_id"] == "plan"
     report = report_for([run])
-    assert {row["case_id"].split("/")[0] for row in report["case_results"]} == {"2026-10-04-eval"}
+    assert {row["case_id"].split("/")[0] for row in report["case_results"]} == {
+        "%s:2026-10-04-eval" % tmp_path.name}
     assert {row["run_id"] for row in report["case_results"]} == {"plan"}
 
 
