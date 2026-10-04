@@ -3312,7 +3312,10 @@ def cmd_analyze(a) -> int:
             print("ale analyze: not due (last report %s)" % dated[-1])
             return OK
     for root in a.backfill or []:
-        RI.backfill([root], index=index)
+        try:
+            RI.backfill([root], index=index)
+        except OSError as exc:
+            print("ale analyze: run index not updated from %s: %s" % (root, exc), file=sys.stderr)
     runs = []
     for entry in RI.read_index(index=index):
         run = AN.load_run(entry)
@@ -3334,25 +3337,36 @@ def cmd_analyze(a) -> int:
                                      fixes)
     text = AN.render_markdown(report)
     if not a.no_write:
-        os.makedirs(reports_dir, exist_ok=True)
-        H.write_atomic(os.path.join(reports_dir, today + ".md"), text)
-        H.write_atomic(os.path.join(reports_dir, today + ".json"), json.dumps(report, indent=2, sort_keys=True))
-        H.write_atomic(os.path.join(reports_dir, "findings.json"),
-                       json.dumps(report["findings"], indent=2, sort_keys=True))
-        H.write_atomic(os.path.join(reports_dir, "promotions.json"),
-                       json.dumps(report["promotions"], indent=2, sort_keys=True))
+        try:
+            os.makedirs(reports_dir, exist_ok=True)
+            H.write_atomic(os.path.join(reports_dir, today + ".md"), text)
+            H.write_atomic(os.path.join(reports_dir, today + ".json"), json.dumps(report, indent=2, sort_keys=True))
+            H.write_atomic(os.path.join(reports_dir, "findings.json"),
+                           json.dumps(report["findings"], indent=2, sort_keys=True))
+            H.write_atomic(os.path.join(reports_dir, "promotions.json"),
+                           json.dumps(report["promotions"], indent=2, sort_keys=True))
+        except OSError as exc:
+            print("ale analyze: report not written: %s" % exc, file=sys.stderr)
         analyze_id = "analyze-" + report["generated"]
-        EL.append_rows([EL.make_row(analyze_id, case.get("tool_version"), case.get("config_hash"),
-                                    case["case_id"], case["case_kind"], case["case_category"],
-                                    case["evaluator"], case["score"], case["passed"], case["reason"],
-                                    dict(case.get("metadata") or {}, scored_run_id=case.get("run_id")))
-                        for case in report["case_results"]], home)
+        _append_ledger_rows([EL.make_row(analyze_id, case.get("tool_version"), case.get("config_hash"),
+                                         case["case_id"], case["case_kind"], case["case_category"],
+                                         case["evaluator"], case["score"], case["passed"], case["reason"],
+                                         dict(case.get("metadata") or {}, scored_run_id=case.get("run_id")))
+                             for case in report["case_results"]], home)
     if a.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
         sys.stdout.write(text)
     breached = any(check["breached"] for check in report["checks"].values())
     return FAIL if breached or report["offline_regressions"] else OK
+
+
+def _append_ledger_rows(rows: List[dict], home: str) -> None:
+    """Append analyze rows; a ledger that cannot be written warns and never changes the exit code."""
+    try:
+        EL.append_rows(rows, home)
+    except OSError as exc:
+        print("ale analyze: eval ledger not updated: %s" % exc, file=sys.stderr)
 
 
 def _active_case_ids() -> List[str]:
@@ -3474,17 +3488,21 @@ def cmd_eval_cases(a) -> int:
                                 result["reason"], {"source_run": case.get("source_run"),
                                                    "difficulty": case.get("difficulty"),
                                                    "cases_path": os.path.abspath(path)}))
+    recorded = False
     if not a.no_record:
-        EL.append_rows(rows)
-        history = EL.read_rows()
-    else:
-        history = EL.read_rows() + rows   # the unrecorded pass still counts as the latest result
+        try:
+            EL.append_rows(rows)
+            recorded = True
+        except OSError as exc:
+            print("ale eval cases: eval ledger not updated: %s" % exc, file=sys.stderr)
+    # An unrecorded pass (--no-record, or a ledger that cannot be written) still counts as the latest.
+    history = EL.read_rows() + ([] if recorded else rows)
     regressed = EC.regressions(history, [case["id"] for case in active])
     for row in regressed:
         print("REGRESSED %s: score %.2f < best %.2f" % (row["case_id"], float(row["score"]), row["best_before"]))
     print("eval cases: %d passed, %d failed, %d regressed, %d inactive (%s, config %s)%s" % (
         len(active) - failed, failed, len(regressed), len(cases) - len(active), path, digest,
-        "" if not a.no_record else ", not recorded"))
+        "" if recorded else ", not recorded"))
     return FAIL if a.ci and (failed or regressed) else OK
 
 

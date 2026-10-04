@@ -113,6 +113,10 @@ Unless `--no-write`:
 | `reports/promotions.json` | The promotion proposals. |
 | `eval-ledger.jsonl` | One row per case result: `tool: "ale"`, `case_kind: "online"`, `run_id` `analyze-<generated>`, `metadata.run_dir`, `metadata.scored_run_id`. |
 
+A report, index or ledger file that cannot be written (say `$ALE_HOME/.ale` is not a
+directory) prints a warning on stderr; the report is still printed and the exit code still
+follows the checks.
+
 ### Exit codes
 
 0 when nothing is wrong, 1 when any check is breached or an active offline case regressed, 2
@@ -149,8 +153,9 @@ the wheel bundles), prints `PASS|FAIL <id>: <reason>` per case, a `REGRESSED <id
 regression, and a summary. Unless `--no-record`, it appends one row per case to the eval
 ledger: `case_kind: "offline"`, `evaluator` `ale.case.<kind>`, `run_id` `cases-<ISO ts>`,
 `tool_version` the ALE version, and `config_hash` the first 12 hex digits of the sha256 of the
-ALE version plus the bytes of `ale/schema/analyze_thresholds.json`. With `--no-record` the
-current results still count as the latest when looking for regressions.
+ALE version plus the bytes of `ale/schema/analyze_thresholds.json`. With `--no-record`, or when the
+ledger cannot be written (a warning on stderr), the current results still count as the latest
+when looking for regressions.
 
 Exit codes: with `--ci`, 1 when any active case fails or an active case regressed (an offline
 row whose latest score is below its best before; online rows and retired cases never count);

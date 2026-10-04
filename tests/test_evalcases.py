@@ -321,3 +321,29 @@ def test_ci_with_no_active_cases_exits_1(tmp_path, capsys):
     # Without --ci it is reported, not gated.
     assert main(["eval", "cases", "--cases", retired, "--no-record"]) == 0
     assert "no active cases" in capsys.readouterr().err
+
+
+def _unwritable_home(ale_home):
+    os.makedirs(ale_home, exist_ok=True)
+    with open(os.path.join(ale_home, ".ale"), "w") as handle:
+        handle.write("a file where the .ale directory should be\n")
+
+
+def test_an_unwritable_ledger_warns_and_keeps_the_verdict(tmp_path, ale_home, capsys):
+    _unwritable_home(ale_home)
+    path = write_cases(tmp_path, [inline("refs-a")])
+    assert main(["eval", "cases", "--cases", path, "--ci"]) == 0
+    captured = capsys.readouterr()
+    assert "PASS refs-a:" in captured.out
+    assert "eval ledger not updated" in captured.err and "Traceback" not in captured.err
+    broken = write_cases(tmp_path, [inline("refs-a", allowed=False)])
+    assert main(["eval", "cases", "--cases", broken, "--ci"]) == 1
+
+
+def test_analyze_with_an_unwritable_home_warns_and_keeps_the_exit_code(tmp_path, ale_home, capsys):
+    _unwritable_home(ale_home)
+    index = str(tmp_path / "empty-index.jsonl")
+    assert main(["analyze", "--index", index, "--since", "all"]) == 0
+    captured = capsys.readouterr()
+    assert "report not written" in captured.err and "Traceback" not in captured.err
+    assert "# ALE analyze" in captured.out
