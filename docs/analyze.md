@@ -22,7 +22,9 @@ Every file below lives under `$ALE_HOME/.ale/` (default `~/.ale/`). The test sui
 ## What is indexed
 
 `ale init-run` appends one line to `$ALE_HOME/.ale/index/runs.jsonl`:
-`{ts, run_id, run_dir, repo_root, ale_version, roster_hash}`. `run_dir` and `repo_root` are
+`{ts, run_id, run_dir, repo_root, ale_version, roster_hash}`. `repo_root` is the git
+repository that holds the run dir (found from the run dir, not the working directory, so
+`--run-dir` into another repository indexes that one). `run_dir` and `repo_root` are
 stored resolved (absolute, symlinks followed), so a run is never indexed twice under two
 spellings; when a directory appears twice, the later row wins. An index that cannot be written
 prints a warning and never fails `init-run`.

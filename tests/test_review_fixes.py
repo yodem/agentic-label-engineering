@@ -272,3 +272,27 @@ def test_item10_executor_authored_answer_does_not_reopen_the_ask():
 
     events.append(ev("input_answered", "r", 3, "T1", None, text="lead answer"))
     assert input_pending(events, "T1", 1) is False
+
+
+# Item 11: the index takes repo_root from the run dir's repository, not the process cwd.
+def test_item11_init_run_in_another_repo_indexes_that_repo(tmp_path, monkeypatch, ale_home):
+    import shutil
+
+    from ale import runindex as RI
+    from ale.cli import main
+
+    here = tmp_path / "here"
+    other = tmp_path / "other"
+    for repo in (here, other):
+        repo.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=str(repo), check=True)
+    run_dir = other / ".ale" / "runs" / "r1"
+    shutil.copytree(os.path.join(SF.ROOT, "examples", "run"), str(run_dir))
+    roster = tmp_path / "roster.json"
+    shutil.copy(os.path.join(SF.ROOT, "examples", "roster.json"), str(roster))
+    monkeypatch.chdir(here)
+
+    assert main(["init-run", "--run-dir", str(run_dir), "--roster", str(roster), "--now", "1"]) == 0
+
+    [row] = RI.read_index()
+    assert row["repo_root"] == os.path.realpath(str(other))

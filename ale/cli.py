@@ -588,11 +588,24 @@ def cmd_validate(a) -> int:
     return FAIL if errs else OK
 
 
+def _run_repo_root(run_dir: str) -> str:
+    """The repository a run dir belongs to: the git toplevel found walking up from the run dir
+    (never the process cwd: ``--run-dir`` may name another repository); outside git, the
+    ``<repo>`` of ``<repo>/.ale/runs/<id>``, else the run dir's parent."""
+    root = _git_root(run_dir)
+    if os.path.exists(os.path.join(root, ".git")):
+        return root
+    runs = os.path.dirname(os.path.abspath(run_dir))
+    if os.path.basename(runs) == "runs" and os.path.basename(os.path.dirname(runs)) == ".ale":
+        return os.path.dirname(os.path.dirname(runs))
+    return runs
+
+
 def _index_run(c: "Ctx", rhash: Optional[str]) -> None:
     """Record the new run in the run index ($ALE_HOME/.ale/index/runs.jsonl). An index that
     cannot be written never fails the run: ``ale analyze --backfill`` can add it later."""
     try:
-        RI.append_run(c.run_dir, _git_root(os.getcwd()), c.run_id, __version__, rhash)
+        RI.append_run(c.run_dir, _run_repo_root(c.run_dir), c.run_id, __version__, rhash)
     except OSError as exc:
         print("ale: run index not updated: %s" % exc, file=sys.stderr)
 
