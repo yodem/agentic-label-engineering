@@ -281,6 +281,12 @@ def _plan_run_id(path: str, supplied: Optional[str]) -> str:
 
 
 def _resolve_run_dir(a, plan_path: str = None) -> str:
+    """The run directory, always absolute: every path recorded under it (spawned worktrees,
+    requests, prompts) must still resolve when read from another working directory."""
+    return os.path.abspath(_run_dir_choice(a, plan_path))
+
+
+def _run_dir_choice(a, plan_path: str = None) -> str:
     explicit = getattr(a, "run_dir", None)
     if explicit:
         return explicit
