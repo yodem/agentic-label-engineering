@@ -53,6 +53,7 @@ from .runs import list_runs
 from . import runindex as RI
 from . import analyze as AN
 from . import evalledger as EL
+from . import evalcases as EC
 
 
 _HERDR_RUNNER = subprocess.run
@@ -3437,6 +3438,42 @@ def _write_jsonl(path: str, rows: List[dict]) -> None:
             f.write(json.dumps(row, sort_keys=True) + "\n")
 
 
+def cmd_eval_cases(a) -> int:
+    """Run the active offline cases; ``--ci`` exits 1 on a failed case or an offline regression."""
+    from . import __version__
+    path = a.cases or EC.default_cases_path()
+    try:
+        cases = EC.load_cases(path)
+    except EC.CaseError as exc:
+        raise CliError(USAGE, str(exc))
+    active = [case for case in cases if EC.is_active(case)]
+    run_id = "cases-" + EL.iso_ts()
+    digest = EC.config_hash()
+    rows = []
+    failed = 0
+    for case in active:
+        result = EC.run_case(case)
+        failed += 0 if result["passed"] else 1
+        print("%s %s: %s" % ("PASS" if result["passed"] else "FAIL", case["id"], result["reason"]))
+        rows.append(EL.make_row(run_id, __version__, digest, case["id"], "offline", case.get("category"),
+                                "ale.case.%s" % case["kind"], result["score"], result["passed"],
+                                result["reason"], {"source_run": case.get("source_run"),
+                                                   "difficulty": case.get("difficulty"),
+                                                   "cases_path": os.path.abspath(path)}))
+    if not a.no_record:
+        EL.append_rows(rows)
+        history = EL.read_rows()
+    else:
+        history = EL.read_rows() + rows   # the unrecorded pass still counts as the latest result
+    regressed = EC.regressions(history, [case["id"] for case in active])
+    for row in regressed:
+        print("REGRESSED %s: score %.2f < best %.2f" % (row["case_id"], float(row["score"]), row["best_before"]))
+    print("eval cases: %d passed, %d failed, %d regressed, %d inactive (%s, config %s)%s" % (
+        len(active) - failed, failed, len(regressed), len(cases) - len(active), path, digest,
+        "" if not a.no_record else ", not recorded"))
+    return FAIL if a.ci and (failed or regressed) else OK
+
+
 def cmd_eval_corpus(a) -> int:
     _refuse_tracked_out_dir(a.out)
     try:
@@ -4194,6 +4231,11 @@ def _parser() -> argparse.ArgumentParser:
     an.add_argument("--thresholds", help="thresholds file (default: ale/schema/analyze_thresholds.json)")
     ev = sub.add_parser("eval")
     evsub = ev.add_subparsers(dest="eval_cmd")
+    ecs = evsub.add_parser("cases", help="run the offline regression cases (evalcases/cases.jsonl)")
+    ecs.set_defaults(fn=cmd_eval_cases)
+    ecs.add_argument("--cases", help="cases file (default: <plugin root>/evalcases/cases.jsonl)")
+    ecs.add_argument("--ci", action="store_true", help="exit 1 on a failed active case or an offline regression")
+    ecs.add_argument("--no-record", action="store_true", help="append no rows to the eval ledger")
     ec = evsub.add_parser("corpus")
     ec.set_defaults(fn=cmd_eval_corpus)
     ec.add_argument("--ledger", required=True)

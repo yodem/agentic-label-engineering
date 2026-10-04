@@ -10,7 +10,7 @@ import shutil
 from setuptools import setup
 from setuptools.command.build_py import build_py
 
-BUNDLED = ("agents", "catalog", "bin", "hooks", "skills", ".claude-plugin", "mod")
+BUNDLED = ("agents", "catalog", "bin", "hooks", "skills", ".claude-plugin", "mod", "evalcases")
 BUNDLED_FILES = ("EXECUTOR.md",)
 SKIP = shutil.ignore_patterns("node_modules", "fixtures", "*.test.ts", "__pycache__")
 
