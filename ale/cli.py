@@ -4189,7 +4189,8 @@ def _parser() -> argparse.ArgumentParser:
     an.add_argument("--backfill", action="append", metavar="DIR", help="index existing run dirs under DIR first")
     an.add_argument("--json", action="store_true")
     an.add_argument("--if-due", action="store_true", help="run only when the newest report is old enough")
-    an.add_argument("--no-write", action="store_true", help="print the report; write nothing")
+    an.add_argument("--no-write", action="store_true", help="print the report; writes no report, findings or ledger rows; "
+                    "--backfill still updates the index")
     an.add_argument("--thresholds", help="thresholds file (default: ale/schema/analyze_thresholds.json)")
     ev = sub.add_parser("eval")
     evsub = ev.add_subparsers(dest="eval_cmd")

@@ -660,3 +660,9 @@ def test_the_runs_own_labeled_event_wins_over_the_index_entry(tmp_path):
     stamped_dir = write_run(tmp_path, "stamped", [label("T1", "stamped")],
                             [ev("run_started", "stamped", T0, attempt=None, ale_version="0.4.0")])
     assert A.load_run(entry(stamped_dir, "stamped", ale_version="0.3.0"))["ale_version"] == "0.4.0"
+
+
+def test_no_write_help_says_backfill_still_updates_the_index(capsys):
+    assert main(["analyze", "--help"]) == 0
+    text = " ".join(capsys.readouterr().out.split())
+    assert "writes no report, findings or ledger rows; --backfill still updates the index" in text
