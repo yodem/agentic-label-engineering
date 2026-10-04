@@ -587,3 +587,25 @@ def test_a_rejected_fix_task_whose_parent_was_accepted_is_superseded_not_open(tm
     report = report_for([run], now=STALE_NOW)
     assert [r["score"] for r in results(report, "ale.task.resolved")] == [1.0, 1.0]
     assert one(report, "ale.run.no_stale_open")["score"] == 1.0
+
+
+@pytest.mark.parametrize("stamp", ["2023-11-14T00:00:00Z", "2023-11-14T00:00:00.789Z",
+                                   "2023-11-14T00:00:00.123456Z", "2023-11-14T02:00:00+02:00",
+                                   "2023-11-14T00:00:00", "2023-11-14", 1699920000])
+def test_fix_timestamps_parse_in_every_iso_shape(stamp):
+    assert A._epoch(stamp) == pytest.approx(1699920000.0, abs=1.0)
+
+
+def test_fix_status_reads_ms_offset_and_date_fields_and_flags_an_invalid_stamp(tmp_path):
+    good = report_for([load(good_run(tmp_path, "g", T0), "g")])   # T0 is 2023-11-14T22:13:20Z
+    base = {"evaluator": "ale.task.usage_recorded", "commit": "abc", "note": "n"}
+    statuses = A.fix_statuses(good, [
+        dict(base, ts="2023-11-14T12:00:00.789Z"),
+        dict(base, ts="2023-11-14T14:00:00+02:00"),
+        dict(base, date="2023-11-14"),
+        dict(base, ts="last tuesday"),
+        dict(base),
+    ])
+    by_stamp = {str(s.get("ts", s.get("date"))): s["status"] for s in statuses}
+    assert by_stamp == {"2023-11-14T12:00:00.789Z": "holding", "2023-11-14T14:00:00+02:00": "holding",
+                        "2023-11-14": "holding", "last tuesday": "invalid", "None": "invalid"}

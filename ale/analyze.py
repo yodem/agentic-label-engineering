@@ -7,8 +7,8 @@ No model is called anywhere in this module.
 """
 from __future__ import annotations
 
-import calendar
 import copy
+import datetime
 import functools
 import glob
 import json
@@ -48,17 +48,24 @@ def iso(epoch: float) -> str:
 
 
 def _epoch(value) -> Optional[float]:
+    """Epoch seconds from a number or an ISO 8601 string (``Z`` or ``+HH:MM`` offset, 3- or
+    6-digit fractions, or a bare date); naive values are UTC. None when it does not parse."""
     if isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
         return float(value)
-    if isinstance(value, str):
-        for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
-            try:
-                return float(calendar.timegm(time.strptime(value.strip(), fmt)))
-            except ValueError:
-                continue
-    return None
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    if text.endswith(("Z", "z")):
+        text = text[:-1] + "+00:00"
+    try:
+        moment = datetime.datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=datetime.timezone.utc)
+    return moment.timestamp()
 
 
 # --- loading ---------------------------------------------------------------------------------
@@ -658,19 +665,25 @@ def evaluate(runs: List[dict], thresholds: dict, now: float, since_s: Optional[f
 # --- findings, fixes, saturation -------------------------------------------------------------
 
 def fix_statuses(report: dict, fixes: List[dict]) -> List[dict]:
-    """Each fix record with the check's pass rate over runs started after it:
-    ``holding`` (n >= min_n, rate >= bar), ``regressed`` (n >= min_n, rate < bar), else ``pending``."""
+    """Each fix record with the check's pass rate over runs started after it (its ``ts``, else
+    its ``date``): ``holding`` (n >= min_n, rate >= bar), ``regressed`` (n >= min_n, rate < bar),
+    ``invalid`` (no parseable timestamp), else ``pending``."""
     min_n = int(report.get("min_n", 3))
     out = []
-    for fix in sorted((f for f in fixes if isinstance(f, dict)), key=lambda f: _epoch(f.get("ts")) or 0.0):
+    def stamp(fix: dict):
+        return fix.get("ts") if fix.get("ts") is not None else fix.get("date")
+
+    for fix in sorted((f for f in fixes if isinstance(f, dict)), key=lambda f: _epoch(stamp(f)) or 0.0):
         evaluator = fix.get("evaluator")
-        since = _epoch(fix.get("ts"))
+        since = _epoch(stamp(fix))
         after = [c for c in report.get("case_results", [])
                  if c["evaluator"] == evaluator and since is not None and c.get("ts") is not None
                  and c["ts"] >= since]
         rate = _mean([c["score"] for c in after])
         bar = (report.get("checks", {}).get(evaluator) or {}).get("bar")
-        if len(after) < min_n or rate is None or bar is None:
+        if since is None:
+            status = "invalid"   # no parseable ts/date: never silently pending forever
+        elif len(after) < min_n or rate is None or bar is None:
             status = "pending"
         else:
             status = "holding" if rate >= bar else "regressed"
