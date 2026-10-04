@@ -1710,6 +1710,8 @@ def cmd_hook(a) -> int:
                 c.emit("note", binding["task_id"], binding["agent_id"], state["attempt"], text="auto-stop-block: " + decision["reason"])
                 print(json.dumps({"decision": "block", "reason": decision["reason"]}))
             elif decision["action"] == "input_required":
+                if HK.input_pending(E.read_events(c.events_path), binding["task_id"], state["attempt"]):
+                    return OK  # already asked in this attempt: let the session stop, emit nothing
                 c.emit("input_required", binding["task_id"], binding["agent_id"], state["attempt"], question=decision["question"])
                 print(json.dumps({"decision": "block", "reason": decision["question"]}))
             elif decision["action"] == "submit":

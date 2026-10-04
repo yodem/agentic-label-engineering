@@ -140,6 +140,21 @@ def decide_stop(label: dict, task_state: dict, acceptance_result: dict,
     return {"action": "input_required", "question": "Acceptance is still failing: %s" % (reason or "unknown failure")}
 
 
+def input_pending(events: List[dict], task_id: str, attempt) -> bool:
+    """True when ``task_id`` already asked for input in ``attempt`` and no answer came after it.
+
+    The stop hook asks at most once per attempt; a repeated ask only floods the event log."""
+    pending = False
+    for event in events:
+        if event.get("task_id") != task_id:
+            continue
+        if event.get("type") == "input_required" and event.get("attempt") == attempt:
+            pending = True
+        elif event.get("type") == "input_answered":
+            pending = False
+    return pending
+
+
 def session_context(label: dict, handoff_text: str, decisions_text: str) -> str:
     acceptance = []
     for item in label.get("acceptance", []):

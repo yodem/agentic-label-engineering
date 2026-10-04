@@ -193,3 +193,84 @@ def test_integrate_still_refuses_a_modified_tracked_file(tmp_path, capsys):
 
     assert _integrate(repo, run, roster) == 1
     assert "uncommitted changes: base.txt" in capsys.readouterr().err
+
+
+# Fix 5: the stop hook emits input_required at most once per attempt.
+
+def _bound_failing_task(tmp_path, monkeypatch):
+    import io
+    import shutil
+
+    from ale.binding import binding_path
+    from ale.handoff import write_atomic
+
+    run = tmp_path / "hook-run"
+    shutil.copytree(os.path.join(ROOT, "examples", "run"), str(run))
+    roster = tmp_path / "hook-roster.json"
+    shutil.copy(os.path.join(ROOT, "examples", "roster.json"), str(roster))
+    home = tmp_path / "home"
+    monkeypatch.setenv("ALE_HOME", str(home))
+    label_path = run / "labels" / "T01.json"
+    label = json.loads(label_path.read_text())
+    label["acceptance"][0]["cmd"] = "false"
+    label_path.write_text(json.dumps(label))
+    assert main(["init-run", "--run-dir", str(run), "--roster", str(roster), "--now", "0"]) == 0
+    write_atomic(binding_path(str(home), "s1", None),
+                 json.dumps({"run_dir": str(run), "roster": str(roster), "task_id": "T01",
+                             "agent_id": "a1", "source": "file"}))
+
+    def stop():
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(
+            {"session_id": "s1", "hook_event_name": "stop", "cwd": ".",
+             "transcript_path": "missing.json"})))
+        return main(["hook", "stop"])
+
+    def claim(now):
+        return main(["claim", "--task", "T01", "--agent", "a1", "--run-dir", str(run),
+                     "--roster", str(roster), "--now", str(now)])
+
+    return run, stop, claim
+
+
+def _input_required(run):
+    return [event for event in E.read_events(str(run / "events.jsonl"))
+            if event["type"] == "input_required"]
+
+
+def test_blocked_stops_in_one_attempt_emit_one_input_required(tmp_path, monkeypatch):
+    run, stop, claim = _bound_failing_task(tmp_path, monkeypatch)
+    assert claim(1) == 0
+    for _ in range(6):
+        assert stop() == 0
+
+    assert [event["attempt"] for event in _input_required(run)] == [1]
+
+
+def test_a_new_attempt_may_ask_again(tmp_path, monkeypatch):
+    run, stop, claim = _bound_failing_task(tmp_path, monkeypatch)
+    assert claim(1) == 0
+    for _ in range(4):
+        assert stop() == 0
+    events = run / "events.jsonl"
+    E.append_event(str(events), E.make_event("lease_expired", "example-run", 50, "T01", None, 1))
+    E.append_event(str(events), E.make_event("released", "example-run", 51, "T01", None, 1,
+                                             reason="stale"))
+    assert claim(60) == 0
+    for _ in range(4):
+        assert stop() == 0
+
+    assert [event["attempt"] for event in _input_required(run)] == [1, 2]
+
+
+def test_an_answered_question_may_be_asked_again_in_the_same_attempt(tmp_path, monkeypatch):
+    run, stop, claim = _bound_failing_task(tmp_path, monkeypatch)
+    assert claim(1) == 0
+    for _ in range(3):
+        assert stop() == 0
+    E.append_event(str(run / "events.jsonl"),
+                   E.make_event("input_answered", "example-run", 50, "T01", None, 1, text="go on"))
+    assert claim(60) == 0
+    for _ in range(4):
+        assert stop() == 0
+
+    assert [event["attempt"] for event in _input_required(run)] == [1, 1]
