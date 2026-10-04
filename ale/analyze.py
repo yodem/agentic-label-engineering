@@ -601,7 +601,10 @@ def _promotions(runs: List[dict]) -> dict:
     judge = roster.get("judge") or {}
     min_cases = int((roster.get("promotion") or {}).get("min_cases", (judge.get("bar") or {}).get("min_cases", 100)))
     judged = set(DECISIONS.judged_decision_ids())
-    events = [e for run in runs for e in run["events"]]
+    # Cases are keyed by the run key, never the raw run_id: every run baked from plan.md is
+    # run ``plan``, and keying by it would merge their votes into one case per task.
+    events = [dict(e, run_id=run["run_key"]) for run in runs for e in run["events"]
+              if e["type"] in ("shadow_vote", "decision_outcome", "adjudicated", "accepted")]
     votes = [e for e in events if e["type"] == "shadow_vote" and e.get("decision") in judged]
     outcomes = [e for e in events if e["type"] == "decision_outcome" and e.get("decision") in judged]
     adjudications = [e for e in events if e["type"] == "adjudicated"
