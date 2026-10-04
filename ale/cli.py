@@ -1346,6 +1346,8 @@ def cmd_verify(a) -> int:
                                 " (token mismatch)" if refs_mismatch else ""))
     reason = None
     task_changed = None
+    task_pending = None  # task paths changed against HEAD: what commit-at-accept commits
+    compared = "--base %s" % a.base if a.base else None  # what the file list was diffed against
     if a.base:
         changed = [path for path in _changed_files(cwd, a.base) if path != ".ale-setup-done"]
         evidence["files"] = changed
@@ -1359,9 +1361,17 @@ def cmd_verify(a) -> int:
     from .stack import current_base
     spawn_base = current_base(E.read_events(c.events_path), spawn["task_id"]) if spawn else None
     if spawn.get("worktree") and os.path.realpath(cwd) == os.path.realpath(spawn["worktree"]):
-        worktree_config = label.get("context", {}).get("worktree") or {}
-        task_changed = _task_changed_paths(cwd, worktree_config.get("setup_outputs", []),
-                                           base=spawn_base)
+        setup_outputs = (label.get("context", {}).get("worktree") or {}).get("setup_outputs", [])
+        task_pending = _task_changed_paths(cwd, setup_outputs)
+        task_changed = task_pending
+        if task_pending is not None and spawn_base and _is_commit(cwd, spawn_base):
+            # Committed work counts (diff from the base), and so does an uncommitted change that
+            # cancels a committed one (diff from HEAD): check the union of both.
+            against_base = _task_changed_paths(cwd, setup_outputs, base=spawn_base) or []
+            task_changed = sorted(set(task_pending) | set(against_base))
+            compared = compared or "base %s" % spawn_base[:12]
+        elif task_pending is not None:
+            compared = compared or "HEAD"
         if task_changed is not None and not a.base:
             evidence["files"] = task_changed
             bad = V.paths_within(task_changed, label["context"]["allowed_paths"],
@@ -1390,15 +1400,14 @@ def cmd_verify(a) -> int:
         evidence["signoff"] = a.signoff
     # Pin what was verified, so integrate can refuse later changes. Only the task's
     # own recorded worktree is pinned: that is the tree integrate commits from.
-    if task_changed is not None:
-        # Paths already committed on the task branch are in HEAD; only the rest is staged.
-        pending = set(_changed_files(cwd, "HEAD"))
-        uncommitted = [path for path in task_changed if path in pending]
-        evidence["tree"] = _task_git_tree(cwd, uncommitted)
+    if task_pending is not None:
+        # Paths already committed on the task branch are in HEAD; every task path still
+        # changed against HEAD (edits, additions, deletions) is staged.
+        evidence["tree"] = _task_git_tree(cwd, task_pending)
         # Commit at accept: the verified tree becomes the task branch tip, so a
         # dependent task can start from it and integrate only has to merge it.
         evidence["commit"] = _commit_task_paths(
-            cwd, uncommitted, "ale: %s %s" % (a.task, label.get("title", a.task)))
+            cwd, task_pending, "ale: %s %s" % (a.task, label.get("title", a.task)))
         _fit(evidence)
     from .dispatch import worktree_mode
     if not evidence.get("files") and worktree_mode(label) != "none":

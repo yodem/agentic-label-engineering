@@ -382,3 +382,30 @@ def test_fix_task_of_a_stacked_child_verifies_against_the_parent_base(tmp_path, 
 
     assert ale(run, roster, "verify", "--task", "T2.fix1", "--cwd", str(worktree)) == 0, \
         capsys.readouterr().err
+
+
+# Review fix: an uncommitted change that cancels a committed one is still checked and committed.
+
+def test_a_committed_out_of_scope_file_removed_uncommitted_is_still_a_violation(tmp_path, capsys):
+    repo, run, roster, worktree, events = _dispatched(tmp_path)
+    _commit(worktree, "secret.txt", "out of scope\n")
+    (worktree / "secret.txt").unlink()
+    (worktree / "a.txt").write_text("x\n")
+
+    assert _submit_and_verify(run, roster, worktree, events) == 1
+    assert "path_violation: secret.txt" in capsys.readouterr().err
+
+
+def test_an_uncommitted_revert_of_a_committed_change_is_committed_at_accept(tmp_path):
+    repo, run, roster, worktree, events = _dispatched(tmp_path)
+    _commit(worktree, "a.txt", "committed\n")
+    (worktree / "a.txt").unlink()
+    (worktree / "b.txt").write_text("kept\n")
+
+    assert _submit_and_verify(run, roster, worktree, events) == 0
+    evidence = _of_type(events, "accepted")[-1]["evidence"]
+    assert evidence["files"] == ["a.txt", "b.txt"]
+    assert evidence["commit"] == _git(worktree, "rev-parse", "HEAD")
+    assert evidence["tree"] == _git(worktree, "rev-parse", "HEAD^{tree}")
+    assert _git(worktree, "ls-tree", "--name-only", "HEAD").splitlines() == ["b.txt", "base.txt"]
+    assert _git(worktree, "status", "--porcelain", "--untracked-files=no") == ""
