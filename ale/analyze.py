@@ -110,7 +110,7 @@ def run_key(run_dir: str) -> str:
 
 
 def load_run(entry: dict) -> Optional[dict]:
-    """Read one indexed run; None when its directory (or event log) is gone.
+    """Read one indexed run; None when its directory or event log is gone or unreadable.
 
     Lines of ``events.jsonl`` and label files that do not parse are skipped and counted in
     ``skipped_lines``; the run is scored on what does parse."""
@@ -140,19 +140,22 @@ def load_run(entry: dict) -> Optional[dict]:
         task_id = item.get("task_id")
         labels[task_id if isinstance(task_id, str) else os.path.basename(path)[:-5]] = item
     events: List[dict] = []
-    with open(events_path, "rb") as handle:
-        for line in handle:
-            if not line.strip():
-                continue
-            try:
-                event = json.loads(line.decode("utf-8"))
-            except (UnicodeDecodeError, ValueError):
-                skipped += 1
-                continue
-            if not _valid_event(event):
-                skipped += 1
-                continue
-            events.append(event)
+    try:
+        with open(events_path, "rb") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                try:
+                    event = json.loads(line.decode("utf-8"))
+                except (UnicodeDecodeError, ValueError):
+                    skipped += 1
+                    continue
+                if not _valid_event(event):
+                    skipped += 1
+                    continue
+                events.append(event)
+    except OSError:
+        return None   # unreadable (permissions, I/O): the caller skips it like a missing run
     run_id = next((e["run_id"] for e in events if isinstance(e.get("run_id"), str) and e["run_id"]),
                   None) or entry.get("run_id") or os.path.basename(run_dir)
     roster_hash = entry.get("roster_hash") or next(

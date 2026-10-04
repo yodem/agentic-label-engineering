@@ -632,3 +632,18 @@ def test_usage_recorded_fails_for_an_executor_claimed_headless_task_without_usag
     run = single_task_run(tmp_path, "r", _claimed_by("T1-executor-backend-1"))
     assert A.task_rows(run)[0]["claimed_by_lead"] is False
     assert one(report_for([run]), "ale.task.usage_recorded")["score"] == 0.0
+
+
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0, reason="root reads mode-000 files")
+def test_an_unreadable_event_log_is_skipped_with_the_warning(tmp_path, ale_home, now_env, capsys):
+    _index(good_run(tmp_path, "r", T0), "r")
+    locked = good_run(tmp_path, "locked", T0)
+    _index(locked, "locked")
+    events_path = os.path.join(locked, "events.jsonl")
+    os.chmod(events_path, 0)
+    try:
+        assert A.load_run(entry(locked, "locked")) is None
+        assert main(["analyze", "--no-write"]) == 0
+    finally:
+        os.chmod(events_path, 0o644)
+    assert "ale analyze: skipped %s (missing)" % os.path.realpath(locked) in capsys.readouterr().err
