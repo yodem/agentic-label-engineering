@@ -51,6 +51,8 @@ from .evalharness import report as REPORT
 from .board import BoardServer, build_snapshot
 from .runs import list_runs
 from . import runindex as RI
+from . import analyze as AN
+from . import evalledger as EL
 
 
 _HERDR_RUNNER = subprocess.run
@@ -3252,6 +3254,121 @@ def cmd_judge_stats(a) -> int:
     return OK
 
 
+def _analyze_since(value: Optional[str], default_days: float) -> Optional[float]:
+    if value is None:
+        return float(default_days) * 86400.0
+    if value == "all":
+        return None
+    match = re.fullmatch(r"([0-9]+)d", value)
+    if not match:
+        raise CliError(USAGE, "--since takes <N>d or all, got %r" % value)
+    return int(match.group(1)) * 86400.0
+
+
+def _read_json_file(path: str, default):
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        return default
+    return data if isinstance(data, type(default)) else default
+
+
+def _dated_reports(reports_dir: str) -> List[str]:
+    try:
+        names = os.listdir(reports_dir)
+    except OSError:
+        return []
+    return sorted(name[:-5] for name in names if re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}\.json", name))
+
+
+def _day_number(day: str) -> int:
+    import datetime
+    return datetime.date(*map(int, day.split("-"))).toordinal()
+
+
+def cmd_analyze(a) -> int:
+    """Score every indexed run against the committed thresholds; exit 1 on a breached check."""
+    home = RI.ale_home()
+    index = a.index or RI.index_path(home)
+    raw_now = os.environ.get("ALE_NOW")
+    try:
+        now = float(raw_now) if raw_now not in (None, "") else time.time()
+    except ValueError:
+        raise CliError(USAGE, "ALE_NOW must be a number, got %r" % (raw_now,))
+    try:
+        thresholds = AN.load_thresholds(a.thresholds)
+    except (OSError, ValueError) as exc:
+        raise CliError(USAGE, "cannot read thresholds: %s" % exc)
+    since_s = _analyze_since(a.since, thresholds.get("window_days", 7))
+    reports_dir = os.path.join(home, ".ale", "reports")
+    today = AN.iso(now)[:10]
+    dated = _dated_reports(reports_dir)
+    if a.if_due and dated:
+        age = _day_number(today) - _day_number(dated[-1])
+        if age < int(thresholds.get("due_after_days", 7)):
+            print("ale analyze: not due (last report %s)" % dated[-1])
+            return OK
+    for root in a.backfill or []:
+        RI.backfill([root], index=index)
+    runs = []
+    for entry in RI.read_index(index=index):
+        run = AN.load_run(entry)
+        if run is None:
+            print("ale analyze: skipped %s (missing)" % entry.get("run_dir"), file=sys.stderr)
+        runs.append(run)
+    report = AN.evaluate(runs, thresholds, now, since_s)
+    windows = int(thresholds.get("saturation_windows", 4))
+    history = []
+    for day in [d for d in dated if d != today][-windows:]:
+        past = _read_json_file(os.path.join(reports_dir, day + ".json"), {})
+        history.append({"date": day, "checks": {k: (v or {}).get("rate")
+                                                for k, v in (past.get("checks") or {}).items()}})
+    report["history"] = history
+    report["offline_regressions"] = EL.regressions(
+        [row for row in EL.read_rows(home) if row.get("case_kind") == "offline"])
+    fixes = _read_jsonl_quiet(os.path.join(home, ".ale", "fixes.jsonl"))
+    report["fixes"] = AN.fix_statuses(report, fixes)
+    report["findings"] = AN.findings(report, _read_json_file(os.path.join(reports_dir, "findings.json"), {}),
+                                     fixes)
+    text = AN.render_markdown(report)
+    if not a.no_write:
+        os.makedirs(reports_dir, exist_ok=True)
+        H.write_atomic(os.path.join(reports_dir, today + ".md"), text)
+        H.write_atomic(os.path.join(reports_dir, today + ".json"), json.dumps(report, indent=2, sort_keys=True))
+        H.write_atomic(os.path.join(reports_dir, "findings.json"),
+                       json.dumps(report["findings"], indent=2, sort_keys=True))
+        H.write_atomic(os.path.join(reports_dir, "promotions.json"),
+                       json.dumps(report["promotions"], indent=2, sort_keys=True))
+        analyze_id = "analyze-" + report["generated"]
+        EL.append_rows([EL.make_row(analyze_id, case.get("tool_version"), case.get("config_hash"),
+                                    case["case_id"], case["case_kind"], case["case_category"],
+                                    case["evaluator"], case["score"], case["passed"], case["reason"],
+                                    dict(case.get("metadata") or {}, scored_run_id=case.get("run_id")))
+                        for case in report["case_results"]], home)
+    if a.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        sys.stdout.write(text)
+    return FAIL if any(check["breached"] for check in report["checks"].values()) else OK
+
+
+def _read_jsonl_quiet(path: str) -> List[dict]:
+    rows = []
+    try:
+        with open(path, "rb") as handle:
+            for line in handle:
+                try:
+                    row = json.loads(line.decode("utf-8"))
+                except (UnicodeDecodeError, ValueError):
+                    continue
+                if isinstance(row, dict):
+                    rows.append(row)
+    except OSError:
+        return []
+    return rows
+
+
 def _nearest_existing_parent(path: str) -> str:
     cur = os.path.realpath(os.path.abspath(path))
     while not os.path.exists(cur):
@@ -4065,6 +4182,15 @@ def _parser() -> argparse.ArgumentParser:
     ub.add_argument("--session", required=True)
     ub.add_argument("--subagent")
     ub.add_argument("--home")
+    an = sub.add_parser("analyze", help="score every indexed run against the committed thresholds")
+    an.set_defaults(fn=cmd_analyze)
+    an.add_argument("--since", help="7d, 30d, <N>d or all (default: the thresholds window)")
+    an.add_argument("--index", help="run index path (default: $ALE_HOME/.ale/index/runs.jsonl)")
+    an.add_argument("--backfill", action="append", metavar="DIR", help="index existing run dirs under DIR first")
+    an.add_argument("--json", action="store_true")
+    an.add_argument("--if-due", action="store_true", help="run only when the newest report is old enough")
+    an.add_argument("--no-write", action="store_true", help="print the report; write nothing")
+    an.add_argument("--thresholds", help="thresholds file (default: ale/schema/analyze_thresholds.json)")
     ev = sub.add_parser("eval")
     evsub = ev.add_subparsers(dest="eval_cmd")
     ec = evsub.add_parser("corpus")
