@@ -16,7 +16,6 @@ import math
 import os
 import re
 import statistics
-import time
 import warnings
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -26,6 +25,7 @@ from . import events as E
 from . import harness as HARNESS
 from .dispatch import worktree_mode
 from .labeling.shadow import summarize_shadow
+from .records import iso
 from .validate import load_schema
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -41,10 +41,6 @@ _USAGE_NUMBERS = ("gen_ai.usage.input_tokens", "gen_ai.usage.output_tokens")
 def load_thresholds(path=None) -> dict:
     with open(path or THRESHOLDS_PATH, encoding="utf-8") as handle:
         return json.load(handle)
-
-
-def iso(epoch: float) -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(epoch))
 
 
 def _epoch(value) -> Optional[float]:

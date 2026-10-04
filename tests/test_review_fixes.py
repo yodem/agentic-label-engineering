@@ -315,3 +315,27 @@ def test_item12_analyze_twice_appends_ledger_rows_once(tmp_path, monkeypatch, al
     assert main(["analyze"]) == 0
 
     assert len(EL.read_rows()) == len(first)
+
+
+# Item 13: one tolerant JSONL reader, one ISO formatter, one ALE_HOME resolver, one flock append.
+def test_item13_shared_record_helpers(tmp_path, monkeypatch):
+    import argparse
+
+    from ale import analyze, cli, evalledger, records, runindex
+    from ale.events import locked_append
+
+    path = tmp_path / "rows.jsonl"
+    path.write_bytes(b'{"a": 1}\nnot json\n[1, 2]\n\xff\xfe\n{"b": 2}\n')
+    assert records.read_jsonl(str(path)) == [{"a": 1}, {"b": 2}]
+    assert records.read_jsonl(str(tmp_path / "missing.jsonl")) == []
+
+    locked_append(str(path), lambda: b"")
+    locked_append(str(path), b'{"c": 3}\n')
+    assert records.read_jsonl(str(path))[-1] == {"c": 3}
+
+    assert records.iso(0) == "1970-01-01T00:00:00Z"
+    assert analyze.iso is records.iso and evalledger.iso is records.iso
+
+    monkeypatch.setenv("ALE_HOME", str(tmp_path / "h"))
+    assert runindex.ale_home() == cli._hook_home() == str(tmp_path / "h")
+    assert cli._binding_home(argparse.Namespace(home=None)) == str(tmp_path / "h")

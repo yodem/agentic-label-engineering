@@ -54,6 +54,7 @@ from . import runindex as RI
 from . import analyze as AN
 from . import evalledger as EL
 from . import evalcases as EC
+from . import records as REC
 
 
 _HERDR_RUNNER = subprocess.run
@@ -1568,7 +1569,7 @@ def cmd_usage(a) -> int:
 
 
 def _hook_home() -> str:
-    return os.environ.get("ALE_HOME") or os.path.expanduser("~")
+    return REC.ale_home()
 
 
 def _hook_ctx(binding: dict) -> Ctx:
@@ -2869,7 +2870,7 @@ def cmd_meta(a) -> int:
 
 
 def _binding_home(a) -> str:
-    return a.home or os.environ.get("ALE_HOME") or os.path.expanduser("~")
+    return a.home or REC.ale_home()
 
 
 def cmd_bind(a) -> int:
@@ -3360,7 +3361,7 @@ def _day_number(day: str) -> int:
 def cmd_analyze(a) -> int:
     """Score every indexed run against the committed thresholds; exit 1 on a breached check or
     a regressed active offline case."""
-    home = RI.ale_home()
+    home = REC.ale_home()
     index = a.index or RI.index_path(home)
     raw_now = os.environ.get("ALE_NOW")
     try:
@@ -3373,7 +3374,7 @@ def cmd_analyze(a) -> int:
         raise CliError(USAGE, "cannot read thresholds: %s" % exc)
     since_s = _analyze_since(a.since, thresholds.get("window_days", 7))
     reports_dir = os.path.join(home, ".ale", "reports")
-    today = AN.iso(now)[:10]
+    today = REC.iso(now)[:10]
     dated = _dated_reports(reports_dir)
     if a.if_due and dated:
         age = _day_number(today) - _day_number(dated[-1])
@@ -3400,7 +3401,7 @@ def cmd_analyze(a) -> int:
                                                 for k, v in (past.get("checks") or {}).items()}})
     report["history"] = history
     report["offline_regressions"] = EC.regressions(EL.read_rows(home), _active_case_ids())
-    fixes = _read_jsonl_quiet(os.path.join(home, ".ale", "fixes.jsonl"))
+    fixes = REC.read_jsonl(os.path.join(home, ".ale", "fixes.jsonl"))
     report["fixes"] = AN.fix_statuses(report, fixes)
     report["findings"] = AN.findings(report, _read_json_file(os.path.join(reports_dir, "findings.json"), {}),
                                      fixes)
@@ -3447,22 +3448,6 @@ def _active_case_ids() -> List[str]:
     except EC.CaseError as exc:
         print("ale analyze: offline cases not read: %s" % exc, file=sys.stderr)
         return []
-
-
-def _read_jsonl_quiet(path: str) -> List[dict]:
-    rows = []
-    try:
-        with open(path, "rb") as handle:
-            for line in handle:
-                try:
-                    row = json.loads(line.decode("utf-8"))
-                except (UnicodeDecodeError, ValueError):
-                    continue
-                if isinstance(row, dict):
-                    rows.append(row)
-    except OSError:
-        return []
-    return rows
 
 
 def _nearest_existing_parent(path: str) -> str:
@@ -3545,7 +3530,7 @@ def cmd_eval_cases(a) -> int:
     if not active:
         print("ale eval cases: no active cases in %s; nothing was checked" % path, file=sys.stderr)
         return FAIL if a.ci else OK
-    run_id = "cases-" + EL.iso_ts()
+    run_id = "cases-" + REC.iso()
     digest = EC.config_hash()
     rows = []
     failed = 0
