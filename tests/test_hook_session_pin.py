@@ -13,7 +13,7 @@ import subprocess
 
 import pytest
 
-from ale.binding import pin_path
+from ale.binding import read_pins
 from ale.cli import main
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -69,8 +69,7 @@ def outside_write(cwd):
 def test_session_start_in_worktree_pins_the_executor_session(run, monkeypatch):
     run_dir, worktree, _ = run
     assert hook(monkeypatch, "session-start", "exec", worktree) == 0
-    with open(pin_path(str(run_dir), "T01", "a1"), encoding="utf-8") as handle:
-        assert handle.read().strip() == "exec"
+    assert read_pins(str(run_dir), "T01", "a1") == ["exec"]
 
 
 def test_foreign_session_stop_writes_no_note(run, monkeypatch, capsys):
@@ -95,8 +94,7 @@ def test_foreign_session_start_does_not_take_the_pin(run, monkeypatch):
     run_dir, worktree, elsewhere = run
     hook(monkeypatch, "session-start", "exec", worktree)
     hook(monkeypatch, "session-start", "child", elsewhere)
-    with open(pin_path(str(run_dir), "T01", "a1"), encoding="utf-8") as handle:
-        assert handle.read().strip() == "exec"
+    assert read_pins(str(run_dir), "T01", "a1") == ["exec"]
 
 
 def test_pinned_session_is_still_guarded_and_stop_still_blocks(run, monkeypatch, capsys):
@@ -115,8 +113,7 @@ def test_new_session_inside_the_worktree_repins_and_is_honoured(run, monkeypatch
     run_dir, worktree, _ = run
     hook(monkeypatch, "session-start", "exec", worktree)
     hook(monkeypatch, "session-start", "exec-after-clear", worktree)
-    with open(pin_path(str(run_dir), "T01", "a1"), encoding="utf-8") as handle:
-        assert handle.read().strip() == "exec-after-clear"
+    assert read_pins(str(run_dir), "T01", "a1") == ["exec", "exec-after-clear"]
     capsys.readouterr()
     assert hook(monkeypatch, "pre-tool", "exec-after-clear", worktree, **outside_write(worktree)) == 2
     assert "outside allowed_paths" in capsys.readouterr().err
@@ -128,3 +125,21 @@ def test_without_a_pin_every_env_bound_session_is_honoured(run, monkeypatch, cap
     capsys.readouterr()
     assert hook(monkeypatch, "stop", "any", elsewhere) == 0
     assert json.loads(capsys.readouterr().out)["decision"] == "block"
+
+
+def test_pinned_executor_that_cds_out_of_the_worktree_stays_guarded(run, monkeypatch, capsys):
+    run_dir, worktree, elsewhere = run
+    hook(monkeypatch, "session-start", "exec", worktree)
+    capsys.readouterr()
+    assert hook(monkeypatch, "pre-tool", "exec", elsewhere, **outside_write(elsewhere)) == 2
+    assert "outside allowed_paths" in capsys.readouterr().err
+
+
+def test_child_starting_inside_the_worktree_does_not_unbind_the_executor(run, monkeypatch, capsys):
+    run_dir, worktree, elsewhere = run
+    hook(monkeypatch, "session-start", "exec", worktree)
+    hook(monkeypatch, "session-start", "child", worktree)
+    assert read_pins(str(run_dir), "T01", "a1") == ["exec", "child"]
+    capsys.readouterr()
+    assert hook(monkeypatch, "pre-tool", "exec", elsewhere, **outside_write(elsewhere)) == 2
+    assert "outside allowed_paths" in capsys.readouterr().err

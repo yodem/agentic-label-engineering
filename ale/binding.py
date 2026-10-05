@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import Mapping, Optional
+from typing import List, Mapping, Optional
 
 from . import handoff as H
 
@@ -85,17 +85,21 @@ def pin_path(run_dir: str, task_id: str, agent_id: str) -> str:
     return os.path.join(run_dir, "hook-sessions", "%s--%s" % (_normalise_id(task_id), _normalise_id(agent_id)))
 
 
-def read_pin(run_dir: str, task_id: str, agent_id: str) -> Optional[str]:
+def read_pins(run_dir: str, task_id: str, agent_id: str) -> List[str]:
+    """Every session pinned for this task and agent (one id per line, oldest first)."""
     try:
         with open(pin_path(run_dir, task_id, agent_id), encoding="utf-8") as handle:
-            value = handle.read().strip()
+            return [line.strip() for line in handle if line.strip()]
     except OSError:
-        return None
-    return value or None
+        return []
 
 
-def write_pin(run_dir: str, task_id: str, agent_id: str, session_id: str) -> None:
-    H.write_atomic(pin_path(run_dir, task_id, agent_id), session_id + "\n")
+def add_pin(run_dir: str, task_id: str, agent_id: str, session_id: str) -> None:
+    """Pin ``session_id`` in addition to any earlier pin: a session that was ever the executor
+    (a pane's session before ``/clear``, say) stays bound wherever its cwd is later."""
+    pins = read_pins(run_dir, task_id, agent_id)
+    if session_id not in pins:
+        H.write_atomic(pin_path(run_dir, task_id, agent_id), "".join(p + "\n" for p in pins + [session_id]))
 
 
 def within(path: str, root: str) -> bool:
@@ -105,12 +109,13 @@ def within(path: str, root: str) -> bool:
 
 
 def is_foreign(binding: dict, session_id: Optional[str], cwd: str, worktree: Optional[str]) -> bool:
-    """An env-bound hook event that comes from a session other than the pinned executor session
-    and runs outside the task worktree. No env binding, no worktree or no pin: never foreign."""
+    """An env-bound hook event from a session that was never pinned, running outside the task
+    worktree. A pinned session is never foreign, whatever its cwd. No env binding, no worktree
+    or no pin: never foreign."""
     if binding.get("source") != "env" or not worktree:
         return False
-    pinned = read_pin(binding["run_dir"], binding["task_id"], binding["agent_id"])
-    if pinned is None or pinned == session_id:
+    pinned = read_pins(binding["run_dir"], binding["task_id"], binding["agent_id"])
+    if not pinned or session_id in pinned:
         return False
     return not within(cwd, worktree)
 

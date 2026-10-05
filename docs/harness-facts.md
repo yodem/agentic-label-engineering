@@ -786,9 +786,10 @@ Compound commands, What a Bash rule doesn't match). Tests: `tests/test_headless_
   applied the task's path guard to the child's own writes.
 - A plain `claude -p` Stop hook input carries the session's own `cwd` (same day, scratch repo), so the executor's own Stop
   was never wrong.
-- **Rule (0.4.4).** An env binding is pinned to the session that sends `session-start` with its `cwd` inside the task's
-  recorded worktree (`<run_dir>/hook-sessions/<task>--<agent>`; a later session-start inside the worktree re-pins, so a pane
-  `/clear` or resume keeps its guard). A hook event from another session whose `cwd` is outside that worktree is ignored
+- **Rule (0.4.4).** A session that sends `session-start` with its `cwd` inside the task's recorded worktree is added to the
+  task's pinned set (`<run_dir>/hook-sessions/<task>--<agent>`, one id per line). A pinned session stays bound wherever
+  its cwd is later (an executor `cd`, a pane `/clear` that starts a new session in the worktree). A hook event from a
+  never-pinned session whose `cwd` is outside that worktree is ignored
   (exit 0, nothing written). Subagents share their parent's `session_id`, so they stay bound. No pin, or no recorded local
   worktree (remote, mode `none`): unchanged.
 
