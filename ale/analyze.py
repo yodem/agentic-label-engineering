@@ -94,10 +94,16 @@ def _valid_event(event) -> bool:
 
 
 def run_key(run_dir: str) -> str:
-    """The case-id prefix of a run: ``<repo>:<run dir name>`` for ``<repo>/.ale/runs/<dir>``.
+    """The identity of a run: the realpath of its run dir.
 
-    Run ids repeat (every plan compiled from ``plan.md`` is run ``plan``) and so do run dir
-    names across repositories, so neither alone identifies a run in the ledger."""
+    Run ids repeat (every plan compiled from ``plan.md`` is run ``plan``) and so do repository
+    and run dir names (``/srv/a/project/.ale/runs/plan`` and ``/srv/b/project/.ale/runs/plan``),
+    so only the directory itself identifies a run in case ids, the ledger and promotions."""
+    return os.path.realpath(run_dir)
+
+
+def run_label(run_dir: str) -> str:
+    """The display label of a run in reports: ``<repo>:<run dir name>`` for ``<repo>/.ale/runs/<dir>``."""
     path = os.path.normpath(run_dir)
     runs = os.path.dirname(path)
     if os.path.basename(runs) == "runs" and os.path.basename(os.path.dirname(runs)) == ".ale":
@@ -160,7 +166,7 @@ def load_run(entry: dict) -> Optional[dict]:
     ale_version = next((str(e["ale_version"]) for e in events
                         if e["type"] in ("run_started", "labeled") and e.get("ale_version")),
                        None) or entry.get("ale_version")
-    return {"run_id": run_id, "run_key": run_key(run_dir), "run_dir": run_dir,
+    return {"run_id": run_id, "run_key": run_key(run_dir), "run_label": run_label(run_dir), "run_dir": run_dir,
             "repo_root": entry.get("repo_root"), "labels": labels, "events": events,
             "skipped_lines": skipped, "roster_hash": roster_hash, "ale_version": ale_version}
 
@@ -267,7 +273,7 @@ def _row(run: dict, task_id: str, label: dict, task_events: List[dict], st: Opti
         state = (st or {}).get("state", "unknown")
     integrated = bool((st or {}).get("integrated")) or bool(integrations)
     return {
-        "run_key": run["run_key"], "task_id": task_id, "role": values.get("role"),
+        "run_key": run["run_key"], "run_label": run.get("run_label"), "task_id": task_id, "role": values.get("role"),
         "effort": values.get("effort"), "risk": values.get("risk"), "model_tier": values.get("model_tier"),
         "harness": HARNESS.normalize(routing.get("executor")) or HARNESS.normalize(executor),
         "model": routing.get("model") or (first_spawn or {}).get("model"),
@@ -465,6 +471,8 @@ def _score(runs: List[dict], thresholds: dict, now: float) -> tuple:
                 "tool_version": run.get("ale_version"), "ts": _first_ts(run),
                 "metadata": {"run_dir": run["run_dir"], "run_status": status}}
 
+        label = run.get("run_label") or run_label(run["run_dir"])
+
         def record(check_id, case_id, category, result, task_id=None):
             if result is None:
                 return
@@ -472,7 +480,8 @@ def _score(runs: List[dict], thresholds: dict, now: float) -> tuple:
             bar = bars.get(check_id)
             item = dict(base, case_id=case_id, case_category=category, evaluator=check_id,
                         score=float(score), passed=bool(bar is None or score >= bar), reason=reason)
-            item["metadata"] = dict(base["metadata"], **({"task_id": task_id} if task_id else {}))
+            item["metadata"] = dict(base["metadata"], label="%s/%s" % (label, task_id) if task_id else label,
+                                    **({"task_id": task_id} if task_id else {}))
             cases.append(item)
 
         for row in rows:
@@ -499,7 +508,9 @@ def _checks(cases: List[dict], thresholds: dict) -> dict:
         out[check_id] = {
             "n": len(mine), "passed": sum(1 for c in mine if c["passed"]), "rate": rate, "bar": bar,
             "breached": bool(bar is not None and rate is not None and len(mine) >= min_n and rate < bar),
-            "examples": [c["case_id"] for c in mine if not c["passed"]][:5]}
+            "examples": [c["case_id"] for c in mine if not c["passed"]][:5],
+            "example_labels": [(c.get("metadata") or {}).get("label") or c["case_id"]
+                               for c in mine if not c["passed"]][:5]}
     return out
 
 
@@ -721,7 +732,9 @@ def findings(report: dict, previous: dict, fixes: List[dict]) -> dict:
         before = (previous or {}).get(check_id) or {}
         out[check_id] = {"value": check["rate"], "bar": check["bar"], "n": check["n"],
                          "first_seen": before.get("first_seen") or today, "last_seen": today,
-                         "examples": list(check["examples"]), "fix": latest_fix.get(check_id)}
+                         "examples": list(check["examples"]),
+                         "example_labels": list(check.get("example_labels") or check["examples"]),
+                         "fix": latest_fix.get(check_id)}
     return out
 
 
@@ -767,7 +780,7 @@ def render_markdown(report: dict) -> str:
             "ok" if check["rate"] >= (check["bar"] or 0) else "below bar, n < min"))
         lines.append("| %s | %d | %d | %s | %s | %s | %s |" % (
             check_id, check["n"], check["passed"], _fmt(check["rate"]), _fmt(check["bar"]), status,
-            ", ".join(check["examples"]) or "-"))
+            ", ".join(check.get("example_labels") or check["examples"]) or "-"))
     cases = report.get("case_results", [])
     previous = report.get("previous") or {}
 

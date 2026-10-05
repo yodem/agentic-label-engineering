@@ -268,8 +268,10 @@ def test_breached_needs_min_n(tmp_path):
     three = report_for([failing("three", 3)])["checks"]["ale.task.usage_recorded"]
     assert three["n"] == 3 and three["breached"] is True
     key = A.run_key(run_dir_for(tmp_path, "three"))
-    assert key == "%s:three" % tmp_path.name
+    assert key == os.path.realpath(run_dir_for(tmp_path, "three"))
     assert three["examples"] == [key + "/T1", key + "/T2", key + "/T3"]
+    shown = "%s:three" % tmp_path.name
+    assert three["example_labels"] == [shown + "/T1", shown + "/T2", shown + "/T3"]
 
 
 # --- robustness ------------------------------------------------------------------------------
@@ -302,7 +304,8 @@ def test_window_and_exclusions(tmp_path):
     by_dir = load(good_run(tmp_path, "plan", T0, dir_name="jev-bakeoff"), "plan")
     report = report_for([old, new, excluded, by_dir], since_s=7 * 24 * HOUR)
     assert report["runs"]["done"] == 1 and report["runs"]["skipped"] == 2
-    assert {row["case_id"].split("/")[0] for row in report["case_results"]} == {new["run_key"]}
+    assert {os.path.realpath(row["metadata"]["run_dir"]) for row in report["case_results"]} == {new["run_key"]}
+    assert all(row["case_id"].startswith(new["run_key"]) for row in report["case_results"])
     everything = report_for([old, new, excluded, by_dir], since_s=None)
     assert everything["runs"]["done"] == 2
 
@@ -334,10 +337,11 @@ def test_case_ids_categories_and_config_hash(tmp_path):
 def test_run_keys_tell_apart_same_named_runs_in_two_repos(tmp_path):
     first = A.load_run(entry(good_run(tmp_path / "repo-a", "plan", T0, dir_name="eval"), "plan"))
     second = A.load_run(entry(good_run(tmp_path / "repo-b", "plan", T0, dir_name="eval"), "plan"))
-    assert first["run_key"] == "repo-a:eval" and second["run_key"] == "repo-b:eval"
+    assert first["run_label"] == "repo-a:eval" and second["run_label"] == "repo-b:eval"
+    assert first["run_key"] != second["run_key"]
     cases = report_for([first, second])["case_results"]
     assert len({(c["case_id"], c["evaluator"]) for c in cases}) == len(cases)
-    assert A.run_key("/somewhere/custom-run") == "custom-run"
+    assert A.run_label("/somewhere/custom-run") == "custom-run"
 
 
 def test_case_ids_use_the_run_dir_name_when_the_run_id_differs(tmp_path):
@@ -346,7 +350,8 @@ def test_case_ids_use_the_run_dir_name_when_the_run_id_differs(tmp_path):
     run = A.load_run(entry(run_dir, "plan"))
     assert run["run_id"] == "plan"
     report = report_for([run])
-    assert {row["case_id"].split("/")[0] for row in report["case_results"]} == {
+    assert all(row["case_id"].startswith(os.path.realpath(run_dir)) for row in report["case_results"])
+    assert {row["metadata"]["label"].split("/")[0] for row in report["case_results"]} == {
         "%s:2026-10-04-eval" % tmp_path.name}
     assert {row["run_id"] for row in report["case_results"]} == {"plan"}
 

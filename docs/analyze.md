@@ -36,9 +36,12 @@ directory is at most 7 levels below `DIR`. It never descends into `.git`, `node_
 run's own `wt/` worktrees are never walked). Backfilled entries take `run_id` and
 `roster_hash` from the event log and leave `ale_version` null. Backfill is idempotent.
 
-A case id names the run as `<repo>:<run dir name>` (for `<repo>/.ale/runs/<dir>`), not by its
-run id: every run compiled from a `plan.md` gets run id `plan`, and run dir names repeat across
-repositories. A task case is `<repo>:<run dir>/<task>`.
+A case id names the run by the realpath of its run dir, not by its run id: every run compiled
+from a `plan.md` gets run id `plan`, and repository and run dir names repeat
+(`/srv/a/project/.ale/runs/plan` and `/srv/b/project/.ale/runs/plan`). A task case is
+`<realpath of run dir>/<task>`. The same key dedupes ledger rows and keys promotion cases.
+Reports show the short `<repo>:<run dir name>` label instead (`metadata.label` on each row,
+`example_labels` beside `examples` in checks and findings); the label is for reading only.
 
 Runs whose run id or dir name matches `exclude_run_ids` in the thresholds file (test runs such
 as `roundtrip` and `jev-bakeoff`) are skipped. A missing or unreadable run is skipped with a
