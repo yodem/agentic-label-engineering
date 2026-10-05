@@ -58,6 +58,9 @@ Run the full suite before you report a change as done. Report failures with thei
   5 needs sign-off, 6 breaches. Do not repurpose them.
 - **Tests never call a real judge.** The root `conftest.py` blocks `jev-ask` on `PATH`; use
   `tests/judge_fakes.py`. Tests that need git create a repository in `tmp_path`.
+- **Tests never start a real executor.** The root `conftest.py` points `ALE_SPAWN_BIN` at a no-op
+  stand-in for every test; a test that must run `bin/ale-spawn` opts in with `@pytest.mark.real_spawn`
+  and puts fake harnesses on `PATH`.
 - **Portable content.** No absolute home paths, personal emails or machine-specific details in
   `agents/`, `catalog/`, docs or fixtures. `tests/test_agent_bundle.py` checks part of this.
 - **Docs follow behaviour.** A user-visible change updates the matching file in `docs/` or the
