@@ -288,7 +288,8 @@ def _row(run: dict, task_id: str, label: dict, task_events: List[dict], st: Opti
         "run_key": run["run_key"], "run_label": run.get("run_label"), "task_id": task_id, "role": values.get("role"),
         "effort": values.get("effort"), "risk": values.get("risk"), "model_tier": values.get("model_tier"),
         "harness": HARNESS.normalize(routing.get("executor")) or HARNESS.normalize(executor),
-        "model": routing.get("model") or spawn_model,
+        # A spawn's recorded model is what ran; the label's routing is only what was planned.
+        "model": (spawn_model if not lead_work else None) or routing.get("model") or spawn_model,
         "worktree_mode": worktree_mode(label), "spawned_by": spawned_by, "claimed": bool(claims),
         "claim_deviations": deviations,
         "claimed_by_lead": any(str(e.get("agent_id") or "").startswith("lead") for e in claims),

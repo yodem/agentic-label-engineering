@@ -3289,7 +3289,7 @@ def cmd_rescope(a) -> int:
 
 
 def cmd_relabel(a) -> int:
-    from .bake import follow_assignments
+    from .bake import follow_assignments, routing_for
     if a.field == "lane" or (a.field not in CAS.FIELDS and a.field not in ("assignments", "sub", "phase", "acceptance")):
         raise CliError(USAGE, "field %s cannot be relabeled or adjudicated" % a.field)
     c = Ctx(a)
@@ -3353,6 +3353,10 @@ def cmd_relabel(a) -> int:
             label["routing"]["agent"] = {key: ref[key] for key in ("key", "path", "name", "sha256", "version", "matched")}
             agent = catalog.get(ref["key"])
             label["effective_rules"] = effective_rules(label, agent)
+    if a.field != "acceptance" and c.roster:
+        # The routing is derived from labels and assignments, so it follows them (the agent stays);
+        # analyze and the timeline read it, while dispatch re-derives it from the same rule.
+        label["routing"] = routing_for(label, c.roster, agent=(label.get("routing") or {}).get("agent"))
     provenance = dict(label.get("provenance") or {})
     field_provenance = provenance.get(a.field)
     if not isinstance(field_provenance, dict):

@@ -697,3 +697,67 @@ def test_run_started_declares_plan_path_and_run_id_from_as_optional():
     assert check_event(make_event("run_started", "r", 1.0, plan_path="/a/plan.md", run_id_from="run-dir")) == []
     assert check_event(make_event("run_started", "r", 1.0, plan_path=7)) != []
     assert check_event(make_event("run_started", "r", 1.0, run_id_from="guess")) != []
+
+
+# --- the label's routing follows a relabel (review of PR #3) -----------------------------------
+
+def _git_repo(path):
+    import subprocess
+    for argv in (["git", "init", "-q", "-b", "main"], ["git", "config", "user.email", "t@example.com"],
+                 ["git", "config", "user.name", "t"], ["git", "commit", "-q", "--allow-empty", "-m", "init"]):
+        subprocess.run(argv, cwd=str(path), check=True)
+
+
+def _roster_dict(roster):
+    with open(roster, encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def _baked_run(tmp_path):
+    """A run started the real way: `plan bake --write` (sidecar routing), then `init-run --plan`."""
+    plan, run_dir, roster = _setup(tmp_path, init=False)
+    assert main(["plan", "bake", plan, "--no-judge", "--write", "--roster", roster]) == 0
+    assert main(["init-run", "--plan", plan, "--run-dir", run_dir, "--roster", roster, "--now", "1"]) == 0
+    return plan, run_dir, roster
+
+
+def test_a_tier_relabel_recomputes_the_label_routing_and_keeps_its_agent(tmp_path):
+    from ale.bake import routing_for
+    plan, run_dir, roster = _baked_run(tmp_path)
+    before = _label(run_dir)["routing"]
+    assert before["model"] and before["model"] not in _frontier_models(roster)
+
+    assert _relabel(run_dir, roster, "model_tier", "frontier") == 0
+
+    label = _label(run_dir)
+    assert label["routing"]["model"] in _frontier_models(roster)
+    assert label["routing"] == routing_for(label, _roster_dict(roster), agent=label["routing"]["agent"])
+    assert {k: label["routing"]["agent"][k] for k in ("key", "sha256")} == {k: before["agent"][k] for k in ("key", "sha256")}
+    assert _blocks(plan)["T1"]["route"]["model"] == label["routing"]["model"]   # the plan block agrees
+    assert _label(run_dir, "T2")["routing"]["model"] == before["model"]          # T2 keeps its routing
+
+
+def test_a_role_relabel_recomputes_the_routing_with_the_new_agent(tmp_path):
+    from ale.bake import routing_for
+    plan, run_dir, roster = _baked_run(tmp_path)
+    assert _relabel(run_dir, roster, "role", "docs") == 0
+    label = _label(run_dir)
+    assert label["routing"]["agent"]["key"].startswith("docs")
+    assert label["routing"] == routing_for(label, _roster_dict(roster), agent=label["routing"]["agent"])
+
+
+def test_after_a_tier_relabel_dispatch_and_analyze_report_the_new_model(tmp_path):
+    from ale import analyze as A
+    from analyze_fixtures import entry
+    plan, run_dir, roster = _baked_run(tmp_path)
+    _git_repo(tmp_path)
+    assert _label(run_dir)["routing"]["model"] not in _frontier_models(roster)   # the sidecar's routing
+    assert _relabel(run_dir, roster, "model_tier", "frontier") == 0
+    assert main(["dispatch", "--spawn", "--run-dir", run_dir, "--roster", roster, "--cwd", str(tmp_path),
+                 "--task", "T1", "--now", "10"]) == 0
+    spawn = [e for e in _events(run_dir, "spawned") if e["task_id"] == "T1"][0]
+    assert spawn["model"] in _frontier_models(roster)
+    run = A.load_run(entry(run_dir, os.path.basename(run_dir)))
+    row = next(r for r in A.task_rows(run) if r["task_id"] == "T1")
+    assert row["model"] == spawn["model"]
+    assert _label(run_dir)["routing"]["model"] == spawn["model"]

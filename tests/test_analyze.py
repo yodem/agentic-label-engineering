@@ -739,3 +739,23 @@ def test_a_run_without_deviations_reports_none(tmp_path):
     report = report_for([run])
     assert report["deviations"] == {}
     assert "No declared deviations." in A.render_markdown(report)
+
+
+# --- the spawn's recorded model wins over the label's planned routing (review of PR #3) ------
+
+def test_a_spawned_model_wins_over_a_stale_label_routing_model(tmp_path):
+    def events(run_dir):
+        rows = good_task("r", "T1", T0 + 100, run_dir)
+        rows[0]["model"] = "gpt-new"
+        return rows
+    run = single_task_run(tmp_path, "r", events, task_label=label("T1", "r", model="gpt-old"))
+    assert A.task_rows(run)[0]["model"] == "gpt-new"
+
+
+def test_the_label_routing_model_is_used_when_the_spawn_recorded_none(tmp_path):
+    def events(run_dir):
+        rows = good_task("r", "T1", T0 + 100, run_dir)
+        rows[0]["model"] = None
+        return rows
+    run = single_task_run(tmp_path, "r", events, task_label=label("T1", "r", model="gpt-old"))
+    assert A.task_rows(run)[0]["model"] == "gpt-old"

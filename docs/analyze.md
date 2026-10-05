@@ -108,8 +108,9 @@ the previous `saturation_windows - 1` dated reports: tighten or retire), **Fix s
 `claim_deviations`; a count, not a check),
 **Metrics** (per role, tier, harness and model: acceptance rate, first-pass rate, attempts per
 accepted task, claim-to-accept p50 and p90, tokens per accepted task, unknown-usage share; the
-harness and model are the label's routing, else, for a `no_exec` spawn, the label's executor
-assignment, else the first spawn's),
+harness is the label's routing, else, for a `no_exec` spawn, the label's executor assignment,
+else the first spawn's; the model is the first spawn's recorded model (what ran), else the
+label's routing, else, for a `no_exec` spawn, the executor assignment's),
 **Calibration** (effort buckets with n >= 5 must be monotonic in duration and files changed;
 role/effort/risk groups with n >= 3 whose reject rate or median duration is at least 2x the
 median group), and **Promotions** (judge promotion progress per field from the roster,
