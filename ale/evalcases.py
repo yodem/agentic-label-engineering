@@ -201,18 +201,23 @@ def _refs(case: dict) -> dict:
     return _compare([("allowed", case["expected"].get("allowed"), allowed)], {"allowed": allowed})
 
 
-def _analyze(case: dict) -> dict:
-    """Score the fixture run with ``analyze.evaluate``. A check's verdict is whether every one
-    of its case results passed, or None when the check had no result (n/a)."""
+def _case_run(case: dict) -> Tuple[str, dict, float]:
+    """The fixture run of an ``analyze`` or ``claim`` case: its directory, the run loaded with
+    ``analyze.load_run``, and ``now``: ``input.now``, else the last event + 60 s."""
     directory = _input_dir(case)
     if directory is None:
-        raise CaseError("analyze input needs {\"dir\": ...}")
+        raise CaseError("%s input needs {\"dir\": ...}" % case.get("kind"))
     run = AN.load_run({"run_dir": os.path.abspath(directory), "run_id": case["id"]})
     if run is None:
         raise CaseError("no run (labels/ and events.jsonl) under %s" % directory)
-    value = case["input"]
     last = max((event["ts"] for event in run["events"]), default=0.0)
-    now = float(value.get("now", last + 60.0))
+    return directory, run, float(case["input"].get("now", last + 60.0))
+
+
+def _analyze(case: dict) -> dict:
+    """Score the fixture run with ``analyze.evaluate``. A check's verdict is whether every one
+    of its case results passed, or None when the check had no result (n/a)."""
+    _directory, run, now = _case_run(case)
     report = AN.evaluate([run], AN.load_thresholds(), now, None)
     verdicts: Dict[str, Optional[bool]] = {}
     for result in report["case_results"]:
@@ -233,9 +238,8 @@ def _claim(case: dict) -> dict:
     run-relative directories to create in the copy (a spawn's worktree that is not listed is
     gone)."""
     from .cli import CLAIM_REFUSED_PHRASE, main
-    directory = _input_dir(case)
     value = case.get("input")
-    if (directory is None or not isinstance(value.get("task"), str) or not isinstance(value.get("agent"), str)
+    if (_input_dir(case) is None or not isinstance(value.get("task"), str) or not isinstance(value.get("agent"), str)
             or not isinstance(value.get("roster"), dict)):
         raise CaseError("claim input needs {\"dir\", \"task\", \"agent\", \"roster\"}")
     args = value.get("args", [])
@@ -246,10 +250,7 @@ def _claim(case: dict) -> dict:
             isinstance(item, str) and item and not os.path.isabs(item) and ".." not in item.split("/")
             for item in worktrees):
         raise CaseError("claim input worktrees must be run-relative paths, got %s" % json.dumps(worktrees))
-    run = AN.load_run({"run_dir": os.path.abspath(directory), "run_id": case["id"]})
-    if run is None:
-        raise CaseError("no run (labels/ and events.jsonl) under %s" % directory)
-    now = float(value.get("now", max((event["ts"] for event in run["events"]), default=0.0) + 60.0))
+    directory, _run, now = _case_run(case)
     saved = os.environ.get("ALE_HERDR")
     os.environ["ALE_HERDR"] = "0"   # a case never publishes to a herdr pane
     errors = io.StringIO()

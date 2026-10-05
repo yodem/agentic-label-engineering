@@ -756,3 +756,16 @@ def test_the_claim_case_leaves_the_fixture_and_the_environment_alone(monkeypatch
     assert EC.run_case(case)["passed"]
     assert (sorted(os.listdir(base)), open(os.path.join(base, "events.jsonl")).read()) == before
     assert "ALE_HERDR" not in os.environ
+
+
+def test_analyze_and_claim_cases_share_one_run_loader_and_now_rule(monkeypatch):
+    """Review item 13: the claim evaluator reuses the analyze case's loader and its now rule."""
+    calls = []
+    real = EC._case_run
+    monkeypatch.setattr(EC, "_case_run", lambda case: calls.append(case["kind"]) or real(case))
+    analyze = next(c for c in EC.load_cases(EC.default_cases_path()) if c["kind"] == "analyze")
+    assert EC.run_case(analyze)["passed"]
+    assert EC.run_case(_case("claim-after-spawn-allowed"))["passed"]
+    assert calls == ["analyze", "claim"]
+    _directory, run, now = real(_case("claim-after-spawn-allowed"))
+    assert now == max(e["ts"] for e in run["events"]) + 60.0
