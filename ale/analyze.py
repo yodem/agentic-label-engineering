@@ -224,8 +224,12 @@ def _row(run: dict, task_id: str, label: dict, task_events: List[dict], st: Opti
     spawns = [e for e in task_events if e["type"] == "spawned"]
     executor_spawns = [e for e in spawns if e.get("assignment_kind") in (None, "executor")] or spawns
     first_spawn = executor_spawns[0] if executor_spawns else None
+    # A dispatch --no-exec spawn launched nothing: the lead works the task in its own session.
+    lead_work = bool(first_spawn and first_spawn.get("no_exec"))
     if first_spawn is None:
         spawned_by = "none"
+    elif lead_work:
+        spawned_by = "dispatch"
     elif first_spawn.get("executor") == "external" and not first_spawn.get("pane"):
         spawned_by = "register"
     else:
@@ -262,9 +266,16 @@ def _row(run: dict, task_id: str, label: dict, task_events: List[dict], st: Opti
     changes = [e for e in task_events if e["type"] in ("label_changed", "relabeled") and _lead(e)]
     acceptance_relabeled = started is not None and any(
         e.get("field") == "acceptance" and e["ts"] >= started for e in changes)
-    executor = (first_spawn or {}).get("executor")
-    headless = bool(first_spawn) and (HARNESS.mode_hint(executor) == "headless"
-                                      or first_spawn.get("mode") == "headless")
+    if lead_work:
+        # The harness and model are the label's, not the spawn's (which names only the lead).
+        assignment = next((item for item in label.get("assignments") or []
+                           if isinstance(item, dict) and item.get("kind", "executor") == "executor"), {})
+        executor, spawn_model = assignment.get("executor"), assignment.get("model")
+        headless = False
+    else:
+        executor, spawn_model = (first_spawn or {}).get("executor"), (first_spawn or {}).get("model")
+        headless = bool(first_spawn) and (HARNESS.mode_hint(executor) == "headless"
+                                          or first_spawn.get("mode") == "headless")
     attempts = (st or {}).get("attempt") or max(
         [e.get("attempt") for e in task_events if isinstance(e.get("attempt"), int)] or [1])
     if removed:
@@ -276,7 +287,7 @@ def _row(run: dict, task_id: str, label: dict, task_events: List[dict], st: Opti
         "run_key": run["run_key"], "run_label": run.get("run_label"), "task_id": task_id, "role": values.get("role"),
         "effort": values.get("effort"), "risk": values.get("risk"), "model_tier": values.get("model_tier"),
         "harness": HARNESS.normalize(routing.get("executor")) or HARNESS.normalize(executor),
-        "model": routing.get("model") or (first_spawn or {}).get("model"),
+        "model": routing.get("model") or spawn_model,
         "worktree_mode": worktree_mode(label), "spawned_by": spawned_by, "claimed": bool(claims),
         "claimed_by_lead": any(str(e.get("agent_id") or "").startswith("lead") for e in claims),
         "first_verify_passed": first_verify_passed, "attempts": attempts,

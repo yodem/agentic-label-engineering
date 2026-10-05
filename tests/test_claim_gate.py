@@ -442,6 +442,27 @@ def test_a_remote_worktree_spawn_satisfies_the_gate(tmp_path, monkeypatch):
     assert claim(run, roster, "remote-1") == 0
 
 
+# --- no_exec spawns are lead work (review item 4) -------------------------------------------
+
+def test_a_no_exec_spawn_records_lead_work_not_the_routed_executor(tmp_path):
+    repo, run, roster = make_run(tmp_path, executor="codex-exec")
+    assert ale(run, roster, "dispatch", "--no-exec", "--cwd", str(repo), "--task", "T1") == 0
+    spawned = events(run, "spawned")[0]
+    assert spawned["no_exec"] is True
+    assert spawned["executor"] == "lead" and spawned["agent_id_minted"] == "lead"
+    assert spawned["model"] is None and "mode" not in spawned
+    assert "codex" not in json.dumps(spawned) and "T1-executor" not in json.dumps(spawned)
+    assert os.path.isdir(spawned["worktree"])
+
+
+def test_a_launched_spawn_keeps_its_routed_executor(tmp_path):
+    repo, run, roster = make_run(tmp_path, executor="codex-exec")
+    spawn(run, roster, repo)
+    spawned = events(run, "spawned")[0]
+    assert "no_exec" not in spawned
+    assert spawned["executor"] == "codex-exec" and spawned["agent_id_minted"] == "T1-executor-backend-1"
+
+
 # --- ale dispatch --task -------------------------------------------------------------------
 
 def test_dispatch_task_spawns_only_the_named_task(tmp_path):

@@ -31,6 +31,7 @@
     "diff_base": {"type": "string", "minLength": 1},
     "base_ref": {"type": "string", "minLength": 1},
     "host": {"type": "string", "minLength": 1},
+    "no_exec": {"type": "boolean"},
     "via": {"enum": ["ack", "hook"]},
     "token_ok": {"type": ["boolean", "null"]}
   }

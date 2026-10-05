@@ -2251,12 +2251,23 @@ def _dispatch_request_json(request: dict) -> str:
     return json.dumps(printable, sort_keys=True)
 
 
+NO_EXEC_AGENT = "lead"
+
+
 def _append_spawned(c: Ctx, due: dict, request: dict, plan: Optional[dict],
-                    base_ref: Optional[str] = None) -> None:
-    extra = {"agent_id_minted": request["agent_id"], "assignment_kind": due["kind"],
-             "executor": due["executor"], "model": due["model"],
-             "trigger_instance": due["trigger_instance"]}
-    if due.get("mode") == "in-session":
+                    base_ref: Optional[str] = None, no_exec: bool = False) -> None:
+    """Record a spawn. A ``--no-exec`` spawn launches nothing: the lead that claims the task
+    does the work in its own session, so the event carries ``no_exec: true`` and names the lead,
+    never the routed executor, its model or a minted executor agent id."""
+    if no_exec:
+        extra = {"agent_id_minted": NO_EXEC_AGENT, "assignment_kind": due["kind"],
+                 "executor": NO_EXEC_AGENT, "model": None, "no_exec": True,
+                 "trigger_instance": due["trigger_instance"]}
+    else:
+        extra = {"agent_id_minted": request["agent_id"], "assignment_kind": due["kind"],
+                 "executor": due["executor"], "model": due["model"],
+                 "trigger_instance": due["trigger_instance"]}
+    if due.get("mode") == "in-session" and not no_exec:
         extra["mode"] = "in-session"
     if request.get("remote_worktree"):
         extra.update({"host": due.get("host"), "remote_worktree": request["remote_worktree"]})
@@ -2399,7 +2410,7 @@ def cmd_dispatch(a) -> int:
                     _run_worktree_setup(c, label, plan["path"], project_cwd)
                 _prefetch_refs(c, item, request)
                 if a.no_exec:
-                    _append_spawned(c, item, request, plan, base_ref)
+                    _append_spawned(c, item, request, plan, base_ref, no_exec=True)
                     continue
                 _append_spawned(c, item, request, plan, base_ref)
                 request_path = _write_spawn_request(c, request)
