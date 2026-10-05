@@ -187,12 +187,19 @@ def test_the_refusal_quotes_a_path_with_a_space(tmp_path, capsys):
     assert "--run-dir %s --cwd %s" % (shlex.quote(str(run)), shlex.quote(str(repo))) in err
 
 
-def test_a_shared_mode_refusal_does_not_say_outside_a_worktree(tmp_path, capsys):
-    _repo, run, roster = make_run(tmp_path, mode="shared")
-    assert claim(run, roster) == 1
-    err = capsys.readouterr().err
-    assert "ALE has not spawned it" in err and "worktree mode shared" in err
-    assert "outside ALE's worktree" not in err
+@pytest.mark.parametrize("mode", ["shared", "none"])
+def test_shared_and_none_modes_are_outside_the_gate(tmp_path, capsys, mode):
+    """A shared or worktree-less task works in the checkout by design: no refusal, no spawn needed."""
+    _repo, run, roster = make_run(tmp_path, mode=mode)
+    assert claim(run, roster) == 0
+    assert "ALE has not spawned it" not in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("mode", ["shared", "none"])
+def test_no_worktree_is_accepted_without_a_deviation_outside_the_gate(tmp_path, mode):
+    _repo, run, roster = make_run(tmp_path, mode=mode)
+    assert claim(run, roster, "lead-1", "--no-worktree", "--reason", REASON) == 0
+    assert "deviation" not in events(run, "claimed")[0] and events(run, "note") == []
 
 
 def test_an_unclaimable_task_still_reports_claim_lost(tmp_path):

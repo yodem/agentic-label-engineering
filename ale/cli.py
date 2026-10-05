@@ -1153,7 +1153,7 @@ def _claim_deviation(a) -> Optional[str]:
 
 CLAIM_REFUSED_PHRASE = "ALE has not spawned it"
 DEVIATION_WORKTREE = "worktree-outside-ale"
-CLAIM_UNGATED_MODES = ("none",)
+CLAIM_UNGATED_MODES = ("none", "shared")
 
 
 def _claim_worktree(dispatch_state: dict, task_id: str) -> Optional[str]:
