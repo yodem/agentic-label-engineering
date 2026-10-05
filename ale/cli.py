@@ -1202,16 +1202,18 @@ def cmd_claim(a) -> int:
         print("claim lost: %s" % a.task, file=sys.stderr)
         return CLAIM_LOST
     mode = worktree_mode(c.labels[a.task])
-    needs_override = mode not in CLAIM_UNGATED_MODES and _claim_worktree(state, a.task) is None
-    if needs_override and deviation is None:
+    gated = mode not in CLAIM_UNGATED_MODES
+    if gated and deviation is None and _claim_worktree(state, a.task) is None:
         raise CliError(FAIL, _claim_refusal(a, c, mode))
+    # A declared --no-worktree is recorded inside the gate even when a worktree exists.
+    record_deviation = gated and deviation is not None
     executor_id = os.environ.get("ALE_AGENT_ID") or os.environ.get("ALE_AGENT")
     c.emit("claimed", a.task, a.agent, state["tasks"][a.task]["attempt"], pane=a.pane,
            bind_claim_pane=bool(a.pane) or bool(executor_id and a.agent == executor_id))
     if c.state()["tasks"][a.task]["owner"] != a.agent:
         print("claim lost: %s" % a.task, file=sys.stderr)
         return CLAIM_LOST
-    if needs_override:
+    if record_deviation:
         c.emit("note", a.task, a.agent, state["tasks"][a.task]["attempt"],
                text=("deviation worktree-outside-ale: %s" % deviation)[:TEXT_MAX])
     c.render(a.task, a.agent)

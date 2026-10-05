@@ -222,6 +222,14 @@ def test_no_worktree_with_a_reason_claims_and_records_the_deviation(tmp_path):
     assert state["tasks"]["T1"]["notes"] == ["deviation worktree-outside-ale: " + REASON]
 
 
+def test_no_worktree_with_a_live_worktree_still_records_the_deviation(tmp_path):
+    """The lead declared it works outside the worktree; that is recorded even though one exists."""
+    repo, run, roster = make_run(tmp_path)
+    spawn(run, roster, repo)
+    assert claim(run, roster, "lead-1", "--no-worktree", "--reason", REASON) == 0
+    assert [e["text"] for e in events(run, "note")] == ["deviation worktree-outside-ale: " + REASON]
+
+
 def test_no_worktree_needs_a_reason_of_ten_characters(tmp_path, capsys):
     _repo, run, roster = make_run(tmp_path)
     assert claim(run, roster, "lead-1", "--no-worktree") == 2
