@@ -2284,23 +2284,20 @@ def _append_spawned(c: Ctx, due: dict, request: dict, plan: Optional[dict],
            pane=request.get("executor_pane"), **extra)
 
 
-def _due_for(dispatch_state: dict, c: Ctx, only: set) -> List[dict]:
-    """The due assignments, limited to the ``--task`` names when given. The roster's parallel
-    cap and the path-overlap check then apply to those tasks alone; a named task that was due
-    but cut by the cap is reported on stderr."""
-    from .dispatch import due_assignments
-    if not only:
-        return due_assignments(dispatch_state, c.labels, c.roster)
-    due = due_assignments(dispatch_state, c.labels, c.roster, only=only)
-    gate = dict(c.roster.get("cost_gate", {}))
-    gate["max_parallel"] = float("inf")   # only to find what the cap cut
-    everything = due_assignments(dispatch_state, c.labels, dict(c.roster, cost_gate=gate), only=only)
+def _report_undispatched(c: Ctx, dispatch_state: dict, only: set, due: List[dict], cut: List[dict],
+                         held: List[Tuple[str, str]]) -> None:
+    """For ``dispatch --task``: one stderr line per named task this dispatch did not dispatch,
+    with the reason (held, overlapping paths with <id>, parallel cap <n>, or nothing due)."""
     taken = {item["task_id"] for item in due}
-    skipped = sorted({item["task_id"] for item in everything} - taken)
-    if skipped:
-        print("not dispatched (parallel cap or overlapping paths): %s; run dispatch again"
-              % ", ".join(skipped), file=sys.stderr)
-    return due
+    reasons = {}
+    for task_id, dependency_id in held:
+        reasons.setdefault(task_id, "held: dependency %s is accepted but not integrated" % dependency_id)
+    for item in cut:
+        reasons.setdefault(item["task_id"], item["reason"])
+    for task_id in sorted(only - taken):
+        st = dispatch_state["tasks"].get(task_id, {})
+        reason = reasons.get(task_id) or "nothing due (state %s, attempt %s)" % (st.get("state"), st.get("attempt"))
+        print("not dispatched: %s: %s" % (task_id, reason), file=sys.stderr)
 
 
 def _no_exec_rework(dispatch_state: dict, c: Ctx, only: set, due: List[dict]) -> List[dict]:
@@ -2323,7 +2320,7 @@ def _no_exec_rework(dispatch_state: dict, c: Ctx, only: set, due: List[dict]) ->
 
 def cmd_dispatch(a) -> int:
     import fcntl
-    from .dispatch import held_for_integration, worktree_plan
+    from .dispatch import held_for_integration, select_assignments, worktree_plan
 
     c = Ctx(a)
     c.roster_path = _resolve_roster(a)
@@ -2349,9 +2346,11 @@ def cmd_dispatch(a) -> int:
             for task_id, dependency_id in held:
                 print("holding %s: dependency %s is accepted but not integrated" %
                       (task_id, dependency_id), file=sys.stderr)
-            due = _due_for(dispatch_state, c, only)
+            due, cut = select_assignments(dispatch_state, c.labels, c.roster, only=only or None)
             if a.no_exec and only:
                 due += _no_exec_rework(dispatch_state, c, only, due)
+            if only:
+                _report_undispatched(c, dispatch_state, only, due, cut, held)
             remote_due = [item for item in due if (item.get("host") or "local") != "local"]
             base_ref = None
             if due and not (a.json or a.dry_run) and (a.spawn or a.no_exec):

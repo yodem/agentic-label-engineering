@@ -545,6 +545,56 @@ def test_dispatch_task_lists_only_the_named_task_in_json(tmp_path, capsys):
     assert [row["task_id"] for row in rows] == ["T2"]
 
 
+def test_dispatch_task_reports_a_named_task_cut_for_overlapping_paths(tmp_path, capsys):
+    repo, run, roster = make_run(tmp_path, extra_labels=("T2",), label_paths={"T2": ["t1.txt", "t2.txt"]})
+    capsys.readouterr()
+    assert ale(run, roster, "dispatch", "--spawn", "--cwd", str(repo), "--task", "T1", "--task", "T2") == 0
+    assert spawned_tasks(run) == ["T1"]
+    err = capsys.readouterr().err
+    assert "not dispatched: T2: overlapping paths with T1" in err
+    assert "not dispatched: T1" not in err
+
+
+def test_dispatch_task_reports_the_cap_and_a_task_with_nothing_due(tmp_path, capsys):
+    repo, run, roster = make_run(tmp_path, extra_labels=("T2", "T3"), cap=1)
+    spawn(run, roster, repo, "T3")
+    capsys.readouterr()
+    assert ale(run, roster, "dispatch", "--spawn", "--cwd", str(repo), "--task", "T1", "--task", "T2",
+               "--task", "T3") == 0
+    err = capsys.readouterr().err
+    assert spawned_tasks(run) == ["T1", "T3"]
+    assert "not dispatched: T2: parallel cap 1" in err
+    assert "not dispatched: T3: nothing due (state ready" in err
+
+
+def test_dispatch_selects_in_one_pass(tmp_path, monkeypatch):
+    """The cap-cut and overlap-cut items come from the same due_assignments pass (no second,
+    uncapped call)."""
+    from ale import dispatch as D
+    repo, run, roster = make_run(tmp_path, extra_labels=("T2", "T3"), cap=1)
+    calls = []
+    real = D.select_assignments
+    monkeypatch.setattr(D, "select_assignments", lambda *args, **kw: calls.append(kw) or real(*args, **kw))
+    monkeypatch.setattr(D, "due_assignments", lambda *args, **kw: pytest.fail("second selection pass"))
+    assert ale(run, roster, "dispatch", "--spawn", "--cwd", str(repo), "--task", "T2", "--task", "T3") == 0
+    assert len(calls) == 1
+
+
+def test_select_assignments_returns_the_cut_items_with_reasons(tmp_path):
+    from ale import dispatch as D
+    from ale import labelset as LS
+    from ale import roster as RO
+    _repo, run, roster = make_run(tmp_path, extra_labels=("T2", "T3"), cap=1,
+                                  label_paths={"T2": ["t1.txt"]})
+    labels = LS.load_labels(str(run))
+    state = E.reduce_run([], labels)
+    chosen, cut = D.select_assignments(state, labels, RO.load_roster(roster))
+    assert [item["task_id"] for item in chosen] == ["T1"]
+    assert [(item["task_id"], item["reason"]) for item in cut] == [
+        ("T2", "overlapping paths with T1"), ("T3", "parallel cap 1")]
+    assert D.due_assignments(state, labels, RO.load_roster(roster)) == chosen
+
+
 def test_dispatch_with_an_unknown_task_is_a_usage_error(tmp_path):
     repo, run, roster = make_run(tmp_path)
     assert ale(run, roster, "dispatch", "--spawn", "--cwd", str(repo), "--task", "T9") == 2
