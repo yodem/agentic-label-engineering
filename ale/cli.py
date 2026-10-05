@@ -1182,13 +1182,31 @@ def _claim_remedy(a, c: Ctx) -> str:
     return " ".join(command + ["--task", shlex.quote(a.task), "--no-exec"])
 
 
-def _claim_refusal(a, c: Ctx, mode: str) -> str:
-    """The refusal text, with the remedy on a line of its own."""
-    return ("task %s has worktree mode %s and %s: no ALE worktree for it exists.\n"
+def _claim_refusal(a, c: Ctx, mode: str, dispatch_state: dict) -> str:
+    """The refusal text, naming a recorded worktree that is gone, with the remedy on a line of its own."""
+    gone = next((spawn["worktree"] for spawn in reversed(dispatch_state.get("spawn_worktrees", {}).get(a.task, []))
+                 if spawn.get("worktree")), None)
+    why = ("its spawn's worktree %s no longer exists" % gone) if gone else "no ALE worktree for it exists"
+    return ("task %s has worktree mode %s and %s: %s.\n"
             "For a lead working the task in-session, record the spawn and its worktree first "
             "(nothing is launched):\n  %s\nthen claim again. To work outside ALE on purpose, claim with "
             "--no-worktree --reason \"<why>\"; the deviation is recorded on the claim."
-            % (a.task, mode, CLAIM_REFUSED_PHRASE, _claim_remedy(a, c)))
+            % (a.task, mode, CLAIM_REFUSED_PHRASE, why, _claim_remedy(a, c)))
+
+
+def _claim_messages(task_id: str, worktree: Optional[str], deviation: bool) -> List[str]:
+    """What a gated claim tells the claimer on stderr: where to work, and a warning when the
+    current directory is not inside that (local) worktree. Never a refusal."""
+    if deviation:
+        where = (" %s" % worktree) if worktree else ""
+        return ["claimed %s outside ALE's worktree%s (deviation recorded)" % (task_id, where)]
+    lines = ["claimed %s in ALE worktree %s" % (task_id, worktree)]
+    if worktree and os.path.isdir(worktree):
+        here, root = os.path.realpath(os.getcwd()), os.path.realpath(worktree)
+        if os.path.commonpath([here, root]) != root:
+            lines.append("warning: the current directory %s is not inside %s's ALE worktree %s; work there"
+                         % (os.getcwd(), task_id, worktree))
+    return lines
 
 
 def cmd_claim(a) -> int:
@@ -1204,8 +1222,9 @@ def cmd_claim(a) -> int:
         return CLAIM_LOST
     mode = worktree_mode(c.labels[a.task])
     gated = mode not in CLAIM_UNGATED_MODES
-    if gated and deviation is None and _claim_worktree(state, a.task) is None:
-        raise CliError(FAIL, _claim_refusal(a, c, mode))
+    worktree = _claim_worktree(state, a.task) if gated else None
+    if gated and deviation is None and worktree is None:
+        raise CliError(FAIL, _claim_refusal(a, c, mode, state))
     # A declared --no-worktree is recorded inside the gate even when a worktree exists.
     record_deviation = gated and deviation is not None
     executor_id = os.environ.get("ALE_AGENT_ID") or os.environ.get("ALE_AGENT")
@@ -1215,6 +1234,9 @@ def cmd_claim(a) -> int:
     if c.state()["tasks"][a.task]["owner"] != a.agent:
         print("claim lost: %s" % a.task, file=sys.stderr)
         return CLAIM_LOST
+    if gated:
+        for line in _claim_messages(a.task, worktree, record_deviation):
+            print(line, file=sys.stderr)
     c.render(a.task, a.agent)
     return OK
 

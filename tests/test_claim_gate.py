@@ -506,6 +506,64 @@ def test_a_spawn_bin_that_cannot_run_releases_and_exits_one(tmp_path, monkeypatc
     assert all(e["reason"].startswith("spawn failed: ") and str(bad) in e["reason"] for e in released)
 
 
+# --- the worktree path in the messages (review item 8) --------------------------------------
+
+def test_a_claim_from_inside_the_worktree_names_it_without_a_warning(tmp_path, capsys, monkeypatch):
+    repo, run, roster = make_run(tmp_path)
+    spawn(run, roster, repo)
+    worktree = str(run / "wt" / "T1")
+    (run / "wt" / "T1" / "sub").mkdir()
+    monkeypatch.chdir(worktree + "/sub")
+    capsys.readouterr()
+    assert claim(run, roster) == 0
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "claimed T1 in ALE worktree %s" % worktree in captured.err
+    assert "warning" not in captured.err
+
+
+def test_a_claim_from_outside_the_worktree_warns_and_names_it(tmp_path, capsys, monkeypatch):
+    repo, run, roster = make_run(tmp_path)
+    spawn(run, roster, repo)
+    monkeypatch.chdir(str(repo))
+    capsys.readouterr()
+    assert claim(run, roster) == 0                      # a warning, not a refusal
+    err = capsys.readouterr().err
+    worktree = str(run / "wt" / "T1")
+    assert "warning: the current directory %s is not inside T1's ALE worktree %s" % (repo, worktree) in err
+
+
+def test_a_remote_worktree_claim_names_the_host_and_does_not_warn(tmp_path, capsys, monkeypatch):
+    repo, run, roster = make_run(tmp_path, lane="pane", remote_host="dev-server")
+    monkeypatch.setenv("ALE_REMOTE_WORKTREE", "/srv/remote/wt/T1")
+    assert ale(run, roster, "dispatch", "--spawn", "--cwd", str(repo), "--task", "T1") == 0
+    capsys.readouterr()
+    assert claim(run, roster, "remote-1") == 0
+    err = capsys.readouterr().err
+    assert "claimed T1 in ALE worktree dev-server:/srv/remote/wt/T1" in err and "warning" not in err
+
+
+def test_the_refusal_names_a_spawn_worktree_that_is_gone(tmp_path, capsys):
+    repo, run, roster = make_run(tmp_path)
+    spawn(run, roster, repo)
+    worktree = run / "wt" / "T1"
+    subprocess.run(["git", "worktree", "remove", "--force", str(worktree)], cwd=str(repo), check=True)
+    capsys.readouterr()
+    assert claim(run, roster) == 1
+    err = capsys.readouterr().err
+    assert "its spawn's worktree %s no longer exists" % worktree in err
+    assert "--task T1 --no-exec" in err
+
+
+def test_a_deviation_claim_says_it_works_outside_the_worktree(tmp_path, capsys):
+    repo, run, roster = make_run(tmp_path)
+    spawn(run, roster, repo)
+    capsys.readouterr()
+    assert claim(run, roster, "lead-1", "--no-worktree", "--reason", REASON) == 0
+    err = capsys.readouterr().err
+    assert "claimed T1 outside ALE's worktree %s (deviation recorded)" % (run / "wt" / "T1") in err
+
+
 # --- ale dispatch --task -------------------------------------------------------------------
 
 def test_dispatch_task_spawns_only_the_named_task(tmp_path):
