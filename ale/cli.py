@@ -4068,8 +4068,11 @@ def _plan_labels(text: str, path: str, run_id: str, roster: dict, no_judge: bool
                 and dependency != task["task_id"]))
             label["labels"]["lane"] = old.get("labels", {}).get("lane")
             label["provenance"]["lane_reason"] = old.get("lane_reason") or old.get("provenance", {}).get("lane_reason")
-            label["acceptance"] = list(old.get("acceptance", []))
-            label["context"]["allowed_paths"] = list(old.get("allowed_paths", []))
+            # A block overrides only what it states: a partial block keeps the parsed paths and checks.
+            if "acceptance" in old:
+                label["acceptance"] = list(old.get("acceptance") or [])
+            if "allowed_paths" in old:
+                label["context"]["allowed_paths"] = list(old.get("allowed_paths") or [])
             for field, value in old.get("labels", {}).items():
                 label["labels"][field] = value
                 label["provenance"][field] = {
