@@ -67,6 +67,10 @@ def check(roster: dict) -> List[str]:
             errs.append("harness %s: headless must be a non-empty list of strings" % key)
         elif not any("{prompt}" in arg for arg in argv):
             errs.append("harness %s: headless argv needs a {prompt} placeholder" % key)
+    try:
+        claude_permission_mode(roster)
+    except ValueError as err:
+        errs.append(str(err))
     unknown = sorted({str(row.get("executor")) for row in roster.get("routing", [])
                       if normalize(row.get("executor")) not in known})
     if unknown:
@@ -124,6 +128,61 @@ def render_argv(template: List[str], model: Optional[str], prompt: str) -> List[
             continue
         out.append(arg.replace("{model}", model or "").replace("{prompt}", prompt))
     return out
+
+
+# Headless Claude permission grant (docs/harness-facts.md item 16, SECURITY.md). Only
+# acceptEdits or null is accepted; bypassPermissions is never emitted.
+PERMISSION_MODES = ("acceptEdits",)
+GIT_ALLOW = ("git add", "git commit", "git status", "git diff", "git log")
+# A rule value cannot hold these: "," splits the --allowedTools list and parentheses close the rule.
+_RULE_UNSAFE = (",", "(", ")")
+
+
+def claude_permission_mode(roster: dict) -> Optional[str]:
+    """``harnesses.claude.permission_mode`` (default ``acceptEdits``; null opts out).
+    Raises ValueError for any other value."""
+    entry = ((roster or {}).get("harnesses") or {}).get("claude") or {}
+    mode = entry.get("permission_mode", "acceptEdits") if isinstance(entry, dict) else "acceptEdits"
+    if mode is not None and mode not in PERMISSION_MODES:
+        raise ValueError("harness claude: permission_mode must be acceptEdits or null, not %r" % (mode,))
+    return mode
+
+
+def claude_headless_permissions(roster: dict, acceptance: list, ale_commands: List[str],
+                                read_only: bool = False) -> Tuple[Optional[str], List[str], List[str]]:
+    """(permission mode, allowedTools rules, skipped commands) for a headless Claude executor.
+
+    ``ale_commands`` are the command prefixes the executor runs ALE with (``python3 -m ale``,
+    ``<ALE_PYTHON> -m ale``, the ``bin/ale-py`` path, the literal ``$ALE_BIN``); each becomes a
+    ``Bash(<prefix>:*)`` rule. Each acceptance command becomes an exact ``Bash(<cmd>)`` rule. A
+    command holding ``,``, ``(`` or ``)`` cannot be written as one rule and is returned in
+    ``skipped`` instead. A read-only monitor, or a roster ``permission_mode: null``, gets nothing.
+    """
+    mode = claude_permission_mode(roster)
+    if read_only or mode is None:
+        return None, [], []
+    allowed = ["Bash(%s:*)" % command for command in GIT_ALLOW]
+    skipped: List[str] = []
+    for prefix in ale_commands:
+        if not prefix:
+            continue
+        if any(char in prefix for char in _RULE_UNSAFE):
+            skipped.append(prefix)
+            continue
+        rule = "Bash(%s:*)" % prefix
+        if rule not in allowed:
+            allowed.append(rule)
+    for item in acceptance if isinstance(acceptance, list) else []:
+        command = item.get("cmd") if isinstance(item, dict) else None
+        if not isinstance(command, str) or not command.strip():
+            continue
+        if any(char in command for char in _RULE_UNSAFE) or "\n" in command:
+            skipped.append(command)
+            continue
+        rule = "Bash(%s)" % command
+        if rule not in allowed:
+            allowed.append(rule)
+    return mode, allowed, skipped
 
 
 def spawn_id(harness_name: str, mode: str) -> str:
