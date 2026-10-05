@@ -82,10 +82,10 @@ pass rate over the window is below its bar with at least `min_n` (3) results. Th
 | `ale.task.first_pass` | the lead verified the task | its first lead verdict was an accept | 0.70 |
 | `ale.task.path_scope_checked` | accepted, `worktree.mode` not `none`, the accept recorded a file list | that file list is not empty (a list verify truncated counts as its `files_count`) | 0.90 |
 | `ale.task.write_has_worktree` | the task changed files (a file list on any verify, rejected ones included, an integrate, or a `register-worktree` spawn) | its `worktree.mode` is not `none` | 0.90 |
-| `ale.task.dispatch_worktree` | the task was spawned or claimed and its `worktree.mode` is not `none` | its worktree came from a dispatch `spawned`, not `register-worktree` or no spawn | 0.75 |
+| `ale.task.dispatch_worktree` | the task was spawned or claimed and its `worktree.mode` is not `none` | its worktree came from a dispatch `spawned` (a `dispatch --no-exec` spawn, `no_exec: true`, counts: in-session lead work), not `register-worktree` or no spawn | 0.75 |
 | `ale.task.resolved` | the run is stale or done | the task is accepted, removed or superseded | 0.90 |
 | `ale.task.input_required_bounded` | always | at most 3 `input_required` events in any one attempt | 0.95 |
-| `ale.task.usage_recorded` | the first spawn was headless and the lead did not claim the task | it has a `usage` event | 0.50 |
+| `ale.task.usage_recorded` | the first spawn was headless (a `no_exec` spawn never is: the lead works in its own session) and the lead did not claim the task | it has a `usage` event | 0.50 |
 | `ale.task.acceptance_held` | the run has `run_started` | acceptance was not relabeled after `init-run` | 0.85 |
 | `ale.run.absolute_paths` | the run has spawned worktrees | every `spawned.worktree` is absolute | 1.00 |
 | `ale.run.no_stale_open` | always | the run is not stale with open tasks | 0.90 |
@@ -103,8 +103,13 @@ regressions of active offline cases from the ledger), **Weakest category** and *
 score, top five), **Trend** (per check versus the previous window: improving, degrading or
 stable at ±0.01; and mean score per `config_hash`), **Saturated checks** (at 1.00 in this and
 the previous `saturation_windows - 1` dated reports: tighten or retire), **Fix status**,
+**Declared deviations** (claims that carried a `deviation`, such as `ale claim --no-worktree
+--reason`, counted by code; the JSON report has them as `deviations` and each task row as
+`claim_deviations`; a count, not a check),
 **Metrics** (per role, tier, harness and model: acceptance rate, first-pass rate, attempts per
-accepted task, claim-to-accept p50 and p90, tokens per accepted task, unknown-usage share),
+accepted task, claim-to-accept p50 and p90, tokens per accepted task, unknown-usage share; the
+harness and model are the label's routing, else, for a `no_exec` spawn, the label's executor
+assignment, else the first spawn's),
 **Calibration** (effort buckets with n >= 5 must be monotonic in duration and files changed;
 role/effort/risk groups with n >= 3 whose reject rate or median duration is at least 2x the
 median group), and **Promotions** (judge promotion progress per field from the roster,
@@ -203,7 +208,7 @@ evaluator that raises scores 0 with the error as its reason.
 | `route` | `harness.route(label, roster, lane=lane)` on `{label, roster, lane}` | any of `harness`, `model`, `mode`, `host` |
 | `refs` | `refs.allowed_command` on the command (shlex split) | `allowed` |
 | `analyze` | `analyze.evaluate` on the run in `<dir>` (`labels/` + `events.jsonl`), now = last event + 60 s unless `input.now` | `checks`: `{check: true\|false\|null}`; a check passes when all its case results pass, null means n/a |
-| `claim` | `ale claim` on a temp copy of the run in `<dir>` (`labels/` + `events.jsonl`) with the inline `input.roster`, for `input.task` and `input.agent` plus optional `input.args` (a list of strings, extra claim flags) | `allowed` (exit 0), `exit`, `refused` (stderr carries the claim gate's "ALE has not spawned it" message, so another exit 1 is not mistaken for the gate) |
+| `claim` | `ale claim` on a temp copy of the run in `<dir>` (`labels/` + `events.jsonl`) with the inline `input.roster`, for `input.task` and `input.agent` plus optional `input.args` (a list of strings, extra claim flags); `{run}` in the fixture's events stands for the copy's path, and `input.worktrees` lists run-relative directories created in the copy (the gate needs a spawn's worktree to exist); now as for `analyze` | `allowed` (exit 0), `exit`, `refused` (stderr carries the claim gate's "ALE has not spawned it" message, so another exit 1 is not mistaken for the gate) |
 
 `analyze` cases only read their fixture; they write nothing under `ALE_HOME`. A `claim` case runs on a temporary copy, so its fixture is never changed.
 
