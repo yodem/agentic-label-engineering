@@ -357,6 +357,68 @@ def test_follow_assignments_rule():
     assert follow_assignments("nope", "model_tier", "standard", "frontier") is None
 
 
+def _example_roster():
+    with open(os.path.join(ROOT, "examples", "roster.json"), encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def test_follow_assignments_leaves_a_harness_pin_with_no_row_at_the_new_tier():
+    from ale.bake import follow_assignments
+    roster = _example_roster()                       # codex has only backend/standard
+    codex = {"kind": "executor", "role": "backend", "model_tier": "standard", "executor": "codex"}
+    skipped = []
+    assert follow_assignments([codex], "model_tier", "standard", "frontier", roster=roster, skipped=skipped) is None
+    assert skipped == ["assignment pinned to codex has no frontier row; relabel assignments to move it"]
+    # a harness with a wildcard row at the new tier follows; so does an unpinned one
+    claude = dict(codex, executor="claude")
+    free = dict(codex, executor=None)
+    skipped = []
+    got = follow_assignments([codex, claude, free], "model_tier", "standard", "frontier",
+                             roster=roster, skipped=skipped)
+    assert [a["model_tier"] for a in got] == ["standard", "frontier", "frontier"] and len(skipped) == 1
+    # the other half comes from the labels when the assignment lacks it
+    bare = {"kind": "executor", "model_tier": "standard", "executor": "codex"}
+    assert follow_assignments([bare], "model_tier", "standard", "frontier", roster=roster,
+                              labels={"role": "backend"}) is None
+    # no roster, no check
+    assert follow_assignments([codex], "model_tier", "standard", "frontier")[0]["model_tier"] == "frontier"
+
+
+def test_a_codex_pinned_assignment_stays_when_the_new_tier_has_no_codex_row(tmp_path, capsys):
+    plan, run_dir, roster = _setup(tmp_path)
+    pinned = [{"kind": "executor", "role": "backend", "model_tier": "standard", "executor": "codex",
+               "trigger": "ready"}]
+    assert _relabel(run_dir, roster, "assignments", json.dumps(pinned), "T1", "--json") == 0
+    stale = _route(plan, roster, capsys)
+    assert stale["harness"] == "codex" and stale["model"]
+    capsys.readouterr()
+
+    assert _relabel(run_dir, roster, "model_tier", "frontier") == 0
+
+    err = capsys.readouterr().err
+    message = "relabel: assignment pinned to codex has no frontier row; relabel assignments to move it"
+    assert message in err
+    assert message in [e["text"] for e in _events(run_dir, "note")]
+    assert _label(run_dir)["labels"]["model_tier"] == "frontier"
+    assert _label(run_dir)["assignments"] == pinned          # no silent misroute
+    assert _blocks(plan)["T1"]["assignments"] == pinned
+    assert _blocks(plan)["T1"]["labels"]["model_tier"] == "frontier"
+    assert _route(plan, roster, capsys) == stale and stale["model"] is not None
+    fields = [e["field"] for e in _events(run_dir, "label_changed") if e["task_id"] == "T1"]
+    assert fields == ["assignments", "labels.model_tier"]      # no second, assignments event
+
+
+def test_a_claude_pinned_assignment_follows_onto_a_tier_it_has_a_row_for(tmp_path, capsys):
+    plan, run_dir, roster = _setup(tmp_path)
+    pinned = [{"kind": "executor", "role": "backend", "model_tier": "standard", "executor": "claude",
+               "trigger": "ready"}]
+    assert _relabel(run_dir, roster, "assignments", json.dumps(pinned), "T1", "--json") == 0
+    assert _relabel(run_dir, roster, "model_tier", "frontier") == 0
+    assert _label(run_dir)["assignments"][0]["model_tier"] == "frontier"
+    assert _blocks(plan)["T1"]["assignments"][0]["model_tier"] == "frontier"
+    assert _route(plan, roster, capsys)["model"] in _frontier_models(roster)
+
+
 def test_a_relabel_to_the_same_value_leaves_the_plan_and_adds_no_note(tmp_path):
     plan, run_dir, roster = _setup(tmp_path)
     before = _read_bytes(plan)
@@ -622,7 +684,7 @@ def test_the_relabel_eval_case_passes():
 def test_the_relabel_eval_case_fails_when_the_assignment_does_not_follow(monkeypatch):
     import ale.bake as bake_module
     EC, case = _relabel_case()
-    monkeypatch.setattr(bake_module, "follow_assignments", lambda *_args: None)
+    monkeypatch.setattr(bake_module, "follow_assignments", lambda *_args, **_kwargs: None)
     result = EC.run_case(case)
     assert not result["passed"] and "assignment_tier" in result["reason"]
 

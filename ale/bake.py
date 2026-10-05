@@ -562,22 +562,41 @@ _RENDER_ORDER = ("task_id", "title", "labels", "lane_reason", "acceptance", "all
                  "worktree", "assignments", "route", "fixes", "spec_path", "pointers", "watch", "milestone")
 
 
-def follow_assignments(assignments, field: str, old, new):
+def follow_assignments(assignments, field: str, old, new, roster=None, labels=None, skipped=None):
     """The assignments after relabeling ``field`` (``model_tier`` or ``role``) from ``old`` to ``new``,
     or None when none of them moves. An executor assignment follows when its own ``field`` equals
     ``old`` and it pins neither a ``model`` nor a ``pin_reason``; monitors, pins and a deliberate
-    split (an assignment whose value already differs from the label's) stay as they are. The input
-    is not mutated."""
+    split (an assignment whose value already differs from the label's) stay as they are. An
+    assignment that pins a harness (``executor``) follows only when the ``roster`` has a row for that
+    harness at the new role and tier (``labels`` supplies the other half when the assignment
+    lacks it); otherwise it stays and a message is appended to ``skipped``. The input is not
+    mutated."""
     if field not in ("model_tier", "role") or not isinstance(assignments, list):
         return None
     result = copy.deepcopy(assignments)
     moved = False
     for assignment in result:
-        if (isinstance(assignment, dict) and assignment.get("kind", "executor") == "executor"
+        if not (isinstance(assignment, dict) and assignment.get("kind", "executor") == "executor"
                 and assignment.get(field) == old and not assignment.get("model")
                 and not assignment.get("pin_reason")):
-            assignment[field] = new
-            moved = True
+            continue
+        harness_name = assignment.get("executor")
+        if harness_name and roster:
+            from .roster import resolve
+            probe = {"role": assignment.get("role") or (labels or {}).get("role"),
+                     "model_tier": assignment.get("model_tier") or (labels or {}).get("model_tier")}
+            probe[field] = new
+            try:
+                row = resolve(roster, probe["role"], probe["model_tier"], executor=harness_name)
+            except (RosterError, KeyError, TypeError):
+                row = {"model": None}
+            if row.get("model") is None:
+                if skipped is not None:
+                    skipped.append("assignment pinned to %s has no %s row; relabel assignments to move it"
+                                   % (harness_name, new))
+                continue
+        assignment[field] = new
+        moved = True
     return result if moved else None
 
 
@@ -644,7 +663,8 @@ def relabel_block(text: str, task_id: str, field: str, old, new, roster=None) ->
         replacement["labels"][field] = new
     else:
         replacement[field] = new
-    moved = follow_assignments(replacement.get("assignments"), field, old, new)
+    moved = follow_assignments(replacement.get("assignments"), field, old, new, roster=roster,
+                               labels=replacement.get("labels"))
     if moved is not None:
         replacement["assignments"] = moved
     try:

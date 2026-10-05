@@ -3299,6 +3299,7 @@ def cmd_relabel(a) -> int:
 
     label = dict(c.labels[a.task])
     assignments_old = None
+    pin_skips: List[str] = []
     if a.field == "assignments":
         if not a.json:
             raise CliError(USAGE, "--field assignments requires --json")
@@ -3339,7 +3340,8 @@ def cmd_relabel(a) -> int:
         labels[a.field] = a.value
         label["labels"] = labels
         if a.value != old:
-            moved = follow_assignments(label.get("assignments"), a.field, old, a.value)
+            moved = follow_assignments(label.get("assignments"), a.field, old, a.value,
+                                       roster=c.roster, labels=labels, skipped=pin_skips)
             if moved is not None:
                 assignments_old, label["assignments"] = label.get("assignments"), moved
         if a.field in ("role", "sub", "phase"):
@@ -3371,6 +3373,9 @@ def cmd_relabel(a) -> int:
     if assignments_old is not None:   # the unpinned executor assignments followed the label
         c.emit("label_changed", a.task, None, st["attempt"], field="assignments",
                old=assignments_old, new=label["assignments"], reason=a.reason[:TEXT_MAX])
+    for message in pin_skips:   # a harness-pinned assignment with no row at the new value stays put
+        c.emit("note", a.task, None, st["attempt"], lead=True, text=("relabel: " + message)[:TEXT_MAX])
+        print("relabel: " + message, file=sys.stderr)
     new = label.get(a.field) if a.field in ("assignments", "acceptance") else a.value
     # The plan sync's note goes before `relabeled`, which stays the last event of a relabel.
     if new != old:

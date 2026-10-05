@@ -218,7 +218,8 @@ def _relabel(case: dict) -> dict:
     from .bake import compile_plan, extract_blocks, relabel_block
     from .harness import route
     value = case.get("input")
-    if (_input_dir(case) is None or not all(isinstance(value.get(key), str) for key in ("task", "field", "value"))
+    if (not isinstance(value, dict) or _input_dir(case) is None
+            or not all(isinstance(value.get(key), str) for key in ("task", "field", "value"))
             or not isinstance(value.get("roster"), dict)):
         raise CaseError("relabel input needs {\"dir\", \"task\", \"field\", \"value\", \"roster\"}")
     task, field, roster = value["task"], value["field"], value["roster"]
