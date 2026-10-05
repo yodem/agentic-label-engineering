@@ -243,12 +243,12 @@ def _row(run: dict, task_id: str, label: dict, task_events: List[dict], st: Opti
     evidence = (accepting or {}).get("evidence")
     verified_files = (list(evidence["files"]) if isinstance(evidence, dict)
                       and isinstance(evidence.get("files"), list) else None)
-    # verify trims a long file list to fit the event (files_truncated) and keeps the full count
-    # in files_count, so a truncated list, even an empty one, still stands for files_count files.
-    verified_count = None
-    if verified_files is not None:
-        count = evidence.get("files_count")
-        verified_count = count if _number(count) and count >= len(verified_files) else len(verified_files)
+    verified_count = _evidence_files_count(evidence)
+    # Any verification counts as proof the task changed files, a rejected one too: the
+    # executor wrote them whether or not the acceptance commands then passed.
+    verify_counts = [_evidence_files_count(e.get("evidence")) for e in task_events
+                     if e["type"] in ("verified", "accepted", "rejected") and _lead(e)]
+    any_verify_count = max([c for c in verify_counts if c is not None], default=None)
     integrations = [e for e in task_events if e["type"] == "integrated" and _lead(e)]
     if integrations and isinstance(integrations[-1].get("files"), list):
         files_changed = len(integrations[-1]["files"])
@@ -282,6 +282,7 @@ def _row(run: dict, task_id: str, label: dict, task_events: List[dict], st: Opti
         "first_verify_passed": first_verify_passed, "attempts": attempts,
         "rejects": sum(1 for e in verdicts if e["type"] == "rejected"),
         "verified_files": verified_files, "verified_files_count": verified_count,
+        "any_verify_files_count": any_verify_count,
         "acceptance_relabeled": acceptance_relabeled,
         "claim_to_accept_s": (accepting["ts"] - claims[0]["ts"]) if claims and accepting else None,
         "files_changed": files_changed, "usage_tokens": sum(_tokens(e) for e in usage) if usage else None,
@@ -324,6 +325,18 @@ def _analysis(run: dict) -> dict:
     return run["_analysis"]
 
 
+def _evidence_files_count(evidence) -> Optional[int]:
+    """Files a verify evidence record stands for; None when it records no file list.
+
+    verify trims a long file list to fit the event (files_truncated) and keeps the full count
+    in files_count, so a truncated list, even an empty one, still stands for files_count files."""
+    if not isinstance(evidence, dict) or not isinstance(evidence.get("files"), list):
+        return None
+    files = evidence["files"]
+    count = evidence.get("files_count")
+    return count if _number(count) and count >= len(files) else len(files)
+
+
 def task_rows(run: dict) -> List[dict]:
     """One outcome row per task, reduced with the same reducer ``ale status`` uses."""
     return _analysis(run)["rows"]
@@ -362,7 +375,7 @@ def _path_scope_checked(row, ctx):
 
 
 def _write_has_worktree(row, ctx):
-    if not (row["verified_files_count"] or row["integrated"] or row["spawned_by"] == "register"):
+    if not (row["any_verify_files_count"] or row["integrated"] or row["spawned_by"] == "register"):
         return None
     return _verdict(row["worktree_mode"] != "none", "worktree.mode %s" % row["worktree_mode"],
                     "changed files with worktree.mode none")

@@ -30,3 +30,17 @@ def test_same_named_repositories_have_distinct_run_identities(tmp_path, monkeypa
     assert EL.append_changed_rows(cases, home=str(tmp_path / "home")) == len(cases)
     assert EL.append_changed_rows(cases, home=str(tmp_path / "home")) == 0
     assert len(EL.latest_by_case(EL.read_rows(str(tmp_path / "home")))) == len(cases)
+
+
+def test_write_has_worktree_counts_files_from_a_rejected_verify(tmp_path):
+    from analyze_fixtures import ev, evidence, label, run_header, write_run
+    events = run_header("r", T0, ["T1"]) + [
+        ev("claimed", "r", T0 + 10, "T1", "lead"),
+        ev("submitted", "r", T0 + 20, "T1", "lead", summary="done"),
+        ev("verified", "r", T0 + 30, "T1", evidence=evidence(["src/a.py"], passed=False)),
+        ev("rejected", "r", T0 + 30, "T1", evidence=evidence(["src/a.py"], passed=False)),
+    ]
+    run_dir = write_run(tmp_path, "r", [label("T1", "r", worktree_mode="none")], events)
+    run = A.load_run(entry(run_dir, "r"))
+    check = A.evaluate([run], A.load_thresholds(), T0 + 3600, None)["checks"]["ale.task.write_has_worktree"]
+    assert check["n"] == 1 and check["passed"] == 0
