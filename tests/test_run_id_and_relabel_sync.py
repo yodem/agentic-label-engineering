@@ -48,6 +48,11 @@ def test_a_relative_plan_path_in_a_run_dir_resolves_too(tmp_path, monkeypatch):
     assert _plan_run_id(os.path.join(".ale", "runs", "2026-10-05-x", "plan.md"), None) == "2026-10-05-x"
 
 
+def test_an_unsafe_run_dir_name_falls_back_to_the_plan_filename(tmp_path):
+    plan = _run_plan(tmp_path, run_id="my run")
+    assert _plan_run_id(plan, None) == "plan"
+
+
 def test_supplied_run_id_wins(tmp_path):
     assert _plan_run_id(_run_plan(tmp_path), "chosen") == "chosen"
 
@@ -194,9 +199,11 @@ def test_relabel_label_field_rewrites_only_that_block(tmp_path, field, value):
     assert blocks["T1"]["labels"][field] == value
     expected = json.loads(json.dumps(extract_blocks(before)[0][1]))
     expected["labels"][field] = value
+    if field in ("model_tier", "role"):                  # the unpinned executor assignment follows the label
+        expected["assignments"][0][field] = value
     changed = {key for key in set(expected) | set(blocks["T1"]) if expected.get(key) != blocks["T1"].get(key)}
-    assert changed <= {"labels", "route"}                # the route view follows the labels
-    for key in ("task_id", "title", "acceptance", "assignments", "allowed_paths", "lane_reason"):
+    assert changed <= {"route"}                          # the route view follows the labels
+    for key in ("task_id", "title", "acceptance", "assignments", "allowed_paths", "lane_reason", "labels"):
         assert blocks["T1"][key] == expected[key]
     assert {k: v for k, v in blocks["T1"]["labels"].items() if k != field} == \
         {k: v for k, v in expected["labels"].items() if k != field}
@@ -256,7 +263,7 @@ def test_relabel_acceptance_rewrites_the_top_level_key(tmp_path):
     assert _last_note(run_dir).startswith("relabel: plan block for T1 updated in ")
 
 
-def test_a_compact_hand_written_block_gets_only_the_labels_key_changed(tmp_path):
+def test_a_compact_hand_written_block_gets_only_the_label_and_its_assignment_changed(tmp_path):
     roster = _roster(tmp_path)
     hand = {"task_id": "T1", "title": "Add the todo model",
             "labels": {"role": "backend", "model_tier": "standard", "risk": "low", "effort": "M", "lane": "inline"},
@@ -275,11 +282,162 @@ def test_a_compact_hand_written_block_gets_only_the_labels_key_changed(tmp_path)
 
     expected = json.loads(json.dumps(hand))
     expected["labels"]["model_tier"] = "frontier"
+    expected["assignments"][0]["model_tier"] = "frontier"      # the unpinned executor follows the label
     block = _blocks(plan)["T1"]
     assert {k: v for k, v in block.items() if k != "route"} == expected
     after = _read(plan)
     assert after.startswith("# Plan\n\n## Task 1: Add the todo model\n\nCreate: `todo/model.py`\n\n```ale-label\n")
     assert after.endswith("\n```\n\nRun: `true`\n")
+
+
+def _label(run_dir, task="T1"):
+    with open(os.path.join(run_dir, "labels", "%s.json" % task), encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def test_plain_model_tier_relabel_moves_plan_route_and_the_label_assignment(tmp_path, capsys):
+    """The explore symptom: relabel standard, route still the old model."""
+    plan, run_dir, roster = _setup(tmp_path)
+    stale = _route(plan, roster, capsys)
+    assert stale["model"] not in _frontier_models(roster)
+    assert _label(run_dir)["assignments"][0]["model_tier"] == "standard"
+
+    assert _relabel(run_dir, roster, "model_tier", "frontier") == 0
+
+    assert _route(plan, roster, capsys)["model"] in _frontier_models(roster)
+    assert _route(plan, roster, capsys, "T2") == stale
+    label = _label(run_dir)
+    assert label["labels"]["model_tier"] == "frontier"
+    assert label["assignments"][0]["model_tier"] == "frontier"      # dispatch routes the new tier
+    assert _label(run_dir, "T2")["assignments"][0]["model_tier"] == "standard"
+    from ale import harness
+    with open(roster, encoding="utf-8") as handle:
+        assert harness.route(label, json.load(handle))["model"] in _frontier_models(roster)
+    changes = [e for e in _events(run_dir, "label_changed") if e["task_id"] == "T1"]
+    assert [e["field"] for e in changes] == ["labels.model_tier", "assignments"]
+    assert changes[1]["old"][0]["model_tier"] == "standard" and changes[1]["new"][0]["model_tier"] == "frontier"
+
+
+def test_the_assignment_change_replays_from_the_event_log(tmp_path):
+    from ale.dynamic import effective_labels
+    plan, run_dir, roster = _setup(tmp_path)
+    frozen = {"T1": _label(run_dir)}
+    assert _relabel(run_dir, roster, "model_tier", "frontier") == 0
+    replayed = effective_labels(frozen, E.read_events(os.path.join(run_dir, "events.jsonl")), lambda _p: {})
+    assert replayed["T1"]["assignments"] == _label(run_dir)["assignments"]
+
+
+@pytest.mark.parametrize("pin", [{"model": "claude-haiku-4-5-20251001"}, {"pin_reason": "cheap on purpose"}])
+def test_a_pinned_assignment_does_not_follow_the_label(tmp_path, pin, capsys):
+    plan, run_dir, roster = _setup(tmp_path)
+    pinned = [dict({"kind": "executor", "role": "backend", "model_tier": "standard", "executor": None,
+                    "trigger": "ready"}, **pin)]
+    assert _relabel(run_dir, roster, "assignments", json.dumps(pinned), "T1", "--json") == 0
+    stale = _route(plan, roster, capsys)
+    assert _relabel(run_dir, roster, "model_tier", "frontier") == 0
+    assert _label(run_dir)["assignments"] == pinned
+    assert _blocks(plan)["T1"]["assignments"] == pinned
+    assert _blocks(plan)["T1"]["labels"]["model_tier"] == "frontier"
+    assert _route(plan, roster, capsys) == stale
+
+
+def test_follow_assignments_rule():
+    from ale.bake import follow_assignments
+    executor = {"kind": "executor", "role": "backend", "model_tier": "standard", "executor": None}
+    monitor = {"kind": "monitor", "role": "monitor", "model_tier": "standard"}
+    split = {"kind": "executor", "role": "backend", "model_tier": "cheap"}
+    bare = {"role": "backend", "model_tier": "standard"}        # kind defaults to executor
+    pinned = dict(executor, pin_reason="x")
+    got = follow_assignments([executor, monitor, split, bare, pinned], "model_tier", "standard", "frontier")
+    assert [a.get("model_tier") for a in got] == ["frontier", "standard", "cheap", "frontier", "standard"]
+    assert executor["model_tier"] == "standard"                 # the input is not mutated
+    assert follow_assignments([monitor, split, pinned], "model_tier", "standard", "frontier") is None
+    assert follow_assignments([executor], "role", "backend", "docs")[0]["role"] == "docs"
+    assert follow_assignments([executor], "risk", "low", "high") is None
+    assert follow_assignments("nope", "model_tier", "standard", "frontier") is None
+
+
+def test_a_relabel_to_the_same_value_leaves_the_plan_and_adds_no_note(tmp_path):
+    plan, run_dir, roster = _setup(tmp_path)
+    before = _read_bytes(plan)
+    assert _relabel(run_dir, roster, "risk", "low") == 0
+    assert _read_bytes(plan) == before
+    assert not [e for e in _events(run_dir, "note") if "plan block" in e.get("text", "")]
+
+
+def test_the_plan_symlink_survives_a_synced_relabel(tmp_path):
+    plan, run_dir, roster = _setup(tmp_path)
+    real = tmp_path / "elsewhere.md"
+    os.replace(plan, str(real))
+    os.symlink(str(real), plan)
+    assert _relabel(run_dir, roster, "risk", "high") == 0
+    assert os.path.islink(plan)
+    assert _blocks(str(real))["T1"]["labels"]["risk"] == "high"
+
+
+def test_a_failing_chmod_after_the_write_still_reports_updated(tmp_path, monkeypatch):
+    import ale.cli as cli
+    plan, run_dir, roster = _setup(tmp_path)
+
+    def broken(*_args, **_kwargs):
+        raise PermissionError("no chmod here")
+    monkeypatch.setattr(cli.os, "chmod", broken)
+    assert _relabel(run_dir, roster, "risk", "high") == 0
+    assert _last_note(run_dir) == "relabel: plan block for T1 updated in %s; re-approve the plan" % plan
+    assert _blocks(plan)["T1"]["labels"]["risk"] == "high"
+
+
+def test_an_unexpected_error_in_the_sync_is_a_note_not_a_failure(tmp_path, monkeypatch):
+    import ale.bake as bake_module
+    plan, run_dir, roster = _setup(tmp_path)
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("boom")
+    monkeypatch.setattr(bake_module, "relabel_block", boom)
+    before = _read_bytes(plan)
+    assert _relabel(run_dir, roster, "risk", "high") == 0
+    assert "plan block for T1 not updated: RuntimeError: boom" in _last_note(run_dir)
+    assert _read_bytes(plan) == before
+    assert _events(run_dir, "relabeled")[-1]["new"] == "high"
+
+
+def test_block_labels_that_are_not_an_object_are_a_note(tmp_path):
+    from ale.bake import relabel_block
+    text = '```ale-label\n{"task_id": "T1", "labels": "oops"}\n```\n'
+    new, why = relabel_block(text, "T1", "risk", "low", "high")
+    assert new is None and "labels are not an object" in why
+
+
+def test_a_block_the_edit_would_make_invalid_is_a_note(tmp_path):
+    from ale.bake import relabel_block
+    text = '```ale-label\n{"task_id": "T1", "labels": {"risk": "low"}, "bogus": 1}\n```\n'
+    new, why = relabel_block(text, "T1", "risk", "low", "high")
+    assert new is None and "not valid" in why and "bogus" in why
+
+
+@pytest.mark.parametrize("field,old,new", [("phase", "implement", "review"), ("sub", "api", "data")])
+def test_phase_and_sub_are_kept_in_the_block_labels(field, old, new):
+    from ale.bake import relabel_block
+    block = {"task_id": "T1", "labels": {"role": "backend", field: old}}
+    text = "before\n```ale-label\n%s\n```\nafter\n" % json.dumps(block)
+    updated, why = relabel_block(text, "T1", field, old, new)
+    assert why == ""
+    assert extract_blocks(updated)[0][1]["labels"] == {"role": "backend", field: new}
+    assert updated.startswith("before\n```ale-label\n") and updated.endswith("\n```\nafter\n")
+    stale, why = relabel_block(text, "T1", field, "other", new)
+    assert stale is None and "differs" in why
+
+
+def test_an_absent_locality_defaults_to_the_plans_own_locality(tmp_path):
+    from ale.bake import relabel_block
+    local = ("## Task 1: Local\n\nCreate: `~/Library/x/y.py`\n\n```ale-label\n"
+             '{"task_id": "T1", "labels": {"risk": "low"}}\n```\n\n## Task 2: Other\n\nCreate: `src/b.py`\n\n'
+             '```ale-label\n{"task_id": "T2", "labels": {"risk": "low"}}\n```\n')
+    new, why = relabel_block(local, "T1", "locality", "local", "any")
+    assert why == "" and extract_blocks(new)[0][1]["labels"]["locality"] == "any"
+    assert relabel_block(local, "T1", "locality", "any", "local")[0] is None
+    other, why = relabel_block(local, "T2", "locality", "any", "local")
+    assert why == "" and extract_blocks(other)[1][1]["labels"]["locality"] == "local"
 
 
 def test_crlf_plan_keeps_its_line_endings(tmp_path):
@@ -447,3 +605,33 @@ def test_the_run_id_eval_case_fails_for_a_plan_outside_a_run_dir():
     case["input"] = dict(case["input"], plan_path="docs/plans/plan.md")
     result = EC.run_case(case)
     assert not result["passed"] and result["actual"]["run_id"] == "plan"
+
+
+def _relabel_case():
+    from ale import evalcases as EC
+    return EC, {c["id"]: c for c in EC.load_cases(EC.default_cases_path())}["relabel-sync-moves-route"]
+
+
+def test_the_relabel_eval_case_passes():
+    EC, case = _relabel_case()
+    result = EC.run_case(case)
+    assert result["passed"], result
+    assert result["actual"]["before_model"] != result["actual"]["model"]
+
+
+def test_the_relabel_eval_case_fails_when_the_assignment_does_not_follow(monkeypatch):
+    import ale.bake as bake_module
+    EC, case = _relabel_case()
+    monkeypatch.setattr(bake_module, "follow_assignments", lambda *_args: None)
+    result = EC.run_case(case)
+    assert not result["passed"] and "assignment_tier" in result["reason"]
+
+
+# --- the event schema -------------------------------------------------------------------------
+
+def test_run_started_declares_plan_path_and_run_id_from_as_optional():
+    from ale.events import check_event, make_event
+    assert check_event(make_event("run_started", "r", 1.0)) == []
+    assert check_event(make_event("run_started", "r", 1.0, plan_path="/a/plan.md", run_id_from="run-dir")) == []
+    assert check_event(make_event("run_started", "r", 1.0, plan_path=7)) != []
+    assert check_event(make_event("run_started", "r", 1.0, run_id_from="guess")) != []

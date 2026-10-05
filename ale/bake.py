@@ -555,12 +555,41 @@ def gaps(label: dict) -> List[str]:
 # --- relabel: keep a plan block in step with the run's labels -----------------------------------
 
 _BLOCK_LABEL_FIELDS = ("role", "model_tier", "risk", "effort", "locality", "sub", "phase")
-_BLOCK_LABEL_DEFAULTS = {"locality": "any"}
 _COMPLETE_FIELDS = {"task_id", "title", "labels", "lane_reason", "acceptance",
                     "allowed_paths", "depends_on", "worktree", "assignments"}
 # The order render_block writes a block's keys in.
 _RENDER_ORDER = ("task_id", "title", "labels", "lane_reason", "acceptance", "allowed_paths", "depends_on",
                  "worktree", "assignments", "route", "fixes", "spec_path", "pointers", "watch", "milestone")
+
+
+def follow_assignments(assignments, field: str, old, new):
+    """The assignments after relabeling ``field`` (``model_tier`` or ``role``) from ``old`` to ``new``,
+    or None when none of them moves. An executor assignment follows when its own ``field`` equals
+    ``old`` and it pins neither a ``model`` nor a ``pin_reason``; monitors, pins and a deliberate
+    split (an assignment whose value already differs from the label's) stay as they are. The input
+    is not mutated."""
+    if field not in ("model_tier", "role") or not isinstance(assignments, list):
+        return None
+    result = copy.deepcopy(assignments)
+    moved = False
+    for assignment in result:
+        if (isinstance(assignment, dict) and assignment.get("kind", "executor") == "executor"
+                and assignment.get(field) == old and not assignment.get("model")
+                and not assignment.get("pin_reason")):
+            assignment[field] = new
+            moved = True
+    return result if moved else None
+
+
+def _plan_locality(text: str, task_id: str) -> str:
+    """The locality ``compile_plan`` fills in for a block that names none: the plan's own."""
+    try:
+        for task in parse_plan(text):
+            if task["task_id"] == task_id:
+                return task.get("locality") or "any"
+    except ValueError:
+        pass
+    return "any"
 
 
 def _block_route(block: dict, roster):
@@ -578,7 +607,8 @@ def relabel_block(text: str, task_id: str, field: str, old, new, roster=None) ->
     """Rewrite the one ale-label block of ``task_id`` so ``field`` reads ``new``.
 
     ``field`` is a label (``labels.<field>`` in the block) or ``assignments``/``acceptance`` (top-level
-    keys). Only that block changes; every other byte of ``text``, its newline style included, is kept.
+    keys). Relabeling ``model_tier`` or ``role`` also moves the block's unpinned executor
+    assignments (``follow_assignments``), so the route follows. Only that block changes; every other byte of ``text``, its newline style included, is kept.
     The block is written the way ``bake`` writes one: complete blocks through bake's renderer
     (``route`` recomputed under ``roster``, or dropped without one), partial ones as bake's compact
     JSON. Returns ``(new_text, "")``, or ``(None, why)`` and no change when the plan has not exactly
@@ -600,7 +630,9 @@ def relabel_block(text: str, task_id: str, field: str, old, new, roster=None) ->
         labels = block.get("labels")
         if labels is not None and not isinstance(labels, dict):
             return None, "the block's labels are not an object"
-        current = (labels or {}).get(field, _BLOCK_LABEL_DEFAULTS.get(field))
+        current = (labels or {}).get(field)
+        if current is None and field == "locality":
+            current = _plan_locality(text, task_id)
     else:
         current = block.get(field)
     if current != old:
@@ -612,6 +644,9 @@ def relabel_block(text: str, task_id: str, field: str, old, new, roster=None) ->
         replacement["labels"][field] = new
     else:
         replacement[field] = new
+    moved = follow_assignments(replacement.get("assignments"), field, old, new)
+    if moved is not None:
+        replacement["assignments"] = moved
     try:
         _validate_compact_block(replacement)
     except BakeError as exc:

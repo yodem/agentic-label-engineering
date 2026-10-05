@@ -27,7 +27,7 @@ from . import __version__
 from . import analyze as AN
 from .paths import plugin_root
 
-KINDS = ("parse", "bake", "route", "refs", "analyze", "claim")
+KINDS = ("parse", "bake", "route", "refs", "analyze", "claim", "relabel")
 REQUIRED = ("id", "kind", "input", "expected")
 
 
@@ -209,6 +209,37 @@ def _route(case: dict) -> dict:
     return _compare(pairs, result)
 
 
+def _relabel(case: dict) -> dict:
+    """The plan sync of ``ale relabel`` on a baked plan (``plan.md`` in the case dir): relabel
+    ``input.task``'s ``input.field`` to ``input.value`` with the inline ``input.roster`` and
+    report ``{synced, before_model, model, tier, assignment_tier, block_route_model}``: whether
+    the block was rewritten, the model ``harness.route`` picks before and after, the block's
+    label tier and first executor assignment tier, and the model in the block's ``route`` view."""
+    from .bake import compile_plan, extract_blocks, relabel_block
+    from .harness import route
+    value = case.get("input")
+    if (_input_dir(case) is None or not all(isinstance(value.get(key), str) for key in ("task", "field", "value"))
+            or not isinstance(value.get("roster"), dict)):
+        raise CaseError("relabel input needs {\"dir\", \"task\", \"field\", \"value\", \"roster\"}")
+    task, field, roster = value["task"], value["field"], value["roster"]
+    text = _plan_text(case)
+    before = compile_plan(text, run_id="case")[task]
+    updated, why = relabel_block(text, task, field, before["labels"].get(field), value["value"], roster=roster)
+    actual = {"synced": updated is not None, "why": why}
+    actual["before_model"] = route(copy.deepcopy(before), copy.deepcopy(roster))["model"]
+    if updated is not None:
+        after = compile_plan(updated, run_id="case")[task]
+        executor = next((item for item in after.get("assignments") or []
+                         if item.get("kind", "executor") == "executor"), {})
+        block = next(block for _, block in extract_blocks(updated) if block.get("task_id") == task)
+        actual.update({"model": route(copy.deepcopy(after), copy.deepcopy(roster))["model"],
+                       "tier": after["labels"].get("model_tier"),
+                       "assignment_tier": executor.get("model_tier"),
+                       "block_route_model": (block.get("route") or {}).get("model")})
+    pairs = [(key, want, actual.get(key)) for key, want in sorted(case["expected"].items())]
+    return _compare(pairs, actual)
+
+
 def _refs(case: dict) -> dict:
     from .refs import allowed_command
     value = case.get("input")
@@ -300,6 +331,7 @@ def _claim(case: dict) -> dict:
 
 EVALUATORS: Dict[str, Callable[[dict], dict]] = {
     "parse": _parse, "bake": _bake, "route": _route, "refs": _refs, "analyze": _analyze, "claim": _claim,
+    "relabel": _relabel,
 }
 
 

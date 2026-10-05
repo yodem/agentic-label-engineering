@@ -272,8 +272,9 @@ def _plan_run_dir_name(path: str) -> Optional[str]:
     """The run directory's name when the plan sits in ``.ale/runs/<id>/``, else None."""
     run_dir = os.path.dirname(os.path.abspath(path))
     runs = os.path.dirname(run_dir)
-    if os.path.basename(runs) == "runs" and os.path.basename(os.path.dirname(runs)) == ".ale":
-        return os.path.basename(run_dir)
+    name = os.path.basename(run_dir)
+    if os.path.basename(runs) == "runs" and os.path.basename(os.path.dirname(runs)) == ".ale" and H.is_safe_id(name):
+        return name
     return None
 
 
@@ -3288,6 +3289,7 @@ def cmd_rescope(a) -> int:
 
 
 def cmd_relabel(a) -> int:
+    from .bake import follow_assignments
     if a.field == "lane" or (a.field not in CAS.FIELDS and a.field not in ("assignments", "sub", "phase", "acceptance")):
         raise CliError(USAGE, "field %s cannot be relabeled or adjudicated" % a.field)
     c = Ctx(a)
@@ -3296,6 +3298,7 @@ def cmd_relabel(a) -> int:
         raise CliError(FAIL, "task %s is terminal: %s" % (a.task, st["state"]))
 
     label = dict(c.labels[a.task])
+    assignments_old = None
     if a.field == "assignments":
         if not a.json:
             raise CliError(USAGE, "--field assignments requires --json")
@@ -3335,6 +3338,10 @@ def cmd_relabel(a) -> int:
         old = labels[a.field]
         labels[a.field] = a.value
         label["labels"] = labels
+        if a.value != old:
+            moved = follow_assignments(label.get("assignments"), a.field, old, a.value)
+            if moved is not None:
+                assignments_old, label["assignments"] = label.get("assignments"), moved
         if a.field in ("role", "sub", "phase"):
             catalog = AC.load_catalog(_agent_roots())
             ref = AC.resolve_agent(catalog, labels.get("role", "general"), labels.get("sub"), labels.get("phase") or "implement")
@@ -3361,9 +3368,13 @@ def cmd_relabel(a) -> int:
            field=a.field if a.field in ("assignments", "acceptance") else "labels.%s" % a.field,
            old=old, new=label.get(a.field) if a.field in ("assignments", "acceptance") else a.value,
            routing_agent_old=routing_old, routing_agent_new=routing_new, reason=a.reason[:TEXT_MAX])
+    if assignments_old is not None:   # the unpinned executor assignments followed the label
+        c.emit("label_changed", a.task, None, st["attempt"], field="assignments",
+               old=assignments_old, new=label["assignments"], reason=a.reason[:TEXT_MAX])
     new = label.get(a.field) if a.field in ("assignments", "acceptance") else a.value
     # The plan sync's note goes before `relabeled`, which stays the last event of a relabel.
-    _sync_relabel_to_plan(c, a.task, st["attempt"], a.field, old, new)
+    if new != old:
+        _sync_relabel_to_plan(c, a.task, st["attempt"], a.field, old, new)
     c.emit("relabeled", a.task, None, st["attempt"], field=a.field, old=old, new=new,
            reason=a.reason[:TEXT_MAX])
     return OK
@@ -3391,8 +3402,12 @@ def _plan_sync_outcome(c: Ctx, task_id: str, field: str, old, new) -> str:
     if updated is None:
         return skipped("%s (%s)" % (why, plan_path))
     if updated != text:
-        H.write_atomic(plan_path, updated)
-        os.chmod(plan_path, mode)
+        target = os.path.realpath(plan_path)   # write through a symlink, so the link survives
+        H.write_atomic(target, updated)
+        try:
+            os.chmod(target, mode)
+        except OSError:
+            pass   # the plan is already written; keep its new (temp file) mode rather than fail the note
     return "relabel: plan block for %s updated in %s; re-approve the plan" % (task_id, plan_path)
 
 
