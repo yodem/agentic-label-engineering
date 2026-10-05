@@ -140,6 +140,8 @@ def held_for_integration(run_state: dict, labels: Dict[str, dict]) -> List[Tuple
         for dependency_id in labels[task_id].get("context", {}).get("depends_on", []):
             if labels.get(dependency_id, {}).get("fixes"):
                 continue
+            if dependency_id in labels and worktree_mode(labels[dependency_id]) in ("none", "shared"):
+                continue  # no branch of its own: there is nothing to integrate before the dependent
             dependency = tasks.get(dependency_id, {})
             if dependency.get("state") == "accepted" and not dependency.get("integrated"):
                 held.append((task_id, dependency_id))
