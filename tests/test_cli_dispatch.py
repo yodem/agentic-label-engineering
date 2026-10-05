@@ -78,6 +78,7 @@ def test_dispatch_json_is_dry_and_prints_due_request(tmp_path, capsys):
     assert not (run / "events.jsonl").exists()
 
 
+@pytest.mark.real_spawn   # ALE_SPAWN_DRY / mocked run / unknown executor: no harness starts
 def test_spawn_dry_prints_argv_and_records_spawned(tmp_path, monkeypatch, capsys):
     roster = _roster(tmp_path)
     run = _run(tmp_path, {"T1": _label()})
@@ -139,6 +140,7 @@ def test_monitor_verdict_parser_accepts_required_forms_and_last_occurrence():
     assert _extract_monitor_verdict("continue\n\n**ESCALATE**") == "escalate"
 
 
+@pytest.mark.real_spawn   # ALE_SPAWN_DRY / mocked run / unknown executor: no harness starts
 def test_monitor_file_write_is_reverted_and_escalated(tmp_path, monkeypatch, capsys):
     repo = _git_repo(tmp_path)
     roster = _roster(tmp_path)
@@ -166,6 +168,7 @@ def test_monitor_file_write_is_reverted_and_escalated(tmp_path, monkeypatch, cap
     assert verdict["text"] == "monitor wrote files: monitor-created.txt"
 
 
+@pytest.mark.real_spawn   # ALE_SPAWN_DRY / mocked run / unknown executor: no harness starts
 def test_failed_spawn_releases_assignment(tmp_path, capsys):
     roster = _roster(tmp_path)
     run = _run(tmp_path, {"T1": _label()})
