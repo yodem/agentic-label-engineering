@@ -299,3 +299,23 @@ def test_h_the_owner_reclaiming_is_idempotent(tmp_path, capsys):
 
     assert main(claim + ["agent-b"]) == 3
     assert "claim lost" in capsys.readouterr().err
+
+
+def test_a_stacked_partial_block_recomputes_to_a_stacked_per_task(tmp_path, capsys):
+    roster = _roster(tmp_path)
+
+    def partial(task_id, depends):
+        block = _block(worktree="none", complete=False)
+        block.update(task_id=task_id, title="Task " + task_id, depends_on=depends,
+                     allowed_paths=[task_id.lower() + ".py"])
+        return "## Task %s: Task %s\nBody.\n\n```ale-label\n%s\n```\n\n" % (
+            task_id[1:], task_id, json.dumps(block))
+
+    plan = tmp_path / "plan.md"
+    plan.write_text(partial("T1", []) + partial("T2", ["T1"]))
+
+    assert _bake(plan, roster, "--write", "--stack") == 0
+    assert "warning: T2: allowed_paths set but worktree.mode is none" in capsys.readouterr().err
+    blocks = {block["task_id"]: block for _, block in extract_blocks(plan.read_text())}
+    assert blocks["T1"]["worktree"] == "per_task"
+    assert blocks["T2"]["worktree"] == {"mode": "per_task", "stack": True}

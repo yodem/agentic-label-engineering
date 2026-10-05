@@ -93,7 +93,7 @@ def fill_blocks(text):
         block = json.loads(match.group(1))
         block["labels"]["lane"] = "inline"
         block["lane_reason"] = LANE_REASON
-        block["worktree"] = "none"
+        block["worktree"] = {"mode": "none", "worktree_reason": "the fake executors write in the checkout"}
         block["acceptance"].append({"id": "A2", "cmd": "true", "expect": "exit0"})
         if block["task_id"] == "T2":
             block["assignments"].append({"kind": "monitor", "role": "monitor", "model_tier": "standard",
