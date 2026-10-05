@@ -196,6 +196,13 @@ Monitor prompts contain the triggering breach and heartbeat step, acceptance com
 | `fixes` | Fix task IDs belonging to this task. |
 | `fixed_by` | Accepted fix task IDs. |
 
+`ale wait --run-dir <dir> --until <state>[,<state>...] [--task <id>...]` blocks without starting an
+executor or making a model call. It returns when every selected task (all tasks by default) reaches
+one of the requested states, or early when a task needs attention, such as input, a stale heartbeat,
+a rejection, or a release. `--timeout` defaults to 1800 seconds and `--interval` to 5 seconds;
+`--json` returns the task lines and the return reason as one object. Exit 0 means the requested state
+was reached; exit 1 means timeout or attention is needed; exit 2 means invalid usage.
+
 ## Events
 
 The board is append-only. Core events are `run_started`, `run_finished`, `labeled`, `label_vote`, `relabeled`, `adjudicated`, `dispatched`, `claimed`, `heartbeat`, `note`, `input_required`, `input_answered`, `relayed`, `submitted`, `verified`, `accepted`, `rejected`, `failed`, `canceled`, `lease_expired`, `released`, `breach`, `monitor_verdict`, `usage`, and `decision`.

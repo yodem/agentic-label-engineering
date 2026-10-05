@@ -145,6 +145,7 @@ ale heartbeat --task T1 --agent "$AGENT" --step "writing greet.py"
 ale submit --task T1 --agent "$AGENT" --summary "done"
 ale verify --task T1 --cwd "$WT"     # acceptance failed: A1, A2  (exit 1)
 ale status                           # T1 rejected
+ale wait --run-dir .ale/runs/PLAN --until submitted,accepted
 ```
 
 **5. Do the work, then verify again.** `reopen` is the lead's decision to retry verification.

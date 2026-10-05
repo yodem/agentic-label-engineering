@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.5 (2026-10-05)
+
+- Add `ale wait` to block on task states with timeout and early attention returns.
+
 ## 0.4.4 (2026-10-05)
 
 - An env-bound ALE hook acts only for the executor's own session. A child `claude` started inside an executor (measured: a Jev bake-off `claude -p` in `$TMPDIR/jev-bakeoff-*`) inherits `ALE_TASK`/`ALE_AGENT`/`ALE_RUN_DIR`; before, its Stop ran the task's acceptance in its own cwd and wrote a spurious `auto-stop-block` note on the task (the 0.4.3 known gap "the stop hook runs acceptance in the hook input's cwd"), and its PreToolUse applied the task's path guard to its own writes. Now `session-start` with a `cwd` inside the task's recorded worktree adds that session to the task's pinned set (`<run_dir>/hook-sessions/<task>--<agent>`; a pinned session stays bound wherever its cwd is later, so a pane `/clear` or an executor `cd` keeps its guard), and an event from a never-pinned session whose `cwd` is outside the worktree is ignored (exit 0, nothing written; `ALE_HOOK_DEBUG=1` logs `foreign session ignored <event>`). Subagents share the executor's session id and stay bound; no pin or no local worktree keeps the old behaviour. `docs/harness-facts.md` item 17 records the measurement.

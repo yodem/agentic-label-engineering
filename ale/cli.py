@@ -1059,6 +1059,74 @@ def cmd_status(a) -> int:
     return OK
 
 
+def cmd_wait(a) -> int:
+    """Wait for selected tasks to reach a state, or return when lead attention is needed."""
+    if not a.run_dir:
+        raise CliError(USAGE, "--run-dir is required")
+    c = Ctx(a)
+    selected = list(a.tasks or sorted(c.labels))
+    if a.timeout <= 0 or a.interval <= 0:
+        raise CliError(USAGE, "--timeout and --interval must be greater than zero")
+    if any(not H.is_safe_id(task_id) for task_id in selected):
+        raise CliError(USAGE, "unsafe task id in --task")
+    missing = [task_id for task_id in selected if task_id not in c.labels]
+    if missing:
+        raise CliError(USAGE, "unknown task(s): %s" % ", ".join(missing))
+    until = set(item.strip() for item in a.until.split(",") if item.strip())
+    if not until:
+        raise CliError(USAGE, "--until must contain at least one state")
+    deadline = time.monotonic() + a.timeout
+    attention_states = {"input-required", "blocked", "rejected", "released", "stale",
+                        "failed", "canceled"}
+    while True:
+        state = c.state()
+        now = time.time()
+        tasks = []
+        attention = []
+        met = True
+        for task_id in selected:
+            item = state["tasks"][task_id]
+            task_state = item["state"]
+            # Match status's lease calculation. A live task whose lease expired is stale for
+            # waiting purposes even before the watchdog materializes lease_expired.
+            watch = L.effective_watch(c.labels[task_id], c.roster)
+            base_ts = item.get("last_heartbeat_ts") or item.get("started_ts")
+            stale = (task_state in ("claimed", "working") and base_ts is not None and
+                     now >= base_ts + watch["heartbeat_timeout_s"])
+            blocked = bool(item.get("blocked_by"))
+            display_state = "stale" if stale else ("blocked" if blocked else task_state)
+            question = item.get("waiting_on") if task_state == "input-required" else None
+            if question:
+                line = "%s input_required: %s" % (task_id, str(question)[:80])
+            else:
+                line = "%s %s" % (task_id, display_state.replace("input-required", "input_required"))
+            tasks.append({"task": task_id, "state": display_state, "line": line})
+            if stale:
+                attention.append((task_id, "stale heartbeat"))
+            elif display_state in attention_states and display_state not in until:
+                attention.append((task_id, display_state))
+            if display_state not in until:
+                met = False
+        if attention:
+            reason = "attention: " + ", ".join("%s %s" % pair for pair in attention)
+            code = FAIL
+        elif met:
+            reason, code = "condition met", OK
+        elif time.monotonic() >= deadline:
+            reason, code = "timeout", FAIL
+        else:
+            time.sleep(min(a.interval, max(0.0, deadline - time.monotonic())))
+            continue
+        result = {"tasks": tasks, "reason": reason}
+        if a.json:
+            print(json.dumps(result, sort_keys=True))
+        else:
+            for task in tasks:
+                print(task["line"])
+            print("reason: %s" % reason)
+        return code
+
+
 def cmd_board(a) -> int:
     """Serve the read-only board for one run until interrupted."""
     runs_dir = _default_runs_dir()
@@ -4502,6 +4570,12 @@ def _parser() -> argparse.ArgumentParser:
     integrate.add_argument("--cwd")
     add("restack", cmd_restack, task=True)
     add("status", cmd_status).add_argument("--json", action="store_true")
+    wait = add("wait", cmd_wait)
+    wait.add_argument("--task", dest="tasks", action="append", metavar="ID")
+    wait.add_argument("--until", required=True, metavar="STATE[,STATE...]")
+    wait.add_argument("--timeout", type=float, default=1800.0)
+    wait.add_argument("--interval", type=float, default=5.0)
+    wait.add_argument("--json", action="store_true")
     board = add("board", cmd_board)
     board.add_argument("--open", action="store_true")
     runs = sub.add_parser("runs")
