@@ -4,6 +4,7 @@ import json
 import os
 import shlex
 import subprocess
+import sys
 
 import pytest
 
@@ -97,7 +98,7 @@ def test_claim_without_spawn_is_refused_with_the_dispatch_command(tmp_path, caps
     assert claim(run, roster) == 1
     err = capsys.readouterr().err
     assert "ALE has not spawned it" in err
-    assert ("ALE_SPAWN_BIN=/usr/bin/true ale dispatch --run-dir %s --cwd %s --roster %s --task T1 --spawn"
+    assert ("ale dispatch --run-dir %s --cwd %s --roster %s --task T1 --no-exec"
             % (run, repo, roster)) in err
     assert "For a lead working the task in-session" in err
     assert '--no-worktree --reason "<why>"' in err
@@ -163,7 +164,7 @@ def test_the_refusal_names_the_explicit_roster_and_quotes_paths(tmp_path, capsys
     capsys.readouterr()
     assert claim(run, roster) == 1
     err = capsys.readouterr().err
-    assert "--cwd %s --roster %s --task T1 --spawn" % (shlex.quote(str(repo)), shlex.quote(roster)) in err
+    assert "--cwd %s --roster %s --task T1 --no-exec" % (shlex.quote(str(repo)), shlex.quote(roster)) in err
 
 
 def test_the_refusal_uses_the_roster_env_when_no_flag_is_given(tmp_path, capsys, monkeypatch):
@@ -171,7 +172,7 @@ def test_the_refusal_uses_the_roster_env_when_no_flag_is_given(tmp_path, capsys,
     monkeypatch.setenv("ALE_ROSTER", roster)
     capsys.readouterr()
     assert main(["claim", "--task", "T1", "--agent", "lead-1", "--run-dir", str(run)]) == 1
-    assert "--roster %s --task T1 --spawn" % shlex.quote(roster) in capsys.readouterr().err
+    assert "--roster %s --task T1 --no-exec" % shlex.quote(roster) in capsys.readouterr().err
 
 
 def test_the_refusal_quotes_a_path_with_a_space(tmp_path, capsys):
@@ -326,6 +327,86 @@ def test_the_real_watchdog_lease_expiry_keeps_the_worktree_claimable(tmp_path):
     assert ale(run, roster, "watchdog", now=2000) == 6
     assert events(run, "released")
     assert claim(run, roster, "a2", now=2001) == 0       # same worktree, no new dispatch
+
+
+# --- rework claims and the --no-exec remedy (review item 1) ---------------------------------
+
+def remedy(err):
+    """The remedy command line the refusal prints, as argv for main() (without the leading ale)."""
+    line = next(row.strip() for row in err.splitlines() if row.strip().startswith("ale dispatch "))
+    return shlex.split(line)[1:]
+
+
+def set_acceptance(run, cmd, task="T1"):
+    path = run / "labels" / ("%s.json" % task)
+    label = json.loads(path.read_text())
+    label["acceptance"] = [{"id": "A1", "cmd": cmd, "expect": "exit0"}]
+    path.write_text(json.dumps(label))
+
+
+def failing_executor(tmp_path):
+    """A spawn bin that claims and submits as the minted executor, then exits non-zero."""
+    script = tmp_path / "failing-spawn"
+    script.write_text(
+        "#!%s\n"
+        "import json, sys\n"
+        "sys.path.insert(0, %r)\n"
+        "from ale.cli import main\n"
+        "request = json.load(open(sys.argv[1]))\n"
+        "env = request['env']\n"
+        "common = ['--run-dir', env['ALE_RUN_DIR'], '--roster', env['ALE_ROSTER']]\n"
+        "assert main(['claim', '--task', env['ALE_TASK'], '--agent', env['ALE_AGENT']] + common) == 0\n"
+        "assert main(['submit', '--task', env['ALE_TASK'], '--agent', env['ALE_AGENT'], '--summary', 'x'] + common) == 0\n"
+        "sys.exit(3)\n" % (sys.executable, ROOT))
+    script.chmod(0o755)
+    return str(script)
+
+
+def test_a_failed_headless_spawn_then_a_rejection_is_reclaimed_by_the_lead(tmp_path, monkeypatch):
+    """(a) headless spawn, the executor submits and exits non-zero (released), verify rejects:
+    the lead's reclaim works in the same worktree."""
+    repo, run, roster = make_run(tmp_path)
+    set_acceptance(run, "test -f t1.txt")
+    monkeypatch.setenv("ALE_SPAWN_BIN", failing_executor(tmp_path))
+    assert ale(run, roster, "dispatch", "--spawn", "--cwd", str(repo), "--task", "T1") == 0
+    assert [e["type"] for e in events(run) if e["type"] in ("claimed", "submitted", "released")] == \
+        ["claimed", "submitted", "released"]
+    assert ale(run, roster, "verify", "--task", "T1", "--cwd", str(run / "wt" / "T1")) == 1
+    assert events(run, "rejected")
+    assert claim(run, roster, "lead-1") == 0
+    assert events(run, "claimed")[-1]["attempt"] == 2
+
+
+def test_a_no_worktree_claim_then_a_rejection_is_refused_with_the_no_exec_remedy(tmp_path, capsys):
+    """(b) the first claim used --no-worktree, so no ALE worktree exists; the rework claim is
+    refused with the --no-exec remedy, which records the spawn and its worktree, and launches nothing."""
+    repo, run, roster = make_run(tmp_path)
+    assert claim(run, roster, "a1", "--no-worktree", "--reason", REASON) == 0
+    assert ale(run, roster, "submit", "--task", "T1", "--agent", "a1", "--summary", "done") == 0
+    reject(run)
+    capsys.readouterr()
+    assert claim(run, roster, "lead-1") == 1
+    err = capsys.readouterr().err
+    assert "ALE_SPAWN_BIN" not in err and "=/" not in err
+    argv = remedy(err)
+    assert argv == ["dispatch", "--run-dir", str(run), "--cwd", str(repo), "--roster", roster,
+                    "--task", "T1", "--no-exec"]
+    assert main(argv) == 0
+    spawned = events(run, "spawned")
+    assert len(spawned) == 1 and os.path.isdir(spawned[0]["worktree"])
+    assert claim(run, roster, "lead-1") == 0
+    assert events(run, "claimed")[-1]["attempt"] == 2
+
+
+def test_the_remedy_on_a_fresh_task_records_the_spawn_and_launches_nothing(tmp_path, capsys, spawn_guard):
+    repo, run, roster = make_run(tmp_path)
+    capsys.readouterr()
+    assert claim(run, roster) == 1
+    assert main(remedy(capsys.readouterr().err)) == 0
+    assert spawned_tasks(run) == ["T1"]
+    with open(spawn_guard["log"], encoding="utf-8") as handle:
+        assert len(handle.read().splitlines()) == spawn_guard["before"]     # nothing was launched
+    assert claim(run, roster) == 0
 
 
 # --- ale dispatch --task -------------------------------------------------------------------

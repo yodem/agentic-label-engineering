@@ -1169,20 +1169,25 @@ def _claim_worktree(dispatch_state: dict, task_id: str) -> Optional[str]:
     return None
 
 
-def _claim_refusal(a, c: Ctx, mode: str) -> str:
-    """The refusal text: the exact dispatch command, scoped to the one task."""
+def _claim_remedy(a, c: Ctx) -> str:
+    """The command that gives the task its ALE worktree without launching anything: a
+    ``--no-exec`` dispatch scoped to the one task (shell-quoted, ``--roster`` when known)."""
     import shlex
     roster = getattr(a, "roster", None) or os.environ.get("ALE_ROSTER")
-    command = ["ALE_SPAWN_BIN=/usr/bin/true", "ale", "dispatch", "--run-dir",
-               shlex.quote(os.path.abspath(c.run_dir)), "--cwd", shlex.quote(_run_repo_root(c.run_dir))]
+    command = ["ale", "dispatch", "--run-dir", shlex.quote(os.path.abspath(c.run_dir)),
+               "--cwd", shlex.quote(_run_repo_root(c.run_dir))]
     if roster:
         command += ["--roster", shlex.quote(os.path.abspath(roster))]
-    command += ["--task", shlex.quote(a.task), "--spawn"]
-    return ("task %s has worktree mode %s and %s. For a lead working the task in-session, run: %s "
-            "(the ALE_SPAWN_BIN prefix records the spawn without starting an executor), then claim again. "
-            "To work outside ALE on purpose, claim with --no-worktree --reason \"<why>\"; "
-            "the deviation is recorded as a note."
-            % (a.task, mode, CLAIM_REFUSED_PHRASE, " ".join(command)))
+    return " ".join(command + ["--task", shlex.quote(a.task), "--no-exec"])
+
+
+def _claim_refusal(a, c: Ctx, mode: str) -> str:
+    """The refusal text, with the remedy on a line of its own."""
+    return ("task %s has worktree mode %s and %s: no ALE worktree for it exists.\n"
+            "For a lead working the task in-session, record the spawn and its worktree first "
+            "(nothing is launched):\n  %s\nthen claim again. To work outside ALE on purpose, claim with "
+            "--no-worktree --reason \"<why>\"; the deviation is recorded as a note."
+            % (a.task, mode, CLAIM_REFUSED_PHRASE, _claim_remedy(a, c)))
 
 
 def cmd_claim(a) -> int:
@@ -2287,6 +2292,24 @@ def _due_for(dispatch_state: dict, c: Ctx, only: set) -> List[dict]:
     return due
 
 
+def _no_exec_rework(dispatch_state: dict, c: Ctx, only: set, due: List[dict]) -> List[dict]:
+    """Named tasks a ``--no-exec`` dispatch gives a worktree although no assignment is due:
+    claimable (say rejected after a claim outside ALE's worktree), inside the claim gate, and
+    with no ALE worktree. This is the claim refusal's remedy; nothing is launched."""
+    from .dispatch import executor_item, worktree_mode
+    taken = {item["task_id"] for item in due}
+    out = []
+    for task_id in sorted(only - taken):
+        st = dispatch_state["tasks"].get(task_id, {})
+        if (not st.get("claimable") or worktree_mode(c.labels[task_id]) in CLAIM_UNGATED_MODES
+                or _claim_worktree(dispatch_state, task_id) is not None):
+            continue
+        item = executor_item(task_id, c.labels[task_id], c.roster, "no-exec:%s" % st.get("attempt", 1))
+        if item is not None:
+            out.append(item)
+    return out
+
+
 def cmd_dispatch(a) -> int:
     import fcntl
     from .dispatch import held_for_integration, worktree_plan
@@ -2316,6 +2339,8 @@ def cmd_dispatch(a) -> int:
                 print("holding %s: dependency %s is accepted but not integrated" %
                       (task_id, dependency_id), file=sys.stderr)
             due = _due_for(dispatch_state, c, only)
+            if a.no_exec and only:
+                due += _no_exec_rework(dispatch_state, c, only, due)
             remote_due = [item for item in due if (item.get("host") or "local") != "local"]
             base_ref = None
             if due and not (a.json or a.dry_run) and (a.spawn or a.no_exec):

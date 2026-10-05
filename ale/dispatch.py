@@ -146,6 +146,27 @@ def held_for_integration(run_state: dict, labels: Dict[str, dict]) -> List[Tuple
     return held
 
 
+def _item(task_id: str, label: dict, assignment: dict, roster: dict, instance: str,
+          breaches: List[dict]) -> dict:
+    """One dispatchable assignment: the routed executor, model and host for ``assignment``."""
+    kind, trigger = assignment.get("kind", "executor"), assignment.get("trigger", "ready")
+    route = harness.route(label, roster, assignment=assignment)
+    return {"task_id": task_id, "kind": kind, "role": assignment.get("role", label.get("labels", {}).get("role")),
+            "model_tier": assignment.get("model_tier", label.get("labels", {}).get("model_tier")),
+            "executor": harness.spawn_id(route["harness"], route["mode"]), "model": route["model"],
+            "harness": route["harness"], "mode": route["mode"], "host": route["host"],
+            "family": harness.family(route["harness"], route["model"], roster),
+            "trigger": trigger, "trigger_instance": instance,
+            "breach": next((b for b in reversed(breaches) if b.get("task_id") == task_id), None) if trigger == "on_breach" else None}
+
+
+def executor_item(task_id: str, label: dict, roster: dict, instance: str) -> Optional[dict]:
+    """The task's executor assignment as a dispatch item under ``instance``, whatever its
+    trigger state; None when the label has no executor assignment."""
+    assignment = next((item for item in _assignments(label) if item.get("kind", "executor") == "executor"), None)
+    return _item(task_id, label, assignment, roster, instance, []) if assignment else None
+
+
 def due_assignments(run_state: dict, labels: Dict[str, dict], roster: dict,
                     only: Optional[Set[str]] = None) -> List[dict]:
     """The assignments due now, up to the roster's parallel cap with no two overlapping paths.
@@ -176,14 +197,7 @@ def due_assignments(run_state: dict, labels: Dict[str, dict], roster: dict,
             instance = _trigger_instance(assignment, task_id, state, breaches)
             if instance is None or (task_id, kind, instance) in spawned:
                 continue
-            route = harness.route(label, roster, assignment=assignment)
-            candidates.append({"task_id": task_id, "kind": kind, "role": assignment.get("role", label.get("labels", {}).get("role")),
-                              "model_tier": assignment.get("model_tier", label.get("labels", {}).get("model_tier")),
-                              "executor": harness.spawn_id(route["harness"], route["mode"]), "model": route["model"],
-                              "harness": route["harness"], "mode": route["mode"], "host": route["host"],
-                              "family": harness.family(route["harness"], route["model"], roster),
-                              "trigger": trigger, "trigger_instance": instance,
-                              "breach": next((b for b in reversed(breaches) if b.get("task_id") == task_id), None) if trigger == "on_breach" else None})
+            candidates.append(_item(task_id, label, assignment, roster, instance, breaches))
     cap = roster.get("cost_gate", {}).get("max_parallel", roster.get("cost_gate", {}).get("max_concurrent", 3))
     chosen, chosen_ids = [], []
     for item in candidates:
