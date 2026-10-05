@@ -699,9 +699,12 @@ worktree was refused every file write and stopped (both 2026-10-05 Sefaria runs)
 - `<rules>` is **one** comma-joined value:
   - `Bash(git add:*)`, `Bash(git commit:*)`, `Bash(git status:*)`, `Bash(git diff:*)`,
     `Bash(git log:*)`.
-  - The ALE protocol prefixes: `Bash(python3 -m ale:*)` (EXECUTOR.md),
-    `Bash(<ALE_PYTHON> -m ale:*)`, `Bash(<abs path of bin/ale-py>:*)`, and the literal
-    `Bash($ALE_BIN:*)` (the prompt tells the executor to type `$ALE_BIN …`).
+  - The ALE protocol subcommands only: `claim`, `heartbeat`, `status`, `submit`, `usage`,
+    `note`, `input-required` and `refs-ack`. Each one gets a rule
+    `Bash(<prefix> <subcommand>:*)` under four prefixes: `python3 -m ale` (EXECUTOR.md),
+    `<ALE_PYTHON> -m ale`, the absolute path of `bin/ale-py`, and the literal `$ALE_BIN` (the
+    prompt tells the executor to type `$ALE_BIN …`). Lead-side commands (`rescope`, `verify`,
+    `accept`, `integrate`, `relabel`, …) are not granted.
   - Each acceptance command from `$ALE_RUN_DIR/labels/<task>.json`, verbatim as
     `Bash(<cmd>)`.
 - A command (or prefix) containing `,`, `(`, `)` or a newline can't be written as a single
@@ -728,6 +731,13 @@ worktree was refused every file write and stopped (both 2026-10-05 Sefaria runs)
   `edit path outside allowed_paths`.
 - Any Bash command that matches no rule (and isn't one of Claude Code's built-in read-only
   commands) needs a prompt and is refused under `-p`.
+- The working directory is the worktree, so reads and writes outside it are refused under
+  `-p`. Reads need no approval only "within the working directory and additional directories".
+  This covers EXECUTOR.md step 1's `$ALE_RUN_DIR/labels/<task>.json` and `decisions.md`, the
+  prefetched `$ALE_RUN_DIR/refs/<task>.md`, and spec pointers in the main checkout. `ck items
+  get` and `trove items get` are not on the list either. ALE passes no `--add-dir`, because
+  that would also let `acceptEdits` edit labels and events. This gap is open: a full protocol
+  run may stall here.
 - Rules match each subcommand of `&&`, `;` or `|` independently (docs, Compound commands). An
   acceptance command written as a compound therefore doesn't match its single exact rule.
   Keep acceptance commands simple.

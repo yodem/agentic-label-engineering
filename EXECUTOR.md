@@ -19,9 +19,9 @@ version of this protocol.
    If the task truly needs a path outside them, ask with `input-required` (step 7); the lead widens
    the scope with `ale rescope`. Never edit label files.
    A headless Claude run is pre-approved for edits inside the worktree, `git add|commit|status|diff|log`,
-   the ALE commands (`python3 -m ale …`, `$ALE_BIN …`) and your label's acceptance commands typed exactly as
-   written (one command, not chained with `&&`). Any other command that needs approval is refused:
-   treat that as step 7.
+   the ALE commands this protocol names (`python3 -m ale …`, `$ALE_BIN …`) and your label's
+   acceptance commands typed exactly as written (one command, not chained with `&&`). Anything else
+   that needs approval, including reads and writes outside the worktree, is refused: treat that as step 7.
 5. After each completed step: `python3 -m ale heartbeat --task <task> --agent <agent> --step "<what you just finished>" --files a,b`.
    Heartbeat at least every 10 minutes. No heartbeat means your claim expires and the task is given away.
 6. Exit 4 from any command means you lost the lease. Stop immediately. Do not write more files.

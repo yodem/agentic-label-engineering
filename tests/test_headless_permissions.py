@@ -88,10 +88,12 @@ def test_headless_claude_gets_accept_edits_and_one_allowlist_before_the_prompt(t
     rules = _rules(argv)
     for git in ("add", "commit", "status", "diff", "log"):
         assert "Bash(git %s:*)" % git in rules
-    assert "Bash(python3 -m ale:*)" in rules
-    assert "Bash(%s -m ale:*)" % sys.executable in rules
-    assert "Bash(%s:*)" % ALE_PY in rules
-    assert "Bash($ALE_BIN:*)" in rules
+    for prefix in ("python3 -m ale", sys.executable + " -m ale", ALE_PY, "$ALE_BIN"):
+        for sub in ("claim", "heartbeat", "status", "submit", "usage", "note", "input-required", "refs-ack"):
+            assert "Bash(%s %s:*)" % (prefix, sub) in rules
+        # Only the protocol subcommands: never the whole CLI (rescope, accept, integrate ...).
+        assert "Bash(%s:*)" % prefix not in rules
+        assert "Bash(%s rescope:*)" % prefix not in rules
     assert "Bash(%s)" % ACCEPT in rules
     assert not any(rule.startswith("Bash(*") for rule in rules)
     # --allowedTools is variadic: an option token must follow its value, and all of it precedes -p.
@@ -222,7 +224,8 @@ def test_permission_helper_rules():
         {}, [{"cmd": "echo a,b"}, {"cmd": "true"}, "junk", {"cmd": ""}],
         ["python3 -m ale", "/odd (path)/py -m ale"])
     assert mode == "acceptEdits"
-    assert allowed[-2:] == ["Bash(python3 -m ale:*)", "Bash(true)"]
+    assert "Bash(python3 -m ale claim:*)" in allowed and "Bash(python3 -m ale:*)" not in allowed
+    assert allowed[-1] == "Bash(true)"
     assert skipped == ["/odd (path)/py -m ale", "echo a,b"]
     with pytest.raises(ValueError):
         harness.claude_permission_mode({"harnesses": {"claude": {"permission_mode": "bypassPermissions"}}})

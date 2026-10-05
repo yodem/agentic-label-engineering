@@ -134,6 +134,9 @@ def render_argv(template: List[str], model: Optional[str], prompt: str) -> List[
 # acceptEdits or null is accepted; bypassPermissions is never emitted.
 PERMISSION_MODES = ("acceptEdits",)
 GIT_ALLOW = ("git add", "git commit", "git status", "git diff", "git log")
+# The ALE subcommands an executor is told to run (EXECUTOR.md, the dispatch prompt). Lead-side
+# commands (rescope, verify, accept, integrate, relabel ...) are deliberately not granted.
+ALE_PROTOCOL = ("claim", "heartbeat", "status", "submit", "usage", "note", "input-required", "refs-ack")
 # A rule value cannot hold these: "," splits the --allowedTools list and parentheses close the rule.
 _RULE_UNSAFE = (",", "(", ")")
 
@@ -153,8 +156,8 @@ def claude_headless_permissions(roster: dict, acceptance: list, ale_commands: Li
     """(permission mode, allowedTools rules, skipped commands) for a headless Claude executor.
 
     ``ale_commands`` are the command prefixes the executor runs ALE with (``python3 -m ale``,
-    ``<ALE_PYTHON> -m ale``, the ``bin/ale-py`` path, the literal ``$ALE_BIN``); each becomes a
-    ``Bash(<prefix>:*)`` rule. Each acceptance command becomes an exact ``Bash(<cmd>)`` rule. A
+    ``<ALE_PYTHON> -m ale``, the ``bin/ale-py`` path, the literal ``$ALE_BIN``); each gets one
+    ``Bash(<prefix> <subcommand>:*)`` rule per ``ALE_PROTOCOL`` subcommand. Each acceptance command becomes an exact ``Bash(<cmd>)`` rule. A
     command holding ``,``, ``(`` or ``)`` cannot be written as one rule and is returned in
     ``skipped`` instead. A read-only monitor, or a roster ``permission_mode: null``, gets nothing.
     """
@@ -169,9 +172,10 @@ def claude_headless_permissions(roster: dict, acceptance: list, ale_commands: Li
         if any(char in prefix for char in _RULE_UNSAFE):
             skipped.append(prefix)
             continue
-        rule = "Bash(%s:*)" % prefix
-        if rule not in allowed:
-            allowed.append(rule)
+        for subcommand in ALE_PROTOCOL:
+            rule = "Bash(%s %s:*)" % (prefix, subcommand)
+            if rule not in allowed:
+                allowed.append(rule)
     for item in acceptance if isinstance(acceptance, list) else []:
         command = item.get("cmd") if isinstance(item, dict) else None
         if not isinstance(command, str) or not command.strip():

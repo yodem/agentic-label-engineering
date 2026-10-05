@@ -46,14 +46,17 @@ described above.
 
 `claude -p` cannot show a permission prompt, so `bin/ale-spawn` gives a headless Claude executor a
 prompt-free grant: `--permission-mode acceptEdits` and one `--allowedTools` list. The list holds
-`git add`, `git commit`, `git status`, `git diff` and `git log`, the ALE protocol commands
-(`python3 -m ale`, `<ALE_PYTHON> -m ale`, `bin/ale-py`, `$ALE_BIN`), and each acceptance command of
-the task, verbatim. ALE never passes `bypassPermissions` or `--dangerously-skip-permissions`. A
+`git add`, `git commit`, `git status`, `git diff` and `git log`. It also holds the executor's ALE
+subcommands (`claim`, `heartbeat`, `status`, `submit`, `usage`, `note`, `input-required`,
+`refs-ack`) under `python3 -m ale`, `<ALE_PYTHON> -m ale`, `bin/ale-py` and `$ALE_BIN`. Lead-side
+commands such as `rescope` and `accept` are not on it. The last entries are the task's acceptance
+commands, verbatim. ALE never passes `bypassPermissions` or `--dangerously-skip-permissions`. A
 read-only monitor (`ALE_READ_ONLY=1`) gets no grant. A roster opts out with
 `harnesses.claude.permission_mode: null`.
 
 What bounds the grant:
 - `acceptEdits` approves edits only inside the working directory, which is the task worktree.
+  Reads and writes outside it, including the run directory, are refused.
 - ALE's PreToolUse hook denies an edit-tool write outside the label's `allowed_paths`, with
   `edit path outside allowed_paths`.
 - Any other Bash command needs a prompt that `-p` cannot show, so it is refused.
