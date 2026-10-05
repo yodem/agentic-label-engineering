@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import Mapping, Optional
+from typing import List, Mapping, Optional
 
 from . import handoff as H
 
@@ -73,3 +73,49 @@ def resolve(env: Mapping[str, str], home: str, session_id: str,
         if os.path.exists(path):
             return _read_binding_file(path)
     return None
+
+
+# An env binding (ALE_TASK/ALE_AGENT/ALE_RUN_DIR) is inherited by every process the executor
+# starts, child `claude` sessions included (a Jev bake-off `claude -p` in a temp dir fired Stop
+# under the executor's env and ran its acceptance there). The executor's own session is pinned
+# at its first session-start inside the task worktree; a hook event from any other session whose
+# cwd is outside that worktree is not the executor's and is ignored.
+
+def pin_path(run_dir: str, task_id: str, agent_id: str) -> str:
+    return os.path.join(run_dir, "hook-sessions", "%s--%s" % (_normalise_id(task_id), _normalise_id(agent_id)))
+
+
+def read_pins(run_dir: str, task_id: str, agent_id: str) -> List[str]:
+    """Every session pinned for this task and agent (one id per line, oldest first)."""
+    try:
+        with open(pin_path(run_dir, task_id, agent_id), encoding="utf-8") as handle:
+            return [line.strip() for line in handle if line.strip()]
+    except OSError:
+        return []
+
+
+def add_pin(run_dir: str, task_id: str, agent_id: str, session_id: str) -> None:
+    """Pin ``session_id`` in addition to any earlier pin: a session that was ever the executor
+    (a pane's session before ``/clear``, say) stays bound wherever its cwd is later."""
+    pins = read_pins(run_dir, task_id, agent_id)
+    if session_id not in pins:
+        H.write_atomic(pin_path(run_dir, task_id, agent_id), "".join(p + "\n" for p in pins + [session_id]))
+
+
+def within(path: str, root: str) -> bool:
+    """True when ``path`` is ``root`` or inside it (both resolved through symlinks)."""
+    path, root = os.path.realpath(path), os.path.realpath(root)
+    return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
+
+
+def is_foreign(binding: dict, session_id: Optional[str], cwd: str, worktree: Optional[str]) -> bool:
+    """An env-bound hook event from a session that was never pinned, running outside the task
+    worktree. A pinned session is never foreign, whatever its cwd. No env binding, no worktree
+    or no pin: never foreign."""
+    if binding.get("source") != "env" or not worktree:
+        return False
+    pinned = read_pins(binding["run_dir"], binding["task_id"], binding["agent_id"])
+    if not pinned or session_id in pinned:
+        return False
+    return not within(cwd, worktree)
+
