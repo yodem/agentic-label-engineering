@@ -7,6 +7,7 @@ import pytest
 
 import ale.cli as cli
 from ale.cli import main
+from tests.claim_fixtures import declare_no_worktree
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -32,6 +33,7 @@ def test_run_finish_lists_all_breaches_even_for_accepted_task(monkeypatch, capsy
 def run_dir(tmp_path):
     d = tmp_path / "run"
     shutil.copytree(os.path.join(ROOT, "examples", "run"), str(d))
+    declare_no_worktree(d)
     shutil.copy(os.path.join(ROOT, "examples", "roster.json"), str(tmp_path / "roster.json"))
     return str(d)
 

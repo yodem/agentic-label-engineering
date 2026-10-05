@@ -55,11 +55,6 @@ def make_run(tmp_path, mode="per_task", extra_labels=(), paths=True, cap=None, l
     return repo, run, str(roster)
 
 
-@pytest.fixture(autouse=True)
-def in_session_spawn_bin(monkeypatch):
-    monkeypatch.setenv("ALE_SPAWN_BIN", "/usr/bin/true")
-
-
 def ale(run, roster, *args, now=None):
     tail = ["--now", str(now)] if now is not None else []
     return main(list(args) + ["--run-dir", str(run), "--roster", roster] + tail)
@@ -79,7 +74,7 @@ def spawned_tasks(run):
 
 
 def spawn(run, roster, repo, *tasks):
-    """The dispatch an in-session lead runs: a spawn event without a real executor."""
+    """A dispatch --spawn; the root conftest's spawn guard makes the executor a no-op."""
     before = len(events(run, "spawned"))
     flags = [arg for task in tasks for arg in ("--task", task)]
     assert ale(run, roster, "dispatch", "--spawn", "--cwd", str(repo), *flags) == 0
@@ -133,13 +128,29 @@ def test_worktree_none_is_unaffected(tmp_path):
     assert claim(run, roster) == 0
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="review item 2 (effective mode via dispatch.worktree_mode) breaks 46 fixture "
-                   "tests in files outside T1's allowed paths; flips to XPASS-failure once applied")
 def test_a_label_with_paths_and_no_worktree_block_is_per_task(tmp_path):
-    """dispatch and verify read the effective mode: allowed_paths without context.worktree is per_task."""
+    """The gate reads dispatch's own effective mode: allowed_paths without context.worktree is per_task."""
     _repo, run, roster = make_run(tmp_path, mode=None)
     assert claim(run, roster) == 1
     assert events(run, "claimed") == []
+
+
+def test_a_label_with_paths_and_no_worktree_block_passes_after_a_spawn(tmp_path):
+    repo, run, roster = make_run(tmp_path, mode=None)
+    spawn(run, roster, repo)
+    assert claim(run, roster) == 0
+
+
+def test_the_gate_reads_the_event_log_once(tmp_path, monkeypatch):
+    """The gate takes its spawn bookkeeping from _dispatch_state, the same read that decides
+    claimability: Ctx's dynamic-label read plus one state read, no third pass."""
+    _repo, run, roster = make_run(tmp_path)
+    from ale import cli
+    reads = []
+    real = cli.E.read_events
+    monkeypatch.setattr(cli.E, "read_events", lambda path: reads.append(path) or real(path))
+    assert claim(run, roster) == 1
+    assert len(reads) == 2, reads
 
 
 def test_a_label_with_no_paths_and_no_worktree_block_is_unaffected(tmp_path):
@@ -249,15 +260,24 @@ def test_a_reclaim_after_a_rejection_keeps_the_original_spawn(tmp_path):
     assert events(run, "claimed")[-1]["attempt"] == 2
 
 
-def test_a_released_claim_needs_a_new_spawn(tmp_path):
+def test_a_released_task_is_reclaimed_in_its_existing_worktree(tmp_path):
+    """Any spawn in any attempt counts while its worktree exists: a release does not strand the rework."""
     repo, run, roster = make_run(tmp_path)
     spawn(run, roster, repo)
     assert claim(run, roster, "a1") == 0
     E.append_event(str(run / "events.jsonl"), E.make_event("lease_expired", "run-1", 5000.0, "T1", None, 1))
     E.append_event(str(run / "events.jsonl"), E.make_event("released", "run-1", 5001.0, "T1", None, 1))
-    assert claim(run, roster, "a2") == 1          # the old spawn was released: dispatch again
-    spawn(run, roster, repo)
     assert claim(run, roster, "a2") == 0
+
+
+def test_a_spawn_whose_worktree_is_gone_does_not_count(tmp_path, capsys):
+    repo, run, roster = make_run(tmp_path)
+    spawn(run, roster, repo)
+    subprocess.run(["git", "worktree", "remove", "--force", str(run / "wt" / "T1")], cwd=str(repo), check=True)
+    capsys.readouterr()
+    assert claim(run, roster, "a1") == 1
+    assert "ALE has not spawned it" in capsys.readouterr().err
+    assert events(run, "claimed") == []
 
 
 def test_a_failed_monitor_spawn_does_not_end_the_executor_spawn(tmp_path):
@@ -272,13 +292,13 @@ def test_a_failed_monitor_spawn_does_not_end_the_executor_spawn(tmp_path):
     assert claim(run, roster, "a2") == 0
 
 
-def test_a_failed_executor_spawn_ends_the_spawn(tmp_path):
+def test_a_failed_executor_spawn_leaves_its_worktree_to_claim(tmp_path):
     repo, run, roster = make_run(tmp_path)
     spawn(run, roster, repo)
     E.append_event(str(run / "events.jsonl"), E.make_event(
         "released", "run-1", 5001.0, "T1", None, 1, reason="spawn failed: 1",
         spawn_key=["T1", "executor", "ready"]))
-    assert claim(run, roster, "a1") == 1
+    assert claim(run, roster, "a1") == 0
 
 
 def test_a_monitor_spawn_is_not_a_worktree_spawn(tmp_path):
@@ -299,15 +319,13 @@ def test_an_agent_authored_spawn_event_is_ignored(tmp_path):
     assert claim(run, roster, "a1") == 1
 
 
-def test_the_real_watchdog_lease_expiry_ends_the_spawn(tmp_path):
+def test_the_real_watchdog_lease_expiry_keeps_the_worktree_claimable(tmp_path):
     repo, run, roster = make_run(tmp_path)
     spawn(run, roster, repo)
     assert claim(run, roster, "a1", now=0) == 0
     assert ale(run, roster, "watchdog", now=2000) == 6
     assert events(run, "released")
-    assert claim(run, roster, "a2", now=2001) == 1       # the dead lease's spawn is gone
-    spawn(run, roster, repo)
-    assert claim(run, roster, "a2", now=2002) == 0
+    assert claim(run, roster, "a2", now=2001) == 0       # same worktree, no new dispatch
 
 
 # --- ale dispatch --task -------------------------------------------------------------------
@@ -427,6 +445,21 @@ def test_claim_case_args_must_be_a_list_of_strings(args):
     case["input"]["args"] = args
     result = EC.run_case(case)
     assert not result["passed"] and "args" in result["reason"] and result["actual"] is None
+
+
+def test_the_positive_control_fails_when_its_worktree_is_gone():
+    case = copy.deepcopy(_case("claim-after-spawn-allowed"))
+    case["input"]["worktrees"] = []
+    result = EC.run_case(case)
+    assert not result["passed"] and result["actual"] == {"allowed": False, "exit": 1, "refused": True}
+
+
+@pytest.mark.parametrize("worktrees", ["wt/T1", ["/abs"], ["../up"], [""]])
+def test_claim_case_worktrees_must_be_run_relative(worktrees):
+    case = copy.deepcopy(_case("claim-after-spawn-allowed"))
+    case["input"]["worktrees"] = worktrees
+    result = EC.run_case(case)
+    assert not result["passed"] and "worktrees" in result["reason"] and result["actual"] is None
 
 
 def test_the_claim_case_leaves_the_fixture_and_the_environment_alone(monkeypatch):

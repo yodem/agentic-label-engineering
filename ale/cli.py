@@ -1152,27 +1152,21 @@ def _claim_deviation(a) -> Optional[str]:
 
 
 CLAIM_REFUSED_PHRASE = "ALE has not spawned it"
+CLAIM_UNGATED_MODES = ("none",)
 
 
-def _has_live_spawn(events_path: str, task_id: str) -> bool:
-    """True when ALE spawned an executor for the task (dispatch or ``register-worktree``) and
-    has not released that spawn since. Not per attempt: a rejected task is reclaimed in the
-    worktree of its first spawn (its ready spawn key is spent), while a release re-dispatches
-    under a new spawn key, so only a release ends the spawn. Monitor spawns and agent-authored
-    events never count, and neither does the release of a spawn that was not an executor's
-    (``spawn_key`` names the kind). A watchdog lease expiry and an unprovisioned remote task
-    release without a ``spawn_key``; both end the executor's spawn."""
-    live = False
-    for event in E.read_events(events_path):
-        if event.get("task_id") != task_id or event.get("agent_id") is not None:
-            continue
-        if event.get("type") == "spawned" and event.get("assignment_kind") == "executor":
-            live = True
-        elif event.get("type") == "released":
-            key = event.get("spawn_key")
-            if not key or (len(key) > 1 and key[1] == "executor"):
-                live = False
-    return live
+def _claim_worktree(dispatch_state: dict, task_id: str) -> Optional[str]:
+    """The ALE worktree the task works in, or None: the newest spawn of the task, in any
+    attempt, that recorded a ``worktree`` still on disk or a ``remote_worktree``. Releases do
+    not matter (rework after a rejection or a release happens in the same worktree); the
+    bookkeeping is ``_dispatch_state``'s, so there is one reading of the spawn events."""
+    for spawn in reversed(dispatch_state.get("spawn_worktrees", {}).get(task_id, [])):
+        if spawn.get("worktree") and os.path.isdir(spawn["worktree"]):
+            return spawn["worktree"]
+        if spawn.get("remote_worktree"):
+            host = spawn.get("host")
+            return ("%s:%s" % (host, spawn["remote_worktree"])) if host else spawn["remote_worktree"]
+    return None
 
 
 def _claim_refusal(a, c: Ctx, mode: str) -> str:
@@ -1191,26 +1185,19 @@ def _claim_refusal(a, c: Ctx, mode: str) -> str:
             % (a.task, mode, CLAIM_REFUSED_PHRASE, " ".join(command)))
 
 
-def _claim_worktree_mode(label: dict) -> str:
-    """The mode the claim gate checks: the label's explicit ``context.worktree.mode`` (bake
-    always writes it), a missing mode being ``none``. ``dispatch.worktree_mode`` would also
-    read ``allowed_paths`` without a worktree block as ``per_task``, but that refuses the claims
-    that 46 tests make on hand-written fixture labels, so it is not used here yet."""
-    return ((label.get("context") or {}).get("worktree") or {}).get("mode") or "none"
-
-
 def cmd_claim(a) -> int:
     deviation = _claim_deviation(a)
     c = Ctx(a)
     if a.task not in c.labels:
         raise CliError(FAIL, "unknown task %s" % a.task)
     cap = L.effective_watch(c.labels[a.task], c.roster)["max_attempts"]
-    state = c.state()
+    from .dispatch import worktree_mode
+    state = _dispatch_state(c)
     if not state["tasks"][a.task]["claimable"] or state["tasks"][a.task]["attempt"] > cap:
         print("claim lost: %s" % a.task, file=sys.stderr)
         return CLAIM_LOST
-    mode = _claim_worktree_mode(c.labels[a.task])
-    needs_override = mode != "none" and not _has_live_spawn(c.events_path, a.task)
+    mode = worktree_mode(c.labels[a.task])
+    needs_override = mode not in CLAIM_UNGATED_MODES and _claim_worktree(state, a.task) is None
     if needs_override and deviation is None:
         raise CliError(FAIL, _claim_refusal(a, c, mode))
     executor_id = os.environ.get("ALE_AGENT_ID") or os.environ.get("ALE_AGENT")
@@ -1905,18 +1892,28 @@ def cmd_reopen(a) -> int:
 
 
 def _dispatch_state(c: Ctx) -> dict:
-    state = c.state()
+    """The reduced run state plus the spawn bookkeeping dispatch and the claim gate share, from
+    one read of the event log: ``spawned`` (keys not released), ``breaches``, per-task executor
+    ``release_counts`` and ``spawn_worktrees`` (every ALE-authored spawn, any attempt, that
+    recorded a ``worktree`` or a ``remote_worktree``, oldest first)."""
+    events = E.read_events(c.events_path)
+    state = E.reduce_run(events, c.labels)
     spawned = {}
     released = set()
     breaches = []
     release_counts = {}
     last_spawned_kind = {}
-    for event in E.read_events(c.events_path):
+    worktrees = {}
+    for event in events:
         if event.get("type") == "spawned":
             key = (event.get("task_id"), event.get("assignment_kind"),
                    event.get("trigger_instance", event.get("trigger", "ready")))
             spawned[key] = {"task_id": key[0], "kind": key[1], "trigger_instance": key[2]}
             last_spawned_kind[key[0]] = key[1]
+            if event.get("agent_id") is None and (event.get("worktree") or event.get("remote_worktree")):
+                worktrees.setdefault(key[0], []).append(
+                    {"worktree": event.get("worktree"), "remote_worktree": event.get("remote_worktree"),
+                     "host": event.get("host")})
         elif event.get("type") == "released" and event.get("spawn_key"):
             released.add(tuple(event["spawn_key"]))
             task_id, kind = event["spawn_key"][:2]
@@ -1933,6 +1930,7 @@ def _dispatch_state(c: Ctx) -> dict:
             state["tasks"][task_id]["release_counts"] = {"executor": count}
     state["spawned"] = [value for key, value in spawned.items() if key not in released]
     state["breaches"] = breaches
+    state["spawn_worktrees"] = worktrees
     return state
 
 

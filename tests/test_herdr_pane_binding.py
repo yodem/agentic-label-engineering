@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from ale.cli import Ctx, _append_spawned, main
 from ale.dispatch import spawn_request
 from ale.events import read_events
+from tests.claim_fixtures import declare_no_worktree
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -15,6 +16,7 @@ def _run(path):
     (run / "labels").mkdir(parents=True)
     with open(ROOT + "/examples/run/labels/T01.json", encoding="utf-8") as source:
         (run / "labels" / "T01.json").write_text(source.read())
+    declare_no_worktree(run)
     roster = path / "roster.json"
     with open(ROOT + "/examples/roster.json", encoding="utf-8") as source:
         roster.write_text(source.read())

@@ -7,6 +7,7 @@ import textwrap
 import time
 
 import pytest
+from tests.claim_fixtures import declare_no_worktree
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WRAPPER = os.path.join(ROOT, "bin", "ale-exec")
@@ -191,6 +192,7 @@ def test_pi_usage_records_cache_counters(harness, tmp_path):
 def test_codex_usage_event_attributes_wrapper_agent(tmp_path):
     run_dir = tmp_path / "run"
     shutil.copytree(os.path.join(ROOT, "examples", "run"), str(run_dir))
+    declare_no_worktree(run_dir)
     roster = tmp_path / "roster.json"
     shutil.copy(os.path.join(ROOT, "examples", "roster.json"), str(roster))
     initialized = subprocess.run(

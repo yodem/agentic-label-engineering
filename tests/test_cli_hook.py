@@ -10,6 +10,7 @@ import pytest
 from ale.binding import binding_path
 from ale.cli import main
 from ale.handoff import write_atomic
+from tests.claim_fixtures import declare_no_worktree
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -41,6 +42,7 @@ def run_launcher(tmp_path, **env_overrides):
 def fixture(tmp_path, monkeypatch):
     run_dir = tmp_path / "run"
     shutil.copytree(os.path.join(ROOT, "examples", "run"), str(run_dir))
+    declare_no_worktree(run_dir)
     roster = tmp_path / "roster.json"
     shutil.copy(os.path.join(ROOT, "examples", "roster.json"), str(roster))
     home = tmp_path / "home"

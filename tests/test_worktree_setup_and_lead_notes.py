@@ -6,6 +6,7 @@ from ale.cli import main
 from ale.events import read_events
 
 from test_cli_dispatch import _git_repo, _label, _roster, _run, _dispatch_args
+from tests.claim_fixtures import declare_no_worktree
 
 
 def test_worktree_setup_runs_once_and_receives_checkout_environment(tmp_path, monkeypatch):
@@ -88,6 +89,7 @@ def test_lead_note_on_unowned_task_and_executor_note_without_ownership(tmp_path)
     import shutil
     run_path = tmp_path / "run"
     shutil.copytree(os.path.join(ROOT, "examples", "run"), str(run_path))
+    declare_no_worktree(run_path)
     roster = os.path.join(ROOT, "examples", "roster.json")
     assert main(["note", "--task", "T01", "--text", "lead direction", "--run-dir", str(run_path),
                  "--roster", roster]) == 0

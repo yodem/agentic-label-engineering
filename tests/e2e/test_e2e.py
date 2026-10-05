@@ -5,13 +5,14 @@ import subprocess
 import sys
 
 import pytest
+from tests.claim_fixtures import no_worktree
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 FAKES = os.path.join(ROOT, "tests", "e2e", "fakes")
 
 
 def make_label(tid, deps):
-    return {
+    return no_worktree({
         "schema_version": "1.0", "run_id": "e2e", "task_id": tid, "title": "Write out/%s.txt" % tid,
         "labels": {"role": "backend", "model_tier": "cheap", "lane": "inline", "risk": "low", "effort": "S"},
         "routing": {"executor": None, "model": None, "resolved_from": None},
@@ -19,7 +20,7 @@ def make_label(tid, deps):
         "acceptance": [{"id": "A1", "cmd": "test -f out/%s.txt" % tid, "expect": "exit0"},
                        {"id": "A2", "cmd": "test -s out/%s.txt" % tid, "expect": "exit0"}],
         "provenance": {"lane_reason": "Tiny fixture task, runs inline."},
-    }
+    })
 
 
 class Project:
