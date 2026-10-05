@@ -223,34 +223,45 @@ def _analyze(case: dict) -> dict:
 
 
 def _claim(case: dict) -> dict:
-    """Run ``ale claim`` against a temporary copy of the fixture run (``labels/``,
-    ``events.jsonl`` and a ``roster.json`` in the case dir) and report ``{allowed, exit}``.
-    ``input`` is ``{"dir", "task", "agent", "args"}``; ``args`` are extra ``claim`` flags."""
-    from .cli import main
+    """Run ``ale claim`` against a temporary copy of the fixture run (``labels/`` and
+    ``events.jsonl`` in the case dir) with the inline ``roster``, and report
+    ``{allowed, exit, refused}``. ``refused`` is true only when stderr carries the claim
+    gate's own message, so another exit 1 (a bad roster, an event error) is not mistaken for
+    it. ``input`` is ``{"dir", "task", "agent", "roster", "args"}``; ``args`` are extra
+    ``claim`` flags (a list of strings)."""
+    from .cli import CLAIM_REFUSED_PHRASE, main
     directory = _input_dir(case)
     value = case.get("input")
-    if directory is None or not isinstance(value.get("task"), str) or not isinstance(value.get("agent"), str):
-        raise CaseError("claim input needs {\"dir\", \"task\", \"agent\"}")
+    if (directory is None or not isinstance(value.get("task"), str) or not isinstance(value.get("agent"), str)
+            or not isinstance(value.get("roster"), dict)):
+        raise CaseError("claim input needs {\"dir\", \"task\", \"agent\", \"roster\"}")
+    args = value.get("args", [])
+    if not isinstance(args, list) or not all(isinstance(item, str) for item in args):
+        raise CaseError("claim input args must be a list of strings, got %s" % json.dumps(args))
     run = AN.load_run({"run_dir": os.path.abspath(directory), "run_id": case["id"]})
     if run is None:
         raise CaseError("no run (labels/ and events.jsonl) under %s" % directory)
     now = float(value.get("now", max((event["ts"] for event in run["events"]), default=0.0) + 60.0))
     saved = os.environ.get("ALE_HERDR")
     os.environ["ALE_HERDR"] = "0"   # a case never publishes to a herdr pane
+    errors = io.StringIO()
     try:
         with tempfile.TemporaryDirectory(prefix="ale-case-") as scratch:
             copy_dir = os.path.join(scratch, "run")
             shutil.copytree(directory, copy_dir)
-            argv = ["claim", "--task", value["task"], "--agent", value["agent"]] + list(value.get("args") or []) + [
-                "--run-dir", copy_dir, "--roster", os.path.join(copy_dir, "roster.json"), "--now", repr(now)]
-            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            roster = os.path.join(scratch, "roster.json")
+            with open(roster, "w", encoding="utf-8") as handle:
+                json.dump(value["roster"], handle)
+            argv = (["claim", "--task", value["task"], "--agent", value["agent"]] + args
+                    + ["--run-dir", copy_dir, "--roster", roster, "--now", repr(now)])
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(errors):
                 code = main(argv)
     finally:
         if saved is None:
             os.environ.pop("ALE_HERDR", None)
         else:
             os.environ["ALE_HERDR"] = saved
-    actual = {"allowed": code == 0, "exit": code}
+    actual = {"allowed": code == 0, "exit": code, "refused": CLAIM_REFUSED_PHRASE in errors.getvalue()}
     pairs = [(name, want, actual.get(name)) for name, want in sorted(case["expected"].items())]
     return _compare(pairs, actual)
 

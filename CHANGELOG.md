@@ -3,7 +3,8 @@
 ## 0.4.1 (2026-10-05)
 
 - `ale claim` refuses (exit 1) a task whose `worktree.mode` is not `none` when ALE never spawned it (no `spawned` event from a dispatch or `register-worktree`, or the last one was released), and prints the exact `ALE_SPAWN_BIN=/usr/bin/true ale dispatch --run-dir <run> --cwd <repo> --spawn` command, so work no longer starts outside ALE's worktree (17 task instances in the 2026-10-05 review did). `ale claim --no-worktree --reason "<why>"` (reason of 10+ characters, else exit 2; `--reason` alone is exit 2 too) lets the claim through and writes a `note` `deviation worktree-outside-ale: <why>`. A lost claim still exits 3, and `worktree: none` tasks and claims after a spawn are unaffected.
-- `ale eval cases` has a `claim` kind (a fixture run plus a `claim` invocation, expected `{allowed, exit}`) and the seed case `claim-without-spawn-refused` (13 cases).
+- `ale eval cases` has a `claim` kind (a fixture run plus a `claim` invocation, expected `{allowed, exit}`) and the seed case `claim-without-spawn-refused` (13 cases; 14 after review round 1).
+- Review round 1: `ale dispatch --task T` (repeatable) dispatches only the named tasks (unknown task exits 2; the parallel cap applies to the named tasks alone), and the claim refusal prints that scoped command, so the remedy no longer marks other due tasks as spawned; shell-quoted paths and `--roster` when one was given. The gate counts only executor spawns (monitor spawns and agent-authored events never do; a release of a monitor spawn does not end an executor's); the message no longer says "outside ALE's worktree" for `shared`. The `claim` eval kind reports `refused` (the gate's own message, not any exit 1), takes the roster inline in the case, validates `args`, and has the positive control `claim-after-spawn-allowed` (14 cases).
 
 ## 0.4.0 (2026-10-04)
 

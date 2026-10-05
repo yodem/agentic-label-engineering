@@ -1151,20 +1151,52 @@ def _claim_deviation(a) -> Optional[str]:
     return reason
 
 
+CLAIM_REFUSED_PHRASE = "ALE has not spawned it"
+
+
 def _has_live_spawn(events_path: str, task_id: str) -> bool:
-    """True when ALE spawned the task (dispatch or register-worktree) and has not released
-    that spawn since. Not per attempt: a rejected task is reclaimed in the worktree of its
-    first spawn (its ready spawn key is spent), while a release re-dispatches under a new
-    spawn key, so only a release ends the spawn."""
+    """True when ALE spawned an executor for the task (dispatch or ``register-worktree``) and
+    has not released that spawn since. Not per attempt: a rejected task is reclaimed in the
+    worktree of its first spawn (its ready spawn key is spent), while a release re-dispatches
+    under a new spawn key, so only a release ends the spawn. Monitor spawns and agent-authored
+    events never count, and neither does the release of a spawn that was not an executor's
+    (``spawn_key`` names the kind). A watchdog lease expiry and an unprovisioned remote task
+    release without a ``spawn_key``; both end the executor's spawn."""
     live = False
     for event in E.read_events(events_path):
-        if event.get("task_id") != task_id:
+        if event.get("task_id") != task_id or event.get("agent_id") is not None:
             continue
-        if event.get("type") == "spawned":
+        if event.get("type") == "spawned" and event.get("assignment_kind") == "executor":
             live = True
-        elif event.get("type") == "released" and event.get("agent_id") is None:
-            live = False
+        elif event.get("type") == "released":
+            key = event.get("spawn_key")
+            if not key or (len(key) > 1 and key[1] == "executor"):
+                live = False
     return live
+
+
+def _claim_refusal(a, c: Ctx, mode: str) -> str:
+    """The refusal text: the exact dispatch command, scoped to the one task."""
+    import shlex
+    roster = getattr(a, "roster", None) or os.environ.get("ALE_ROSTER")
+    command = ["ALE_SPAWN_BIN=/usr/bin/true", "ale", "dispatch", "--run-dir",
+               shlex.quote(os.path.abspath(c.run_dir)), "--cwd", shlex.quote(_run_repo_root(c.run_dir))]
+    if roster:
+        command += ["--roster", shlex.quote(os.path.abspath(roster))]
+    command += ["--task", shlex.quote(a.task), "--spawn"]
+    return ("task %s has worktree mode %s and %s. For a lead working the task in-session, run: %s "
+            "(the ALE_SPAWN_BIN prefix records the spawn without starting an executor), then claim again. "
+            "To work outside ALE on purpose, claim with --no-worktree --reason \"<why>\"; "
+            "the deviation is recorded as a note."
+            % (a.task, mode, CLAIM_REFUSED_PHRASE, " ".join(command)))
+
+
+def _claim_worktree_mode(label: dict) -> str:
+    """The mode the claim gate checks: the label's explicit ``context.worktree.mode`` (bake
+    always writes it), a missing mode being ``none``. ``dispatch.worktree_mode`` would also
+    read ``allowed_paths`` without a worktree block as ``per_task``, but that refuses the claims
+    that 46 tests make on hand-written fixture labels, so it is not used here yet."""
+    return ((label.get("context") or {}).get("worktree") or {}).get("mode") or "none"
 
 
 def cmd_claim(a) -> int:
@@ -1177,15 +1209,10 @@ def cmd_claim(a) -> int:
     if not state["tasks"][a.task]["claimable"] or state["tasks"][a.task]["attempt"] > cap:
         print("claim lost: %s" % a.task, file=sys.stderr)
         return CLAIM_LOST
-    mode = ((c.labels[a.task].get("context") or {}).get("worktree") or {}).get("mode") or "none"
+    mode = _claim_worktree_mode(c.labels[a.task])
     needs_override = mode != "none" and not _has_live_spawn(c.events_path, a.task)
     if needs_override and deviation is None:
-        raise CliError(FAIL, (
-            "task %s has worktree mode %s but ALE has not spawned it, so its work would happen outside "
-            "ALE's worktree. Run: ALE_SPAWN_BIN=/usr/bin/true ale dispatch --run-dir %s --cwd %s --spawn "
-            "(then claim again). To work elsewhere on purpose, claim with --no-worktree --reason \"<why>\" "
-            "(the deviation is recorded as a note)."
-            % (a.task, mode, os.path.abspath(c.run_dir), _run_repo_root(c.run_dir))))
+        raise CliError(FAIL, _claim_refusal(a, c, mode))
     executor_id = os.environ.get("ALE_AGENT_ID") or os.environ.get("ALE_AGENT")
     c.emit("claimed", a.task, a.agent, state["tasks"][a.task]["attempt"], pane=a.pane,
            bind_claim_pane=bool(a.pane) or bool(executor_id and a.agent == executor_id))
@@ -2243,12 +2270,30 @@ def _append_spawned(c: Ctx, due: dict, request: dict, plan: Optional[dict],
            pane=request.get("executor_pane"), **extra)
 
 
+def _due_for(dispatch_state: dict, c: Ctx, only: set) -> List[dict]:
+    """The due assignments, limited to ``only`` when given. The roster's parallel cap is lifted
+    for the selection and applied to the named tasks alone, so unnamed due tasks cannot use up
+    the slots of the ones asked for."""
+    from .dispatch import due_assignments
+    if not only:
+        return due_assignments(dispatch_state, c.labels, c.roster)
+    gate = dict(c.roster.get("cost_gate", {}))
+    cap = gate.get("max_parallel", gate.get("max_concurrent", 3))
+    gate.update(max_parallel=max(len(c.labels), cap))
+    wide = dict(c.roster, cost_gate=gate)
+    return [item for item in due_assignments(dispatch_state, c.labels, wide) if item["task_id"] in only][:cap]
+
+
 def cmd_dispatch(a) -> int:
     import fcntl
-    from .dispatch import due_assignments, held_for_integration, worktree_plan
+    from .dispatch import held_for_integration, worktree_plan
 
     c = Ctx(a)
     c.roster_path = _resolve_roster(a)
+    only = set(a.only_tasks or [])
+    unknown = sorted(only - set(c.labels))
+    if unknown:
+        raise CliError(USAGE, "unknown task %s" % ", ".join(unknown))
     project_cwd = os.path.abspath(a.cwd or os.getcwd())
     # Executor routing is deterministic from tier and is never judged.
     shadow_judge = (_shadow_judge(c.roster, c.run_dir, [project_cwd])
@@ -2262,11 +2307,12 @@ def cmd_dispatch(a) -> int:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         try:
             dispatch_state = _dispatch_state(c)
-            held = held_for_integration(dispatch_state, c.labels)
+            held = [item for item in held_for_integration(dispatch_state, c.labels)
+                    if not only or item[0] in only]
             for task_id, dependency_id in held:
                 print("holding %s: dependency %s is accepted but not integrated" %
                       (task_id, dependency_id), file=sys.stderr)
-            due = due_assignments(dispatch_state, c.labels, c.roster)
+            due = _due_for(dispatch_state, c, only)
             remote_due = [item for item in due if (item.get("host") or "local") != "local"]
             base_ref = None
             if due and not (a.json or a.dry_run) and (a.spawn or a.no_exec):
@@ -4243,6 +4289,8 @@ def _parser() -> argparse.ArgumentParser:
     dispatch.add_argument("--spawn", action="store_true")
     dispatch.add_argument("--no-exec", action="store_true")
     dispatch.add_argument("--cwd")
+    dispatch.add_argument("--task", dest="only_tasks", action="append", metavar="T",
+                          help="dispatch only this task (repeatable)")
     integrate = add("integrate", cmd_integrate, task=True)
     integrate.add_argument("--cwd")
     add("restack", cmd_restack, task=True)

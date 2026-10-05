@@ -203,8 +203,9 @@ evaluator that raises scores 0 with the error as its reason.
 | `route` | `harness.route(label, roster, lane=lane)` on `{label, roster, lane}` | any of `harness`, `model`, `mode`, `host` |
 | `refs` | `refs.allowed_command` on the command (shlex split) | `allowed` |
 | `analyze` | `analyze.evaluate` on the run in `<dir>` (`labels/` + `events.jsonl`), now = last event + 60 s unless `input.now` | `checks`: `{check: true\|false\|null}`; a check passes when all its case results pass, null means n/a |
+| `claim` | `ale claim` on a temp copy of the run in `<dir>` (`labels/` + `events.jsonl`) with the inline `input.roster`, for `input.task` and `input.agent` plus optional `input.args` (a list of strings, extra claim flags) | `allowed` (exit 0), `exit`, `refused` (stderr carries the claim gate's "ALE has not spawned it" message, so another exit 1 is not mistaken for the gate) |
 
-`analyze` cases only read their fixture; they write nothing under `ALE_HOME`.
+`analyze` cases only read their fixture; they write nothing under `ALE_HOME`. A `claim` case runs on a temporary copy, so its fixture is never changed.
 
 ### Seed cases
 
@@ -212,10 +213,11 @@ Each seed case comes from a real failure, named in its `source_run` and `note`: 
 `- Create:` file lines and `### Task T1:` ids that the parser missed (55 write tasks baked
 `worktree.mode: none`), a write task that must bake a per-task worktree, `trove items get`
 refs, relative `spawned.worktree` paths, the 458-event `input_required` flood, accepts
-path-checked against an empty file list, a `register-worktree` instead of a dispatch, and a
+path-checked against an empty file list, a `register-worktree` instead of a dispatch, a claim of a
+per-task worktree task that ALE never spawned (`claim-without-spawn-refused`), and a
 Claude task on an inline lane that must run in-session. Guards (`parse-numeric-ids-unchanged`,
-`refs-rm-refused`) pin the behaviour around a fix, and `analyze-clean-run` is the positive
-control: every check passes.
+`refs-rm-refused`) pin the behaviour around a fix, `claim-after-spawn-allowed` is the positive control
+for the claim gate, and `analyze-clean-run` is the positive control for the checks: every check passes.
 
 ## How a finding becomes a case
 
