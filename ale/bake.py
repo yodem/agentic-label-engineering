@@ -289,6 +289,12 @@ def render_block(label: dict) -> str:
     if label.get("milestone") is not None:
         values.append(("milestone", label["milestone"]))
 
+    return _render_values(values)
+
+
+def _render_values(values: List[Tuple[str, object]]) -> str:
+    """The block text for ordered ``(key, value)`` pairs: one key per line, acceptance and
+    assignments one entry per line."""
     def compact(value):
         return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
@@ -544,3 +550,150 @@ def gaps(label: dict) -> List[str]:
     if not label.get("context", {}).get("allowed_paths"):
         missing.append("allowed_paths")
     return missing
+
+
+# --- relabel: keep a plan block in step with the run's labels -----------------------------------
+
+_BLOCK_LABEL_FIELDS = ("role", "model_tier", "risk", "effort", "locality", "sub", "phase")
+_COMPLETE_FIELDS = {"task_id", "title", "labels", "lane_reason", "acceptance",
+                    "allowed_paths", "depends_on", "worktree", "assignments"}
+# The order render_block writes a block's keys in.
+_RENDER_ORDER = ("task_id", "title", "labels", "lane_reason", "acceptance", "allowed_paths", "depends_on",
+                 "worktree", "assignments", "route", "fixes", "spec_path", "pointers", "watch", "milestone")
+
+
+def follow_assignments(assignments, field: str, old, new, roster=None, labels=None, skipped=None):
+    """The assignments after relabeling ``field`` (``model_tier`` or ``role``) from ``old`` to ``new``,
+    or None when none of them moves. An executor assignment follows when its own ``field`` equals
+    ``old`` and it pins neither a ``model`` nor a ``pin_reason``; monitors, pins and a deliberate
+    split (an assignment whose value already differs from the label's) stay as they are. An
+    assignment that pins a harness (``executor``) follows only when the ``roster`` has a row for that
+    harness at the new role and tier (``labels`` supplies the other half when the assignment
+    lacks it); otherwise it stays and a message is appended to ``skipped``. The input is not
+    mutated."""
+    if field not in ("model_tier", "role") or not isinstance(assignments, list):
+        return None
+    result = copy.deepcopy(assignments)
+    moved = False
+    for assignment in result:
+        if not (isinstance(assignment, dict) and assignment.get("kind", "executor") == "executor"
+                and assignment.get(field) == old and not assignment.get("model")
+                and not assignment.get("pin_reason")):
+            continue
+        harness_name = assignment.get("executor")
+        if harness_name and roster:
+            from .roster import resolve
+            probe = {"role": assignment.get("role") or (labels or {}).get("role"),
+                     "model_tier": assignment.get("model_tier") or (labels or {}).get("model_tier")}
+            probe[field] = new
+            try:
+                row = resolve(roster, probe["role"], probe["model_tier"], executor=harness_name)
+            except (RosterError, KeyError, TypeError):
+                row = {"model": None}
+            if row.get("model") is None:
+                if skipped is not None:
+                    skipped.append("assignment pinned to %s has no %s row; relabel assignments to move it"
+                                   % (harness_name, new))
+                continue
+        assignment[field] = new
+        moved = True
+    return result if moved else None
+
+
+def _plan_locality(text: str, task_id: str) -> str:
+    """The locality ``compile_plan`` fills in for a block that names none: the plan's own."""
+    try:
+        for task in parse_plan(text):
+            if task["task_id"] == task_id:
+                return task.get("locality") or "any"
+    except ValueError:
+        pass
+    return "any"
+
+
+def _block_route(block: dict, roster):
+    """The compact ``route`` view of a block's labels under ``roster``, or None when it has none."""
+    labels = block.get("labels") if isinstance(block.get("labels"), dict) else {}
+    assignments = block.get("assignments")
+    if not isinstance(assignments, list) or not assignments:
+        assignments = [{"kind": "executor", "role": labels.get("role"),
+                        "model_tier": labels.get("model_tier"), "executor": None, "trigger": "ready"}]
+    probe = {"labels": dict(labels), "assignments": copy.deepcopy(assignments)}
+    return _route_view({"labels": probe["labels"], "routing": routing_for(probe, roster)})
+
+
+def relabel_block(text: str, task_id: str, field: str, old, new, roster=None) -> Tuple[object, str]:
+    """Rewrite the one ale-label block of ``task_id`` so ``field`` reads ``new``.
+
+    ``field`` is a label (``labels.<field>`` in the block) or ``assignments``/``acceptance`` (top-level
+    keys). Relabeling ``model_tier`` or ``role`` also moves the block's unpinned executor
+    assignments (``follow_assignments``), so the route follows. Only that block changes; every other byte of ``text``, its newline style included, is kept.
+    The block is written the way ``bake`` writes one: complete blocks through bake's renderer
+    (``route`` recomputed under ``roster``, or dropped without one), partial ones as bake's compact
+    JSON. Returns ``(new_text, "")``, or ``(None, why)`` and no change when the plan has not exactly
+    one parseable block for the task or the block's current value is not ``old``.
+    """
+    if field not in _BLOCK_LABEL_FIELDS and field not in ("assignments", "acceptance"):
+        return None, "field %s is not kept in a plan block" % field
+    try:
+        blocks = extract_blocks(text)
+    except BakeError as exc:
+        return None, "the plan's ale-label blocks do not parse (%s)" % exc
+    owned = [(line, block) for line, block in blocks if block.get("task_id") == task_id]
+    if not owned:
+        return None, "no block for %s in the plan" % task_id
+    if len(owned) > 1:
+        return None, "more than one block for %s in the plan" % task_id
+    opening, block = owned[0]
+    if field in _BLOCK_LABEL_FIELDS:
+        labels = block.get("labels")
+        if labels is not None and not isinstance(labels, dict):
+            return None, "the block's labels are not an object"
+        current = (labels or {}).get(field)
+        if current is None and field == "locality":
+            current = _plan_locality(text, task_id)
+    else:
+        current = block.get(field)
+    if current != old:
+        return None, "the block's %s is %s, not %s (it differs from the run's value)" % (
+            field, json.dumps(current), json.dumps(old))
+    replacement = copy.deepcopy(block)
+    if field in _BLOCK_LABEL_FIELDS:
+        replacement["labels"] = dict(replacement.get("labels") or {})
+        replacement["labels"][field] = new
+    else:
+        replacement[field] = new
+    moved = follow_assignments(replacement.get("assignments"), field, old, new, roster=roster,
+                               labels=replacement.get("labels"))
+    if moved is not None:
+        replacement["assignments"] = moved
+    try:
+        _validate_compact_block(replacement)
+    except BakeError as exc:
+        return None, "the new block is not valid (%s)" % exc
+    if "route" in replacement:
+        route = _block_route(replacement, roster) if roster else None
+        if route is None:
+            del replacement["route"]
+        else:
+            replacement["route"] = route
+
+    lines = text.splitlines(keepends=True)
+    start = opening - 1
+    end = start + 1
+    while end < len(lines) and not _line_close(lines[end].rstrip("\r\n")):
+        end += 1
+    if end >= len(lines):
+        return None, "the block for %s is not closed" % task_id
+    newline = "\r\n" if lines[start].endswith("\r\n") else "\n"
+    if _COMPLETE_FIELDS.issubset(replacement):
+        values = [(key, replacement[key]) for key in _RENDER_ORDER if key in replacement]
+        rendered = _render_values(values)
+    else:
+        rendered = "```ale-label\n%s\n```\n" % json.dumps(
+            replacement, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    rendered = rendered.replace("\n", newline)
+    if not lines[end].endswith(("\n", "\r")):
+        rendered = rendered[:-len(newline)]
+    lines[start:end + 1] = rendered.splitlines(keepends=True)
+    return "".join(lines), ""

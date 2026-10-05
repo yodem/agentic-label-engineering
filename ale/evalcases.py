@@ -27,7 +27,7 @@ from . import __version__
 from . import analyze as AN
 from .paths import plugin_root
 
-KINDS = ("parse", "bake", "route", "refs", "analyze", "claim")
+KINDS = ("parse", "bake", "route", "refs", "analyze", "claim", "relabel")
 REQUIRED = ("id", "kind", "input", "expected")
 
 
@@ -155,16 +155,31 @@ def _parse(case: dict) -> dict:
 
 def _bake(case: dict) -> dict:
     """``ale plan bake --no-judge`` without a roster when the plan has no blocks yet
-    (parse, skeleton labels, bake), then ``compile_plan`` with run id ``case``."""
+    (parse, skeleton labels, bake), then ``compile_plan``. The run id is ``case``, or, when the
+    input names a ``plan_path`` (and optionally a ``run_id`` flag), the one ``ale plan bake`` picks
+    for that path; ``expected.run_id`` checks it."""
     from .bake import bake, compile_plan, extract_blocks, skeleton_label
+    from .cli import _plan_run_id
     from .dispatch import worktree_mode
     from .planparse import parse_plan
     text = _plan_text(case)
+    value = case.get("input")
+    plan_path = value.get("plan_path") if isinstance(value, dict) else None
+    if plan_path is not None and not isinstance(plan_path, str):
+        raise CaseError("bake input plan_path must be a path string")
+    # ``plan_path`` is the path the plan would be baked from (it need not exist): the bake names
+    # its run id from it, as ``ale plan bake`` does.
+    run_id = _plan_run_id(plan_path, value.get("run_id")) if plan_path else "case"
     if not extract_blocks(text):
-        labels = {task["task_id"]: skeleton_label(task, "case", {}) for task in parse_plan(text)}
+        labels = {task["task_id"]: skeleton_label(task, run_id, {}) for task in parse_plan(text)}
         text = bake(text, labels)
-    compiled = compile_plan(text, run_id="case")
-    pairs = []
+    compiled = compile_plan(text, run_id=run_id)
+    pairs: List[Tuple[str, object, object]] = []
+    result: dict = {}
+    if "run_id" in case["expected"]:
+        ids = sorted({label.get("run_id") for label in compiled.values()})
+        result["run_id"] = ids[0] if len(ids) == 1 else ids
+        pairs.append(("run_id", case["expected"]["run_id"], result["run_id"]))
     actual: Dict[str, dict] = {}
     for task_id in sorted(case["expected"].get("labels") or {}):
         label = compiled.get(task_id)
@@ -180,7 +195,8 @@ def _bake(case: dict) -> dict:
                     got = _dotted(label.get("context") or {}, key)
             actual[task_id][key] = got
             pairs.append(("%s.%s" % (task_id, key), want, got))
-    return _compare(pairs, {"labels": actual})
+    result["labels"] = actual
+    return _compare(pairs, result)
 
 
 def _route(case: dict) -> dict:
@@ -191,6 +207,38 @@ def _route(case: dict) -> dict:
     result = route(copy.deepcopy(value["label"]), copy.deepcopy(value.get("roster") or {}), lane=value.get("lane"))
     pairs = [(key, want, result.get(key)) for key, want in sorted(case["expected"].items())]
     return _compare(pairs, result)
+
+
+def _relabel(case: dict) -> dict:
+    """The plan sync of ``ale relabel`` on a baked plan (``plan.md`` in the case dir): relabel
+    ``input.task``'s ``input.field`` to ``input.value`` with the inline ``input.roster`` and
+    report ``{synced, before_model, model, tier, assignment_tier, block_route_model}``: whether
+    the block was rewritten, the model ``harness.route`` picks before and after, the block's
+    label tier and first executor assignment tier, and the model in the block's ``route`` view."""
+    from .bake import compile_plan, extract_blocks, relabel_block
+    from .harness import route
+    value = case.get("input")
+    if (not isinstance(value, dict) or _input_dir(case) is None
+            or not all(isinstance(value.get(key), str) for key in ("task", "field", "value"))
+            or not isinstance(value.get("roster"), dict)):
+        raise CaseError("relabel input needs {\"dir\", \"task\", \"field\", \"value\", \"roster\"}")
+    task, field, roster = value["task"], value["field"], value["roster"]
+    text = _plan_text(case)
+    before = compile_plan(text, run_id="case")[task]
+    updated, why = relabel_block(text, task, field, before["labels"].get(field), value["value"], roster=roster)
+    actual = {"synced": updated is not None, "why": why}
+    actual["before_model"] = route(copy.deepcopy(before), copy.deepcopy(roster))["model"]
+    if updated is not None:
+        after = compile_plan(updated, run_id="case")[task]
+        executor = next((item for item in after.get("assignments") or []
+                         if item.get("kind", "executor") == "executor"), {})
+        block = next(block for _, block in extract_blocks(updated) if block.get("task_id") == task)
+        actual.update({"model": route(copy.deepcopy(after), copy.deepcopy(roster))["model"],
+                       "tier": after["labels"].get("model_tier"),
+                       "assignment_tier": executor.get("model_tier"),
+                       "block_route_model": (block.get("route") or {}).get("model")})
+    pairs = [(key, want, actual.get(key)) for key, want in sorted(case["expected"].items())]
+    return _compare(pairs, actual)
 
 
 def _refs(case: dict) -> dict:
@@ -284,6 +332,7 @@ def _claim(case: dict) -> dict:
 
 EVALUATORS: Dict[str, Callable[[dict], dict]] = {
     "parse": _parse, "bake": _bake, "route": _route, "refs": _refs, "analyze": _analyze, "claim": _claim,
+    "relabel": _relabel,
 }
 
 
