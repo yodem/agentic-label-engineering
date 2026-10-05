@@ -1,5 +1,7 @@
 # Changelog
 
+- `ale plan bake`: a partial ale-label block (labels only) no longer erases the plan's parsed `Files:` paths and `Run:` checks; only keys the block states override them.
+
 ## 0.4.2 (2026-10-05)
 
 - A plan that sits in `.ale/runs/<id>/` (the plan's directory is a child of a `runs` directory inside `.ale`, and `<id>` is a safe id; otherwise the plan filename is used) is baked as run `<id>` instead of `plan`: `ale plan bake`, `plan route`, `plan compile`, `ale run` and `init-run --plan` share the rule in `_plan_run_id`. `--run-id` still wins, an existing provenance sidecar's `run_id` still wins (an existing run is never renamed), and any other plan path keeps the plan filename. `run_started.run_id_from` gains the value `run-dir` (the others are `explicit`, `provenance`, `plan-stem`; a sidecar with no `run_id` no longer reports `provenance`).
