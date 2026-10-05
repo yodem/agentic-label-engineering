@@ -2424,19 +2424,31 @@ def cmd_dispatch(a) -> int:
         for request in requests:
             print(_dispatch_request_json(request))
         return OK
+    spawn_bin = os.environ.get("ALE_SPAWN_BIN") or os.path.join(plugin_root(), "bin", "ale-spawn")
     running = {}
+    launch_errors = {}
     for index, (item, request, request_path) in enumerate(spawned_requests):
         if item["kind"] != "monitor":
-            spawn_bin = os.environ.get("ALE_SPAWN_BIN") or os.path.join(plugin_root(), "bin", "ale-spawn")
-            running[index] = subprocess.Popen([spawn_bin, request_path], cwd=request["cwd"],
-                                              text=True, stdout=subprocess.PIPE,
-                                              stderr=subprocess.PIPE, env=os.environ.copy())
+            try:
+                running[index] = subprocess.Popen([spawn_bin, request_path], cwd=request["cwd"],
+                                                  text=True, stdout=subprocess.PIPE,
+                                                  stderr=subprocess.PIPE, env=os.environ.copy())
+            except OSError as exc:
+                launch_errors[index] = exc
     for index, (item, request, request_path) in enumerate(spawned_requests):
-        spawn_bin = os.environ.get("ALE_SPAWN_BIN") or os.path.join(plugin_root(), "bin", "ale-spawn")
         before = _monitor_worktree_snapshot(request["cwd"]) if item["kind"] == "monitor" else None
-        if item["kind"] == "monitor":
-            result = subprocess.run([spawn_bin, request_path], cwd=request["cwd"], text=True,
-                                    capture_output=True, env=os.environ.copy())
+        if item["kind"] == "monitor" and index not in launch_errors:
+            try:
+                result = subprocess.run([spawn_bin, request_path], cwd=request["cwd"], text=True,
+                                        capture_output=True, env=os.environ.copy())
+            except OSError as exc:
+                launch_errors[index] = exc
+        if index in launch_errors:
+            # The spawn bin itself could not run (missing, not executable): release, never a traceback.
+            error = launch_errors[index]
+            stdout, stderr, returncode = "", "cannot run spawn bin %s: %s\n" % (
+                spawn_bin, error.strerror or error), 127
+        elif item["kind"] == "monitor":
             stdout, stderr, returncode = result.stdout, result.stderr, result.returncode
         else:
             stdout, stderr = running[index].communicate()
@@ -2478,7 +2490,7 @@ def cmd_dispatch(a) -> int:
     if not a.no_exec:
         for text in _unclaimed_in_session_requests(c, printed, only):
             print(text)
-    return OK
+    return FAIL if launch_errors else OK
 
 
 REMOTE_UNPROVISIONED = "remote worktree not provisioned"

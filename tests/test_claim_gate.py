@@ -463,6 +463,25 @@ def test_a_launched_spawn_keeps_its_routed_executor(tmp_path):
     assert spawned["executor"] == "codex-exec" and spawned["agent_id_minted"] == "T1-executor-backend-1"
 
 
+# --- a spawn bin that cannot run (review item 7) --------------------------------------------
+
+@pytest.mark.parametrize("kind", ["missing", "not-executable"])
+def test_a_spawn_bin_that_cannot_run_releases_and_exits_one(tmp_path, monkeypatch, capsys, kind):
+    repo, run, roster = make_run(tmp_path, monitors=True)
+    bad = tmp_path / "no-such-spawn-bin"
+    if kind == "not-executable":
+        bad.write_text("#!/bin/sh\nexit 0\n")
+        bad.chmod(0o644)
+    monkeypatch.setenv("ALE_SPAWN_BIN", str(bad))
+    capsys.readouterr()
+    assert ale(run, roster, "dispatch", "--spawn", "--cwd", str(repo)) == 1
+    err = capsys.readouterr().err
+    assert "Traceback" not in err and str(bad) in err
+    released = events(run, "released")
+    assert sorted(tuple(e["spawn_key"][:2]) for e in released) == [("T1", "executor"), ("T1", "monitor")]
+    assert all(e["reason"].startswith("spawn failed: ") and str(bad) in e["reason"] for e in released)
+
+
 # --- ale dispatch --task -------------------------------------------------------------------
 
 def test_dispatch_task_spawns_only_the_named_task(tmp_path):
