@@ -146,14 +146,49 @@ def held_for_integration(run_state: dict, labels: Dict[str, dict]) -> List[Tuple
     return held
 
 
-def due_assignments(run_state: dict, labels: Dict[str, dict], roster: dict) -> List[dict]:
+def _item(task_id: str, label: dict, assignment: dict, roster: dict, instance: str,
+          breaches: List[dict]) -> dict:
+    """One dispatchable assignment: the routed executor, model and host for ``assignment``."""
+    kind, trigger = assignment.get("kind", "executor"), assignment.get("trigger", "ready")
+    route = harness.route(label, roster, assignment=assignment)
+    return {"task_id": task_id, "kind": kind, "role": assignment.get("role", label.get("labels", {}).get("role")),
+            "model_tier": assignment.get("model_tier", label.get("labels", {}).get("model_tier")),
+            "executor": harness.spawn_id(route["harness"], route["mode"]), "model": route["model"],
+            "harness": route["harness"], "mode": route["mode"], "host": route["host"],
+            "family": harness.family(route["harness"], route["model"], roster),
+            "trigger": trigger, "trigger_instance": instance,
+            "breach": next((b for b in reversed(breaches) if b.get("task_id") == task_id), None) if trigger == "on_breach" else None}
+
+
+def executor_item(task_id: str, label: dict, roster: dict, instance: str) -> Optional[dict]:
+    """The task's executor assignment as a dispatch item under ``instance``, whatever its
+    trigger state; None when the label has no executor assignment."""
+    assignment = next((item for item in _assignments(label) if item.get("kind", "executor") == "executor"), None)
+    return _item(task_id, label, assignment, roster, instance, []) if assignment else None
+
+
+def due_assignments(run_state: dict, labels: Dict[str, dict], roster: dict,
+                    only: Optional[Set[str]] = None) -> List[dict]:
+    """The assignments due now, up to the roster's parallel cap with no two overlapping paths.
+    ``only`` limits the candidates to those tasks *before* the cap and the overlap check, so
+    unnamed due tasks neither use up the cap nor block a named one; holds and milestones still
+    see every label."""
+    return select_assignments(run_state, labels, roster, only=only)[0]
+
+
+def select_assignments(run_state: dict, labels: Dict[str, dict], roster: dict,
+                       only: Optional[Set[str]] = None) -> Tuple[List[dict], List[dict]]:
+    """``(chosen, cut)`` from one pass: ``chosen`` is :func:`due_assignments`; ``cut`` holds the
+    due items the selection left out, each with a ``reason``: ``overlapping paths with <id>``
+    (checked first, as a later dispatch will not take it either while that task runs) or
+    ``parallel cap <n>``."""
     tasks = run_state.get("tasks", {})
     held = {task_id for task_id, _ in held_for_integration(run_state, labels)}
     spawned = _spawned(run_state)
     breaches = _breaches(run_state)
     candidates = []
     for task_id in sorted(labels):
-        if task_id in held:
+        if task_id in held or (only is not None and task_id not in only):
             continue
         label, state = labels[task_id], tasks.get(task_id, {})
         if state.get("state") in ("claimed", "working", "input-required") and not state.get("resumable"):
@@ -171,24 +206,20 @@ def due_assignments(run_state: dict, labels: Dict[str, dict], roster: dict) -> L
             instance = _trigger_instance(assignment, task_id, state, breaches)
             if instance is None or (task_id, kind, instance) in spawned:
                 continue
-            route = harness.route(label, roster, assignment=assignment)
-            candidates.append({"task_id": task_id, "kind": kind, "role": assignment.get("role", label.get("labels", {}).get("role")),
-                              "model_tier": assignment.get("model_tier", label.get("labels", {}).get("model_tier")),
-                              "executor": harness.spawn_id(route["harness"], route["mode"]), "model": route["model"],
-                              "harness": route["harness"], "mode": route["mode"], "host": route["host"],
-                              "family": harness.family(route["harness"], route["model"], roster),
-                              "trigger": trigger, "trigger_instance": instance,
-                              "breach": next((b for b in reversed(breaches) if b.get("task_id") == task_id), None) if trigger == "on_breach" else None})
+            candidates.append(_item(task_id, label, assignment, roster, instance, breaches))
     cap = roster.get("cost_gate", {}).get("max_parallel", roster.get("cost_gate", {}).get("max_concurrent", 3))
-    chosen, chosen_ids = [], []
+    chosen, chosen_ids, cut = [], [], []
     for item in candidates:
-        if len(chosen) >= cap:
-            break
-        if any(other != item["task_id"] and _paths_overlap(labels[item["task_id"]], labels[other]) for other in chosen_ids):
-            continue
-        chosen.append(item)
-        chosen_ids.append(item["task_id"])
-    return chosen
+        blocker = next((other for other in chosen_ids if other != item["task_id"]
+                        and _paths_overlap(labels[item["task_id"]], labels[other])), None)
+        if blocker is not None:
+            cut.append(dict(item, reason="overlapping paths with %s" % blocker))
+        elif len(chosen) >= cap:
+            cut.append(dict(item, reason="parallel cap %s" % cap))
+        else:
+            chosen.append(item)
+            chosen_ids.append(item["task_id"])
+    return chosen, cut
 
 
 def mint_agent_id(task_id: str, kind: str, role: str, n: int) -> str:

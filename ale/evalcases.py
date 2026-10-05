@@ -12,18 +12,22 @@ match and ``passed`` is ``score == 1.0``. No model is called anywhere in this mo
 """
 from __future__ import annotations
 
+import contextlib
 import copy
 import hashlib
+import io
 import json
 import os
 import shlex
+import shutil
+import tempfile
 from typing import Callable, Dict, List, Optional, Tuple
 
 from . import __version__
 from . import analyze as AN
 from .paths import plugin_root
 
-KINDS = ("parse", "bake", "route", "refs", "analyze")
+KINDS = ("parse", "bake", "route", "refs", "analyze", "claim")
 REQUIRED = ("id", "kind", "input", "expected")
 
 
@@ -197,18 +201,23 @@ def _refs(case: dict) -> dict:
     return _compare([("allowed", case["expected"].get("allowed"), allowed)], {"allowed": allowed})
 
 
-def _analyze(case: dict) -> dict:
-    """Score the fixture run with ``analyze.evaluate``. A check's verdict is whether every one
-    of its case results passed, or None when the check had no result (n/a)."""
+def _case_run(case: dict) -> Tuple[str, dict, float]:
+    """The fixture run of an ``analyze`` or ``claim`` case: its directory, the run loaded with
+    ``analyze.load_run``, and ``now``: ``input.now``, else the last event + 60 s."""
     directory = _input_dir(case)
     if directory is None:
-        raise CaseError("analyze input needs {\"dir\": ...}")
+        raise CaseError("%s input needs {\"dir\": ...}" % case.get("kind"))
     run = AN.load_run({"run_dir": os.path.abspath(directory), "run_id": case["id"]})
     if run is None:
         raise CaseError("no run (labels/ and events.jsonl) under %s" % directory)
-    value = case["input"]
     last = max((event["ts"] for event in run["events"]), default=0.0)
-    now = float(value.get("now", last + 60.0))
+    return directory, run, float(case["input"].get("now", last + 60.0))
+
+
+def _analyze(case: dict) -> dict:
+    """Score the fixture run with ``analyze.evaluate``. A check's verdict is whether every one
+    of its case results passed, or None when the check had no result (n/a)."""
+    _directory, run, now = _case_run(case)
     report = AN.evaluate([run], AN.load_thresholds(), now, None)
     verdicts: Dict[str, Optional[bool]] = {}
     for result in report["case_results"]:
@@ -218,8 +227,63 @@ def _analyze(case: dict) -> dict:
     return _compare(pairs, {"checks": verdicts})
 
 
+def _claim(case: dict) -> dict:
+    """Run ``ale claim`` against a temporary copy of the fixture run (``labels/`` and
+    ``events.jsonl`` in the case dir) with the inline ``roster``, and report
+    ``{allowed, exit, refused}``. ``refused`` is true only when stderr carries the claim
+    gate's own message, so another exit 1 (a bad roster, an event error) is not mistaken for
+    it. ``input`` is ``{"dir", "task", "agent", "roster", "args", "worktrees"}``; ``args`` are
+    extra ``claim`` flags (a list of strings). The gate checks that a spawn's worktree exists, so
+    ``{run}`` in the fixture's events stands for the copy's path and ``worktrees`` lists the
+    run-relative directories to create in the copy (a spawn's worktree that is not listed is
+    gone)."""
+    from .cli import CLAIM_REFUSED_PHRASE, main
+    value = case.get("input")
+    if (_input_dir(case) is None or not isinstance(value.get("task"), str) or not isinstance(value.get("agent"), str)
+            or not isinstance(value.get("roster"), dict)):
+        raise CaseError("claim input needs {\"dir\", \"task\", \"agent\", \"roster\"}")
+    args = value.get("args", [])
+    if not isinstance(args, list) or not all(isinstance(item, str) for item in args):
+        raise CaseError("claim input args must be a list of strings, got %s" % json.dumps(args))
+    worktrees = value.get("worktrees", [])
+    if not isinstance(worktrees, list) or not all(
+            isinstance(item, str) and item and not os.path.isabs(item) and ".." not in item.split("/")
+            for item in worktrees):
+        raise CaseError("claim input worktrees must be run-relative paths, got %s" % json.dumps(worktrees))
+    directory, _run, now = _case_run(case)
+    saved = os.environ.get("ALE_HERDR")
+    os.environ["ALE_HERDR"] = "0"   # a case never publishes to a herdr pane
+    errors = io.StringIO()
+    try:
+        with tempfile.TemporaryDirectory(prefix="ale-case-") as scratch:
+            copy_dir = os.path.join(scratch, "run")
+            shutil.copytree(directory, copy_dir)
+            events_path = os.path.join(copy_dir, "events.jsonl")
+            with open(events_path, encoding="utf-8") as handle:
+                text = handle.read()
+            with open(events_path, "w", encoding="utf-8") as handle:
+                handle.write(text.replace("{run}", json.dumps(copy_dir)[1:-1]))
+            for item in worktrees:
+                os.makedirs(os.path.join(copy_dir, item), exist_ok=True)
+            roster = os.path.join(scratch, "roster.json")
+            with open(roster, "w", encoding="utf-8") as handle:
+                json.dump(value["roster"], handle)
+            argv = (["claim", "--task", value["task"], "--agent", value["agent"]] + args
+                    + ["--run-dir", copy_dir, "--roster", roster, "--now", repr(now)])
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(errors):
+                code = main(argv)
+    finally:
+        if saved is None:
+            os.environ.pop("ALE_HERDR", None)
+        else:
+            os.environ["ALE_HERDR"] = saved
+    actual = {"allowed": code == 0, "exit": code, "refused": CLAIM_REFUSED_PHRASE in errors.getvalue()}
+    pairs = [(name, want, actual.get(name)) for name, want in sorted(case["expected"].items())]
+    return _compare(pairs, actual)
+
+
 EVALUATORS: Dict[str, Callable[[dict], dict]] = {
-    "parse": _parse, "bake": _bake, "route": _route, "refs": _refs, "analyze": _analyze,
+    "parse": _parse, "bake": _bake, "route": _route, "refs": _refs, "analyze": _analyze, "claim": _claim,
 }
 
 

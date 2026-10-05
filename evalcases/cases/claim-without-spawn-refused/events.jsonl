@@ -1,0 +1,2 @@
+{"agent_id": null, "attempt": null, "run_id": "claim-without-spawn-refused", "schema_version": "1.0", "task_id": null, "ts": 1791104400.0, "type": "run_started"}
+{"agent_id": null, "attempt": 1, "labels": {}, "roster_hash": "abcd1234", "run_id": "claim-without-spawn-refused", "schema_version": "1.0", "task_id": "T1", "ts": 1791104400.0, "type": "labeled"}

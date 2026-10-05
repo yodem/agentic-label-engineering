@@ -8,6 +8,7 @@ import subprocess
 from ale import events as E
 from ale import cli
 from ale.cli import main
+from tests.claim_fixtures import declare_no_worktree
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -208,6 +209,7 @@ def _bound_failing_task(tmp_path, monkeypatch):
 
     run = tmp_path / "hook-run"
     shutil.copytree(os.path.join(ROOT, "examples", "run"), str(run))
+    declare_no_worktree(run)
     roster = tmp_path / "hook-roster.json"
     shutil.copy(os.path.join(ROOT, "examples", "roster.json"), str(roster))
     home = tmp_path / "home"

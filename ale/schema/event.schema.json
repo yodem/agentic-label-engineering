@@ -31,6 +31,10 @@
     "diff_base": {"type": "string", "minLength": 1},
     "base_ref": {"type": "string", "minLength": 1},
     "host": {"type": "string", "minLength": 1},
+    "no_exec": {"type": "boolean"},
+    "deviation": {"type": "object", "additionalProperties": false, "required": ["code", "reason"],
+                  "properties": {"code": {"enum": ["worktree-outside-ale"]},
+                                 "reason": {"type": "string", "minLength": 1, "maxLength": 1000}}},
     "via": {"enum": ["ack", "hook"]},
     "token_ok": {"type": ["boolean", "null"]}
   }

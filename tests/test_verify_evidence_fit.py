@@ -5,6 +5,7 @@ import subprocess
 
 from ale.cli import _fit, main
 from ale.events import MAX_EVENT_BYTES, make_event, append_event, read_events
+from tests.claim_fixtures import declare_no_worktree
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -46,6 +47,7 @@ def test_fit_emitted_verified_event_is_accepted_and_within_limit(tmp_path):
 def test_verify_base_with_many_changed_files_end_to_end(tmp_path, capsys):
     run_dir = tmp_path / "run"
     shutil.copytree(os.path.join(ROOT, "examples", "run"), str(run_dir))
+    declare_no_worktree(run_dir)
     shutil.copy(os.path.join(ROOT, "examples", "roster.json"), str(tmp_path / "roster.json"))
     roster = str(tmp_path / "roster.json")
 

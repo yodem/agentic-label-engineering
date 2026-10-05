@@ -6,6 +6,7 @@ import pytest
 
 from ale import events as E
 from ale.cli import main
+from tests.claim_fixtures import declare_no_worktree
 
 
 ROOT = os.path.dirname(os.path.dirname(__file__))
@@ -14,6 +15,7 @@ ROOT = os.path.dirname(os.path.dirname(__file__))
 def _run(tmp_path):
     run = tmp_path / "run"
     shutil.copytree(os.path.join(ROOT, "examples", "run"), str(run))
+    declare_no_worktree(run)
     roster = os.path.join(ROOT, "examples", "roster.json")
     return run, roster
 

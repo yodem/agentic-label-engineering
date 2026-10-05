@@ -1135,21 +1135,108 @@ def cmd_ready(a) -> int:
     return OK
 
 
+NO_WORKTREE_REASON_MIN = 10
+
+
+def _claim_deviation(a) -> Optional[str]:
+    """The validated ``--no-worktree --reason`` text, or None when neither flag is given."""
+    reason = (a.reason or "").strip()
+    if a.reason is not None and not a.no_worktree:
+        raise CliError(USAGE, "--reason only goes with --no-worktree")
+    if not a.no_worktree:
+        return None
+    if len(reason) < NO_WORKTREE_REASON_MIN:
+        raise CliError(USAGE, '--no-worktree needs --reason "<why>" of at least %d characters'
+                       % NO_WORKTREE_REASON_MIN)
+    return reason
+
+
+CLAIM_REFUSED_PHRASE = "ALE has not spawned it"
+DEVIATION_WORKTREE = "worktree-outside-ale"
+CLAIM_UNGATED_MODES = ("none", "shared")
+
+
+def _claim_worktree(dispatch_state: dict, task_id: str) -> Optional[str]:
+    """The ALE worktree the task works in, or None: the newest spawn of the task, in any
+    attempt, that recorded a ``worktree`` still on disk or a ``remote_worktree``. Releases do
+    not matter (rework after a rejection or a release happens in the same worktree); the
+    bookkeeping is ``_dispatch_state``'s, so there is one reading of the spawn events."""
+    for spawn in reversed(dispatch_state.get("spawn_worktrees", {}).get(task_id, [])):
+        if spawn.get("worktree") and os.path.isdir(spawn["worktree"]):
+            return spawn["worktree"]
+        if spawn.get("remote_worktree"):
+            host = spawn.get("host")
+            return ("%s:%s" % (host, spawn["remote_worktree"])) if host else spawn["remote_worktree"]
+    return None
+
+
+def _claim_remedy(a, c: Ctx) -> str:
+    """The command that gives the task its ALE worktree without launching anything: a
+    ``--no-exec`` dispatch scoped to the one task (shell-quoted, ``--roster`` when known)."""
+    import shlex
+    roster = getattr(a, "roster", None) or os.environ.get("ALE_ROSTER")
+    command = ["ale", "dispatch", "--run-dir", shlex.quote(os.path.abspath(c.run_dir)),
+               "--cwd", shlex.quote(_run_repo_root(c.run_dir))]
+    if roster:
+        command += ["--roster", shlex.quote(os.path.abspath(roster))]
+    return " ".join(command + ["--task", shlex.quote(a.task), "--no-exec"])
+
+
+def _claim_refusal(a, c: Ctx, mode: str, dispatch_state: dict) -> str:
+    """The refusal text, naming a recorded worktree that is gone, with the remedy on a line of its own."""
+    gone = next((spawn["worktree"] for spawn in reversed(dispatch_state.get("spawn_worktrees", {}).get(a.task, []))
+                 if spawn.get("worktree")), None)
+    why = ("its spawn's worktree %s no longer exists" % gone) if gone else "no ALE worktree for it exists"
+    return ("task %s has worktree mode %s and %s: %s.\n"
+            "For a lead working the task in-session, record the spawn and its worktree first "
+            "(nothing is launched):\n  %s\nthen claim again. To work outside ALE on purpose, claim with "
+            "--no-worktree --reason \"<why>\"; the deviation is recorded on the claim."
+            % (a.task, mode, CLAIM_REFUSED_PHRASE, why, _claim_remedy(a, c)))
+
+
+def _claim_messages(task_id: str, worktree: Optional[str], deviation: bool) -> List[str]:
+    """What a gated claim tells the claimer on stderr: where to work, and a warning when the
+    current directory is not inside that (local) worktree. Never a refusal."""
+    if deviation:
+        where = (" %s" % worktree) if worktree else ""
+        return ["claimed %s outside ALE's worktree%s (deviation recorded)" % (task_id, where)]
+    lines = ["claimed %s in ALE worktree %s" % (task_id, worktree)]
+    if worktree and os.path.isdir(worktree):
+        here, root = os.path.realpath(os.getcwd()), os.path.realpath(worktree)
+        if os.path.commonpath([here, root]) != root:
+            lines.append("warning: the current directory %s is not inside %s's ALE worktree %s; work there"
+                         % (os.getcwd(), task_id, worktree))
+    return lines
+
+
 def cmd_claim(a) -> int:
+    deviation = _claim_deviation(a)
     c = Ctx(a)
     if a.task not in c.labels:
         raise CliError(FAIL, "unknown task %s" % a.task)
     cap = L.effective_watch(c.labels[a.task], c.roster)["max_attempts"]
-    state = c.state()
+    from .dispatch import worktree_mode
+    state = _dispatch_state(c)
     if not state["tasks"][a.task]["claimable"] or state["tasks"][a.task]["attempt"] > cap:
         print("claim lost: %s" % a.task, file=sys.stderr)
         return CLAIM_LOST
+    mode = worktree_mode(c.labels[a.task])
+    gated = mode not in CLAIM_UNGATED_MODES
+    worktree = _claim_worktree(state, a.task) if gated else None
+    if gated and deviation is None and worktree is None:
+        raise CliError(FAIL, _claim_refusal(a, c, mode, state))
+    # A declared --no-worktree is recorded inside the gate even when a worktree exists.
+    record_deviation = gated and deviation is not None
     executor_id = os.environ.get("ALE_AGENT_ID") or os.environ.get("ALE_AGENT")
+    extra = {"deviation": {"code": DEVIATION_WORKTREE, "reason": deviation[:TEXT_MAX]}} if record_deviation else {}
     c.emit("claimed", a.task, a.agent, state["tasks"][a.task]["attempt"], pane=a.pane,
-           bind_claim_pane=bool(a.pane) or bool(executor_id and a.agent == executor_id))
+           bind_claim_pane=bool(a.pane) or bool(executor_id and a.agent == executor_id), **extra)
     if c.state()["tasks"][a.task]["owner"] != a.agent:
         print("claim lost: %s" % a.task, file=sys.stderr)
         return CLAIM_LOST
+    if gated:
+        for line in _claim_messages(a.task, worktree, record_deviation):
+            print(line, file=sys.stderr)
     c.render(a.task, a.agent)
     return OK
 
@@ -1833,18 +1920,28 @@ def cmd_reopen(a) -> int:
 
 
 def _dispatch_state(c: Ctx) -> dict:
-    state = c.state()
+    """The reduced run state plus the spawn bookkeeping dispatch and the claim gate share, from
+    one read of the event log: ``spawned`` (keys not released), ``breaches``, per-task executor
+    ``release_counts`` and ``spawn_worktrees`` (every ALE-authored spawn, any attempt, that
+    recorded a ``worktree`` or a ``remote_worktree``, oldest first)."""
+    events = E.read_events(c.events_path)
+    state = E.reduce_run(events, c.labels)
     spawned = {}
     released = set()
     breaches = []
     release_counts = {}
     last_spawned_kind = {}
-    for event in E.read_events(c.events_path):
+    worktrees = {}
+    for event in events:
         if event.get("type") == "spawned":
             key = (event.get("task_id"), event.get("assignment_kind"),
                    event.get("trigger_instance", event.get("trigger", "ready")))
             spawned[key] = {"task_id": key[0], "kind": key[1], "trigger_instance": key[2]}
             last_spawned_kind[key[0]] = key[1]
+            if event.get("agent_id") is None and (event.get("worktree") or event.get("remote_worktree")):
+                worktrees.setdefault(key[0], []).append(
+                    {"worktree": event.get("worktree"), "remote_worktree": event.get("remote_worktree"),
+                     "host": event.get("host")})
         elif event.get("type") == "released" and event.get("spawn_key"):
             released.add(tuple(event["spawn_key"]))
             task_id, kind = event["spawn_key"][:2]
@@ -1861,6 +1958,7 @@ def _dispatch_state(c: Ctx) -> dict:
             state["tasks"][task_id]["release_counts"] = {"executor": count}
     state["spawned"] = [value for key, value in spawned.items() if key not in released]
     state["breaches"] = breaches
+    state["spawn_worktrees"] = worktrees
     return state
 
 
@@ -2176,12 +2274,23 @@ def _dispatch_request_json(request: dict) -> str:
     return json.dumps(printable, sort_keys=True)
 
 
+NO_EXEC_AGENT = "lead"
+
+
 def _append_spawned(c: Ctx, due: dict, request: dict, plan: Optional[dict],
-                    base_ref: Optional[str] = None) -> None:
-    extra = {"agent_id_minted": request["agent_id"], "assignment_kind": due["kind"],
-             "executor": due["executor"], "model": due["model"],
-             "trigger_instance": due["trigger_instance"]}
-    if due.get("mode") == "in-session":
+                    base_ref: Optional[str] = None, no_exec: bool = False) -> None:
+    """Record a spawn. A ``--no-exec`` spawn launches nothing: the lead that claims the task
+    does the work in its own session, so the event carries ``no_exec: true`` and names the lead,
+    never the routed executor, its model or a minted executor agent id."""
+    if no_exec:
+        extra = {"agent_id_minted": NO_EXEC_AGENT, "assignment_kind": due["kind"],
+                 "executor": NO_EXEC_AGENT, "model": None, "no_exec": True,
+                 "trigger_instance": due["trigger_instance"]}
+    else:
+        extra = {"agent_id_minted": request["agent_id"], "assignment_kind": due["kind"],
+                 "executor": due["executor"], "model": due["model"],
+                 "trigger_instance": due["trigger_instance"]}
+    if due.get("mode") == "in-session" and not no_exec:
         extra["mode"] = "in-session"
     if request.get("remote_worktree"):
         extra.update({"host": due.get("host"), "remote_worktree": request["remote_worktree"]})
@@ -2198,12 +2307,50 @@ def _append_spawned(c: Ctx, due: dict, request: dict, plan: Optional[dict],
            pane=request.get("executor_pane"), **extra)
 
 
+def _report_undispatched(c: Ctx, dispatch_state: dict, only: set, due: List[dict], cut: List[dict],
+                         held: List[Tuple[str, str]]) -> None:
+    """For ``dispatch --task``: one stderr line per named task this dispatch did not dispatch,
+    with the reason (held, overlapping paths with <id>, parallel cap <n>, or nothing due)."""
+    taken = {item["task_id"] for item in due}
+    reasons = {}
+    for task_id, dependency_id in held:
+        reasons.setdefault(task_id, "held: dependency %s is accepted but not integrated" % dependency_id)
+    for item in cut:
+        reasons.setdefault(item["task_id"], item["reason"])
+    for task_id in sorted(only - taken):
+        st = dispatch_state["tasks"].get(task_id, {})
+        reason = reasons.get(task_id) or "nothing due (state %s, attempt %s)" % (st.get("state"), st.get("attempt"))
+        print("not dispatched: %s: %s" % (task_id, reason), file=sys.stderr)
+
+
+def _no_exec_rework(dispatch_state: dict, c: Ctx, only: set, due: List[dict]) -> List[dict]:
+    """Named tasks a ``--no-exec`` dispatch gives a worktree although no assignment is due:
+    claimable (say rejected after a claim outside ALE's worktree), inside the claim gate, and
+    with no ALE worktree. This is the claim refusal's remedy; nothing is launched."""
+    from .dispatch import executor_item, worktree_mode
+    taken = {item["task_id"] for item in due}
+    out = []
+    for task_id in sorted(only - taken):
+        st = dispatch_state["tasks"].get(task_id, {})
+        if (not st.get("claimable") or worktree_mode(c.labels[task_id]) in CLAIM_UNGATED_MODES
+                or _claim_worktree(dispatch_state, task_id) is not None):
+            continue
+        item = executor_item(task_id, c.labels[task_id], c.roster, "no-exec:%s" % st.get("attempt", 1))
+        if item is not None:
+            out.append(item)
+    return out
+
+
 def cmd_dispatch(a) -> int:
     import fcntl
-    from .dispatch import due_assignments, held_for_integration, worktree_plan
+    from .dispatch import held_for_integration, select_assignments, worktree_plan
 
     c = Ctx(a)
     c.roster_path = _resolve_roster(a)
+    only = set(a.only_tasks or [])
+    unknown = sorted(only - set(c.labels))
+    if unknown:
+        raise CliError(USAGE, "unknown task %s" % ", ".join(unknown))
     project_cwd = os.path.abspath(a.cwd or os.getcwd())
     # Executor routing is deterministic from tier and is never judged.
     shadow_judge = (_shadow_judge(c.roster, c.run_dir, [project_cwd])
@@ -2217,11 +2364,16 @@ def cmd_dispatch(a) -> int:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         try:
             dispatch_state = _dispatch_state(c)
-            held = held_for_integration(dispatch_state, c.labels)
+            held = [item for item in held_for_integration(dispatch_state, c.labels)
+                    if not only or item[0] in only]
             for task_id, dependency_id in held:
                 print("holding %s: dependency %s is accepted but not integrated" %
                       (task_id, dependency_id), file=sys.stderr)
-            due = due_assignments(dispatch_state, c.labels, c.roster)
+            due, cut = select_assignments(dispatch_state, c.labels, c.roster, only=only or None)
+            if a.no_exec and only:
+                due += _no_exec_rework(dispatch_state, c, only, due)
+            if only:
+                _report_undispatched(c, dispatch_state, only, due, cut, held)
             remote_due = [item for item in due if (item.get("host") or "local") != "local"]
             base_ref = None
             if due and not (a.json or a.dry_run) and (a.spawn or a.no_exec):
@@ -2280,7 +2432,7 @@ def cmd_dispatch(a) -> int:
                     _run_worktree_setup(c, label, plan["path"], project_cwd)
                 _prefetch_refs(c, item, request)
                 if a.no_exec:
-                    _append_spawned(c, item, request, plan, base_ref)
+                    _append_spawned(c, item, request, plan, base_ref, no_exec=True)
                     continue
                 _append_spawned(c, item, request, plan, base_ref)
                 request_path = _write_spawn_request(c, request)
@@ -2294,19 +2446,31 @@ def cmd_dispatch(a) -> int:
         for request in requests:
             print(_dispatch_request_json(request))
         return OK
+    spawn_bin = os.environ.get("ALE_SPAWN_BIN") or os.path.join(plugin_root(), "bin", "ale-spawn")
     running = {}
+    launch_errors = {}
     for index, (item, request, request_path) in enumerate(spawned_requests):
         if item["kind"] != "monitor":
-            spawn_bin = os.environ.get("ALE_SPAWN_BIN") or os.path.join(plugin_root(), "bin", "ale-spawn")
-            running[index] = subprocess.Popen([spawn_bin, request_path], cwd=request["cwd"],
-                                              text=True, stdout=subprocess.PIPE,
-                                              stderr=subprocess.PIPE, env=os.environ.copy())
+            try:
+                running[index] = subprocess.Popen([spawn_bin, request_path], cwd=request["cwd"],
+                                                  text=True, stdout=subprocess.PIPE,
+                                                  stderr=subprocess.PIPE, env=os.environ.copy())
+            except OSError as exc:
+                launch_errors[index] = exc
     for index, (item, request, request_path) in enumerate(spawned_requests):
-        spawn_bin = os.environ.get("ALE_SPAWN_BIN") or os.path.join(plugin_root(), "bin", "ale-spawn")
         before = _monitor_worktree_snapshot(request["cwd"]) if item["kind"] == "monitor" else None
-        if item["kind"] == "monitor":
-            result = subprocess.run([spawn_bin, request_path], cwd=request["cwd"], text=True,
-                                    capture_output=True, env=os.environ.copy())
+        if item["kind"] == "monitor" and index not in launch_errors:
+            try:
+                result = subprocess.run([spawn_bin, request_path], cwd=request["cwd"], text=True,
+                                        capture_output=True, env=os.environ.copy())
+            except OSError as exc:
+                launch_errors[index] = exc
+        if index in launch_errors:
+            # The spawn bin itself could not run (missing, not executable): release, never a traceback.
+            error = launch_errors[index]
+            stdout, stderr, returncode = "", "cannot run spawn bin %s: %s\n" % (
+                spawn_bin, error.strerror or error), 127
+        elif item["kind"] == "monitor":
             stdout, stderr, returncode = result.stdout, result.stderr, result.returncode
         else:
             stdout, stderr = running[index].communicate()
@@ -2346,9 +2510,9 @@ def cmd_dispatch(a) -> int:
             print(json.dumps(request, sort_keys=True))
             printed.add(request["task_id"])
     if not a.no_exec:
-        for text in _unclaimed_in_session_requests(c, printed):
+        for text in _unclaimed_in_session_requests(c, printed, only):
             print(text)
-    return OK
+    return FAIL if launch_errors else OK
 
 
 REMOTE_UNPROVISIONED = "remote worktree not provisioned"
@@ -2382,13 +2546,13 @@ def _release_unprovisioned(c: Ctx, item: dict) -> None:
            reason=REMOTE_UNPROVISIONED)
 
 
-def _unclaimed_in_session_requests(c: Ctx, skip: set) -> List[str]:
+def _unclaimed_in_session_requests(c: Ctx, skip: set, only: Optional[set] = None) -> List[str]:
     """Saved requests of in-session spawns whose task was never claimed (the lead may have
     stopped before ``ale claim``); printing them again emits no event and makes no worktree."""
     state = c.state()["tasks"]
     out = []
     for task_id in sorted(c.labels):
-        if task_id in skip or state.get(task_id, {}).get("state") != "ready":
+        if task_id in skip or (only and task_id not in only) or state.get(task_id, {}).get("state") != "ready":
             continue
         latest = _latest_spawn(c, task_id)
         if not latest or latest.get("task_id") != task_id or latest.get("mode") != "in-session":
@@ -4198,6 +4362,8 @@ def _parser() -> argparse.ArgumentParser:
     dispatch.add_argument("--spawn", action="store_true")
     dispatch.add_argument("--no-exec", action="store_true")
     dispatch.add_argument("--cwd")
+    dispatch.add_argument("--task", dest="only_tasks", action="append", metavar="T",
+                          help="dispatch only this task (repeatable)")
     integrate = add("integrate", cmd_integrate, task=True)
     integrate.add_argument("--cwd")
     add("restack", cmd_restack, task=True)
@@ -4216,7 +4382,11 @@ def _parser() -> argparse.ArgumentParser:
     meta.add_argument("--json", action="store_true")
     meta.add_argument("--csv", action="store_true")
     add("ready", cmd_ready)
-    add("claim", cmd_claim, task=True, agent=True).add_argument("--pane")
+    cl = add("claim", cmd_claim, task=True, agent=True)
+    cl.add_argument("--pane")
+    cl.add_argument("--no-worktree", action="store_true",
+                    help="claim a worktree task that ALE did not spawn (needs --reason)")
+    cl.add_argument("--reason", help="why the work stays outside ALE's worktree (10+ characters)")
     hb = add("heartbeat", cmd_heartbeat, task=True, agent=True)
     hb.add_argument("--step", required=True)
     hb.add_argument("--files")

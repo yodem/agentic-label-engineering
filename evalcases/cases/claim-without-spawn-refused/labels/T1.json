@@ -1,0 +1,43 @@
+{
+ "acceptance": [
+  {
+   "cmd": "true",
+   "expect": "exit0",
+   "id": "A1"
+  },
+  {
+   "cmd": "true",
+   "expect": "exit0",
+   "id": "A2"
+  }
+ ],
+ "context": {
+  "allowed_paths": [
+   "src/t1/*"
+  ],
+  "depends_on": [],
+  "worktree": {
+   "base": null,
+   "branch": null,
+   "mode": "per_task"
+  }
+ },
+ "labels": {
+  "effort": "S",
+  "lane": "pane",
+  "locality": "any",
+  "model_tier": "standard",
+  "phase": "implement",
+  "risk": "medium",
+  "role": "backend"
+ },
+ "routing": {
+  "executor": "codex",
+  "mode": "headless",
+  "model": "gpt-x"
+ },
+ "run_id": "claim-without-spawn-refused",
+ "schema_version": "1.0",
+ "task_id": "T1",
+ "title": "Task T1"
+}

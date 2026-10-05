@@ -672,3 +672,70 @@ def test_no_write_help_says_backfill_still_updates_the_index(capsys):
     assert main(["analyze", "--help"]) == 0
     text = " ".join(capsys.readouterr().out.split())
     assert "writes no report, findings or ledger rows; --backfill still updates the index" in text
+
+
+# --- a dispatch --no-exec spawn is in-session lead work (review item 4) ------------------------
+
+def _no_exec_label():
+    lab = label("T1", "r", executor=None, model=None)
+    lab["assignments"] = [{"kind": "executor", "role": "backend", "model_tier": "standard",
+                           "executor": "codex-exec", "model": "gpt-y", "trigger": "ready"}]
+    return lab
+
+
+def _no_exec_events(run_dir):
+    return [
+        ev("spawned", "r", T0 + 100, "T1", agent_id_minted="lead", assignment_kind="executor",
+           executor="lead", model=None, no_exec=True, trigger_instance="ready",
+           worktree=os.path.join(run_dir, "wt", "T1"), branch="ale/r/T1"),
+        ev("claimed", "r", T0 + 110, "T1", "worker"),
+        ev("submitted", "r", T0 + 130, "T1", "worker", summary="done"),
+        ev("accepted", "r", T0 + 140, "T1", evidence=evidence(["src/t1/a.py"])),
+        ev("integrated", "r", T0 + 150, "T1", commit="c" * 40, files=["src/t1/a.py"]),
+    ]
+
+
+def test_a_no_exec_spawn_is_dispatch_lead_work_with_label_harness(tmp_path):
+    run = single_task_run(tmp_path, "r", _no_exec_events, task_label=_no_exec_label())
+    row = A.task_rows(run)[0]
+    assert row["spawned_by"] == "dispatch" and row["headless"] is False
+    assert (row["harness"], row["model"]) == ("codex", "gpt-y")
+    report = report_for([run])
+    assert one(report, "ale.task.dispatch_worktree")["score"] == 1.0
+    assert results(report, "ale.task.usage_recorded") == []          # n/a: the lead's session
+
+
+def test_a_no_exec_spawn_naming_a_headless_executor_is_still_lead_work(tmp_path):
+    """An older no_exec spawn that kept the routed executor still reads as lead work."""
+    def events(run_dir):
+        rows = _no_exec_events(run_dir)
+        rows[0].update(executor="codex-exec", model="gpt-x", agent_id_minted="T1-executor-backend-1")
+        return rows
+    run = single_task_run(tmp_path, "r", events, task_label=_no_exec_label())
+    row = A.task_rows(run)[0]
+    assert row["headless"] is False and (row["harness"], row["model"]) == ("codex", "gpt-y")
+    assert results(report_for([run]), "ale.task.usage_recorded") == []
+
+
+# --- declared claim deviations are counted (review item 9) -----------------------------------
+
+def test_a_claim_deviation_is_counted_in_the_row_the_report_and_the_markdown(tmp_path):
+    deviation = {"code": "worktree-outside-ale", "reason": "the task needs the host checkout"}
+
+    def events(run_dir):
+        return [ev("claimed", "r", T0 + 10, "T1", "lead-1", deviation=deviation),
+                ev("submitted", "r", T0 + 20, "T1", "lead-1", summary="x")]
+    run = single_task_run(tmp_path, "r", events)
+    assert A.task_rows(run)[0]["claim_deviations"] == ["worktree-outside-ale"]
+    report = report_for([run])
+    assert report["deviations"] == {"worktree-outside-ale": 1}
+    text = A.render_markdown(report)
+    assert "## Declared deviations" in text and "worktree-outside-ale: 1" in text
+
+
+def test_a_run_without_deviations_reports_none(tmp_path):
+    run = single_task_run(tmp_path, "r", lambda d: good_task("r", "T1", T0 + 100, d))
+    assert A.task_rows(run)[0]["claim_deviations"] == []
+    report = report_for([run])
+    assert report["deviations"] == {}
+    assert "No declared deviations." in A.render_markdown(report)
