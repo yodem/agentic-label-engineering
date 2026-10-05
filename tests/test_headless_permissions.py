@@ -102,6 +102,27 @@ def test_headless_claude_gets_accept_edits_and_one_allowlist_before_the_prompt(t
     assert argv[-2:] == ["-p", "the prompt"]
 
 
+def test_ale_bin_rules_are_granted_only_when_ale_bin_is_the_shim(tmp_path):
+    # $ALE_BIN rules match the unexpanded text, so they are safe only when ale-spawn exports
+    # ALE_BIN as the bin/ale-py shim. An inherited ALE_BIN pointing elsewhere gets no such rule.
+    path, _ = _request(tmp_path)
+    proc, argv = _spawn(tmp_path, path)
+    assert proc.returncode == 0, proc.stderr
+    assert "Bash($ALE_BIN status:*)" in _rules(argv)
+    assert "not the ale-py shim" not in proc.stderr
+    proc, argv = _spawn(tmp_path, path, ALE_BIN="/usr/bin/env")
+    assert proc.returncode == 0, proc.stderr
+    rules = _rules(argv)
+    assert not any("$ALE_BIN" in rule for rule in rules), rules
+    for sub in ("claim", "status", "submit"):
+        assert "Bash(%s %s:*)" % (ALE_PY, sub) in rules
+        assert "Bash(python3 -m ale %s:*)" % sub in rules
+    assert "ale-spawn: ALE_BIN is not the ale-py shim; not granting $ALE_BIN rules" in proc.stderr
+    proc, argv = _spawn(tmp_path, path, ALE_BIN=ALE_PY)
+    assert proc.returncode == 0, proc.stderr
+    assert "Bash($ALE_BIN status:*)" in _rules(argv)
+
+
 def test_unsplittable_acceptance_commands_are_skipped_with_a_note(tmp_path):
     path, _ = _request(tmp_path)
     proc, argv = _spawn(tmp_path, path)

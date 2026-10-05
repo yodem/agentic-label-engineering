@@ -704,7 +704,11 @@ worktree was refused every file write and stopped (both 2026-10-05 Sefaria runs)
     `Bash(<prefix> <subcommand>:*)` under four prefixes: `python3 -m ale` (EXECUTOR.md),
     `<ALE_PYTHON> -m ale`, the absolute path of `bin/ale-py`, and the literal `$ALE_BIN` (the
     prompt tells the executor to type `$ALE_BIN …`). Lead-side commands (`rescope`, `verify`,
-    `accept`, `integrate`, `relabel`, …) are not granted.
+    `accept`, `integrate`, `relabel`, …) are not granted. Rules match the unexpanded text, so
+    the `$ALE_BIN` rules are granted only when the `ALE_BIN` that `ale-spawn` exports is
+    exactly the `bin/ale-py` shim path; an inherited `ALE_BIN` naming anything else gets no
+    `$ALE_BIN` rule and `ale-spawn: ALE_BIN is not the ale-py shim; not granting $ALE_BIN
+    rules` on stderr.
   - Each acceptance command from `$ALE_RUN_DIR/labels/<task>.json`, verbatim as
     `Bash(<cmd>)`.
 - A command (or prefix) containing `,`, `(`, `)` or a newline can't be written as a single

@@ -6,6 +6,8 @@ if [ "$#" -ne 1 ]; then
 fi
 
 request=$1
+# The bin/ale-py shim path, as ale-spawn exports it in ALE_BIN below (when ALE_BIN is unset).
+ale_py="$(CDPATH= cd -- "$(dirname "$0")" && pwd)/ale-py"
 ale_assignments=$(python3 -c '
 import json
 import shlex
@@ -103,12 +105,24 @@ if values["ale_harness"] == "claude" and values["ale_mode"] == "headless":
     if claude_headless_permissions is not None:
         python = os.environ.get("ALE_PYTHON") or env.get("ALE_PYTHON") or "python3"
         ale_py = os.path.join(os.path.dirname(os.path.abspath(sys.argv[2])), "ale-py")
+        read_only = (values["ale_kind"] == "monitor"
+                     and (values["ale_read_only"] or os.environ.get("ALE_READ_ONLY")) == "1")
+        # Claude Code matches rules against the unexpanded text, so a $ALE_BIN rule runs
+        # whatever ALE_BIN holds. Grant it only when the ALE_BIN exported below (an inherited
+        # one wins) is exactly the bin/ale-py shim path.
+        import re
+        shim = sys.argv[3]
+        exported = os.environ.get("ALE_BIN") or (
+            shim if re.fullmatch(r"[A-Za-z0-9_./+@%:-]+", shim) else "")
+        prefixes = ["python3 -m ale", python + " -m ale", ale_py]
+        if exported == shim:
+            prefixes.append("$ALE_BIN")
+        elif not read_only:
+            print("ale-spawn: ALE_BIN is not the ale-py shim; not granting $ALE_BIN rules",
+                  file=sys.stderr)
         try:
             mode, allowed, skipped = claude_headless_permissions(
-                roster, label.get("acceptance", []),
-                ["python3 -m ale", python + " -m ale", ale_py, "$ALE_BIN"],
-                read_only=(values["ale_kind"] == "monitor"
-                           and (values["ale_read_only"] or os.environ.get("ALE_READ_ONLY")) == "1"))
+                roster, label.get("acceptance", []), prefixes, read_only=read_only)
         except ValueError as err:
             print("ale-spawn: %s" % err, file=sys.stderr)
             sys.exit(2)
@@ -138,7 +152,7 @@ for key, value in env.items():
         values["ale_plugin_root"] = value
 for key, value in values.items():
     print("%s=%s" % (key, shlex.quote(str(value))))
-' "$request" "$0") || exit $?
+' "$request" "$0" "$ale_py") || exit $?
 eval "$ale_assignments"
 if [ -n "$ale_argdir" ]; then trap 'rm -rf "$ale_argdir"' EXIT; fi
 
@@ -164,7 +178,6 @@ export ALE_PYTHON
 # ALE_BIN is one executable path (bin/ale-py), so an unquoted $ALE_BIN works in sh, bash and
 # zsh alike. A path holding a space or shell metacharacter would split; keep the eval-able
 # quoted form there (ale-exec runs eval "$ALE_BIN ...").
-ale_py="$(CDPATH= cd -- "$(dirname "$0")" && pwd)/ale-py"
 case "$ale_py" in
     *[!A-Za-z0-9_./+@%:-]*) ALE_BIN=${ALE_BIN:-"'$ALE_PYTHON' -m ale"} ;;
     *) ALE_BIN=${ALE_BIN:-$ale_py} ;;
