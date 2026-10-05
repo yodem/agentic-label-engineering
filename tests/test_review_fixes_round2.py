@@ -44,3 +44,13 @@ def test_write_has_worktree_counts_files_from_a_rejected_verify(tmp_path):
     run = A.load_run(entry(run_dir, "r"))
     check = A.evaluate([run], A.load_thresholds(), T0 + 3600, None)["checks"]["ale.task.write_has_worktree"]
     assert check["n"] == 1 and check["passed"] == 0
+
+
+def test_append_run_accepts_a_bare_relative_index_filename(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    run_dir = tmp_path / "repo" / ".ale" / "runs" / "r"
+    run_dir.mkdir(parents=True)
+    assert RI.append_run(str(run_dir), str(tmp_path / "repo"), "r", "0.4.0", None,
+                         index="runs.jsonl") is True
+    assert (tmp_path / "runs.jsonl").is_file()
+    assert [row["run_id"] for row in RI.read_index(index="runs.jsonl")] == ["r"]

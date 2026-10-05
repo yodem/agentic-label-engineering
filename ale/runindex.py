@@ -44,7 +44,9 @@ def append_run(run_dir: str, repo_root: str, run_id: str, ale_version: str,
     """Append ``run_dir`` to the index; False (and no write) when it is already indexed."""
     path = _path(home, index)
     resolved = os.path.realpath(run_dir)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    parent = os.path.dirname(path)
+    if parent:   # a bare filename (``--index runs.jsonl``) lives in the cwd
+        os.makedirs(parent, exist_ok=True)
     row = {"ts": time.time(), "run_id": run_id, "run_dir": resolved,
            "repo_root": os.path.realpath(repo_root) if repo_root else None,
            "ale_version": ale_version, "roster_hash": roster_hash}
