@@ -268,8 +268,19 @@ def _ale_dir(path: str = None) -> str:
     return os.path.join(root, ".ale")
 
 
-def _plan_run_id(path: str, supplied: Optional[str]) -> str:
-    value = supplied
+def _plan_run_dir_name(path: str) -> Optional[str]:
+    """The run directory's name when the plan sits in ``.ale/runs/<id>/``, else None."""
+    run_dir = os.path.dirname(os.path.abspath(path))
+    runs = os.path.dirname(run_dir)
+    if os.path.basename(runs) == "runs" and os.path.basename(os.path.dirname(runs)) == ".ale":
+        return os.path.basename(run_dir)
+    return None
+
+
+def _plan_run_id_source(path: str, supplied: Optional[str]) -> Tuple[str, str]:
+    """The run id for a plan and where it came from: ``explicit`` (the flag), ``provenance``
+    (the sidecar's run id), ``run-dir`` (the plan sits in ``.ale/runs/<id>/``) or ``plan-stem``."""
+    value, source = supplied, "explicit"
     sidecar = path + ".ale-provenance.json"
     if value is None and os.path.isfile(sidecar):
         try:
@@ -278,11 +289,19 @@ def _plan_run_id(path: str, supplied: Optional[str]) -> str:
             value = data.get("run_id") if isinstance(data, dict) else None
         except (OSError, ValueError):
             value = None
+        source = "provenance"
+    if not value:
+        value, source = _plan_run_dir_name(path), "run-dir"
     if not value:
         value = re.sub(r"[^A-Za-z0-9._-]", "-", os.path.splitext(os.path.basename(path))[0])
+        source = "plan-stem"
     if not H.is_safe_id(value):
         raise CliError(USAGE, "plan run id is unsafe: %s" % value)
-    return value
+    return value, source
+
+
+def _plan_run_id(path: str, supplied: Optional[str]) -> str:
+    return _plan_run_id_source(path, supplied)[0]
 
 
 def _resolve_run_dir(a, plan_path: str = None) -> str:
@@ -3342,10 +3361,50 @@ def cmd_relabel(a) -> int:
            field=a.field if a.field in ("assignments", "acceptance") else "labels.%s" % a.field,
            old=old, new=label.get(a.field) if a.field in ("assignments", "acceptance") else a.value,
            routing_agent_old=routing_old, routing_agent_new=routing_new, reason=a.reason[:TEXT_MAX])
-    c.emit("relabeled", a.task, None, st["attempt"], field=a.field, old=old,
-           new=label.get(a.field) if a.field in ("assignments", "acceptance") else a.value,
+    new = label.get(a.field) if a.field in ("assignments", "acceptance") else a.value
+    # The plan sync's note goes before `relabeled`, which stays the last event of a relabel.
+    _sync_relabel_to_plan(c, a.task, st["attempt"], a.field, old, new)
+    c.emit("relabeled", a.task, None, st["attempt"], field=a.field, old=old, new=new,
            reason=a.reason[:TEXT_MAX])
     return OK
+
+
+def _plan_sync_outcome(c: Ctx, task_id: str, field: str, old, new) -> str:
+    """Rewrite the task's block in the plan recorded at init-run; the note text saying what happened."""
+    from .bake import relabel_block
+
+    def skipped(why: str) -> str:
+        return "relabel: plan block for %s not updated: %s" % (task_id, why)
+
+    plan_path = next((event.get("plan_path") for event in E.read_events(c.events_path)
+                      if event["type"] == "run_started" and event.get("plan_path")), None)
+    if not isinstance(plan_path, str) or not plan_path:
+        return skipped("no plan_path recorded on run_started (the run was not started with `init-run --plan`)")
+    try:
+        with open(plan_path, encoding="utf-8", newline="") as handle:
+            text = handle.read()
+        mode = os.stat(plan_path).st_mode & 0o7777
+    except (OSError, UnicodeDecodeError) as exc:
+        reason = "plan file missing" if isinstance(exc, FileNotFoundError) else "cannot read the plan"
+        return skipped("%s: %s" % (reason, plan_path))
+    updated, why = relabel_block(text, task_id, field, old, new, roster=c.roster)
+    if updated is None:
+        return skipped("%s (%s)" % (why, plan_path))
+    if updated != text:
+        H.write_atomic(plan_path, updated)
+        os.chmod(plan_path, mode)
+    return "relabel: plan block for %s updated in %s; re-approve the plan" % (task_id, plan_path)
+
+
+def _sync_relabel_to_plan(c: Ctx, task_id: str, attempt: int, field: str, old, new) -> None:
+    """Keep the plan's ale-label block in step with a relabel, so `ale plan route` and the labels
+    table stop reading the old value. A problem here is a note, never a failure of the relabel."""
+    try:
+        text = _plan_sync_outcome(c, task_id, field, old, new)
+    except Exception as exc:   # the relabel is already recorded; never let the sync undo its exit code
+        text = "relabel: plan block for %s not updated: %s: %s" % (task_id, type(exc).__name__, exc)
+    c.emit("note", task_id, None, attempt, lead=True, text=text[:TEXT_MAX])
+    print(text, file=sys.stderr)
 
 
 def cmd_agents_list(a) -> int:
@@ -4264,9 +4323,8 @@ def cmd_init_run_plan(a) -> int:
         raise CliError(FAIL, "run already initialised: %s" % c.events_path)
     with open(a.plan, "rb") as handle:
         plan_sha256 = __import__("hashlib").sha256(handle.read()).hexdigest()
-    run_id_from = "explicit" if a.run_id is not None else (
-        "provenance" if os.path.exists(a.plan + ".ale-provenance.json") else "plan-stem")
-    c.emit("run_started", plan_sha256=plan_sha256, run_id_from=run_id_from)
+    run_id_from = _plan_run_id_source(a.plan, a.run_id)[1]
+    c.emit("run_started", plan_sha256=plan_sha256, run_id_from=run_id_from, plan_path=os.path.abspath(a.plan))
     rhash = R.roster_hash(c.roster)
     for task_id, label in c.labels.items():
         c.emit("labeled", task_id, None, 1, labels=label["labels"], roster_hash=rhash)

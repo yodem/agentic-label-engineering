@@ -155,16 +155,31 @@ def _parse(case: dict) -> dict:
 
 def _bake(case: dict) -> dict:
     """``ale plan bake --no-judge`` without a roster when the plan has no blocks yet
-    (parse, skeleton labels, bake), then ``compile_plan`` with run id ``case``."""
+    (parse, skeleton labels, bake), then ``compile_plan``. The run id is ``case``, or, when the
+    input names a ``plan_path`` (and optionally a ``run_id`` flag), the one ``ale plan bake`` picks
+    for that path; ``expected.run_id`` checks it."""
     from .bake import bake, compile_plan, extract_blocks, skeleton_label
+    from .cli import _plan_run_id
     from .dispatch import worktree_mode
     from .planparse import parse_plan
     text = _plan_text(case)
+    value = case.get("input")
+    plan_path = value.get("plan_path") if isinstance(value, dict) else None
+    if plan_path is not None and not isinstance(plan_path, str):
+        raise CaseError("bake input plan_path must be a path string")
+    # ``plan_path`` is the path the plan would be baked from (it need not exist): the bake names
+    # its run id from it, as ``ale plan bake`` does.
+    run_id = _plan_run_id(plan_path, value.get("run_id")) if plan_path else "case"
     if not extract_blocks(text):
-        labels = {task["task_id"]: skeleton_label(task, "case", {}) for task in parse_plan(text)}
+        labels = {task["task_id"]: skeleton_label(task, run_id, {}) for task in parse_plan(text)}
         text = bake(text, labels)
-    compiled = compile_plan(text, run_id="case")
-    pairs = []
+    compiled = compile_plan(text, run_id=run_id)
+    pairs: List[Tuple[str, object, object]] = []
+    result: dict = {}
+    if "run_id" in case["expected"]:
+        ids = sorted({label.get("run_id") for label in compiled.values()})
+        result["run_id"] = ids[0] if len(ids) == 1 else ids
+        pairs.append(("run_id", case["expected"]["run_id"], result["run_id"]))
     actual: Dict[str, dict] = {}
     for task_id in sorted(case["expected"].get("labels") or {}):
         label = compiled.get(task_id)
@@ -180,7 +195,8 @@ def _bake(case: dict) -> dict:
                     got = _dotted(label.get("context") or {}, key)
             actual[task_id][key] = got
             pairs.append(("%s.%s" % (task_id, key), want, got))
-    return _compare(pairs, {"labels": actual})
+    result["labels"] = actual
+    return _compare(pairs, result)
 
 
 def _route(case: dict) -> dict:
