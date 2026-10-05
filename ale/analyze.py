@@ -235,6 +235,7 @@ def _row(run: dict, task_id: str, label: dict, task_events: List[dict], st: Opti
     else:
         spawned_by = "dispatch"
     claims = [e for e in task_events if e["type"] == "claimed"]
+    deviations = [e["deviation"].get("code") for e in claims if isinstance(e.get("deviation"), dict)]
     verdicts = [e for e in task_events if e["type"] in ("accepted", "rejected") and _lead(e)]
     if verdicts:
         first_verify_passed = verdicts[0]["type"] == "accepted"
@@ -289,6 +290,7 @@ def _row(run: dict, task_id: str, label: dict, task_events: List[dict], st: Opti
         "harness": HARNESS.normalize(routing.get("executor")) or HARNESS.normalize(executor),
         "model": routing.get("model") or spawn_model,
         "worktree_mode": worktree_mode(label), "spawned_by": spawned_by, "claimed": bool(claims),
+        "claim_deviations": deviations,
         "claimed_by_lead": any(str(e.get("agent_id") or "").startswith("lead") for e in claims),
         "first_verify_passed": first_verify_passed, "attempts": attempts,
         "rejects": sum(1 for e in verdicts if e["type"] == "rejected"),
@@ -565,6 +567,16 @@ def _metrics(rows: List[dict]) -> dict:
     return out
 
 
+def _deviations(rows: List[dict]) -> Dict[str, int]:
+    """Declared claim deviations (``claimed.deviation.code``, e.g. ``ale claim --no-worktree``)
+    counted by code. A count, not a check: the lead declared each one."""
+    out: Dict[str, int] = {}
+    for row in rows:
+        for code in row.get("claim_deviations") or []:
+            out[str(code)] = out.get(str(code), 0) + 1
+    return dict(sorted(out.items()))
+
+
 def _calibration(rows: List[dict], config: dict) -> dict:
     bucket_min = int(config.get("bucket_min_n", 5))
     group_min = int(config.get("group_min_n", 3))
@@ -700,6 +712,7 @@ def evaluate(runs: List[dict], thresholds: dict, now: float, since_s: Optional[f
         "skipped_lines": sum(r["skipped_lines"] for r in current),
         "checks": _checks(cases, thresholds),
         "metrics": _metrics(rows),
+        "deviations": _deviations(rows),
         "calibration": _calibration(rows, thresholds.get("calibration") or {}),
         "promotions": _promotions(kept),   # cumulative: promotion needs every judged case
         "previous": previous,
@@ -858,6 +871,10 @@ def render_markdown(report: dict) -> str:
     lines += ["- %s %s (%s): %s, n=%d after, rate %s" % (
         f.get("evaluator"), f.get("commit"), f.get("note") or "", f["status"], f["n_after"], _fmt(f["rate_after"]))
         for f in fixes] or ["No fix records."]
+
+    lines += ["", "## Declared deviations", ""]
+    lines += ["- %s: %d" % (code, count) for code, count in (report.get("deviations") or {}).items()] or [
+        "No declared deviations."]
 
     lines += ["", "## Metrics", "",
               "| role / tier / harness / model | tasks | accepted | first pass | attempts/accepted | "

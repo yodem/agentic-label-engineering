@@ -1152,6 +1152,7 @@ def _claim_deviation(a) -> Optional[str]:
 
 
 CLAIM_REFUSED_PHRASE = "ALE has not spawned it"
+DEVIATION_WORKTREE = "worktree-outside-ale"
 CLAIM_UNGATED_MODES = ("none",)
 
 
@@ -1186,7 +1187,7 @@ def _claim_refusal(a, c: Ctx, mode: str) -> str:
     return ("task %s has worktree mode %s and %s: no ALE worktree for it exists.\n"
             "For a lead working the task in-session, record the spawn and its worktree first "
             "(nothing is launched):\n  %s\nthen claim again. To work outside ALE on purpose, claim with "
-            "--no-worktree --reason \"<why>\"; the deviation is recorded as a note."
+            "--no-worktree --reason \"<why>\"; the deviation is recorded on the claim."
             % (a.task, mode, CLAIM_REFUSED_PHRASE, _claim_remedy(a, c)))
 
 
@@ -1208,14 +1209,12 @@ def cmd_claim(a) -> int:
     # A declared --no-worktree is recorded inside the gate even when a worktree exists.
     record_deviation = gated and deviation is not None
     executor_id = os.environ.get("ALE_AGENT_ID") or os.environ.get("ALE_AGENT")
+    extra = {"deviation": {"code": DEVIATION_WORKTREE, "reason": deviation[:TEXT_MAX]}} if record_deviation else {}
     c.emit("claimed", a.task, a.agent, state["tasks"][a.task]["attempt"], pane=a.pane,
-           bind_claim_pane=bool(a.pane) or bool(executor_id and a.agent == executor_id))
+           bind_claim_pane=bool(a.pane) or bool(executor_id and a.agent == executor_id), **extra)
     if c.state()["tasks"][a.task]["owner"] != a.agent:
         print("claim lost: %s" % a.task, file=sys.stderr)
         return CLAIM_LOST
-    if record_deviation:
-        c.emit("note", a.task, a.agent, state["tasks"][a.task]["attempt"],
-               text=("deviation worktree-outside-ale: %s" % deviation)[:TEXT_MAX])
     c.render(a.task, a.agent)
     return OK
 

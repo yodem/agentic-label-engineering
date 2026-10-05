@@ -715,3 +715,27 @@ def test_a_no_exec_spawn_naming_a_headless_executor_is_still_lead_work(tmp_path)
     row = A.task_rows(run)[0]
     assert row["headless"] is False and (row["harness"], row["model"]) == ("codex", "gpt-y")
     assert results(report_for([run]), "ale.task.usage_recorded") == []
+
+
+# --- declared claim deviations are counted (review item 9) -----------------------------------
+
+def test_a_claim_deviation_is_counted_in_the_row_the_report_and_the_markdown(tmp_path):
+    deviation = {"code": "worktree-outside-ale", "reason": "the task needs the host checkout"}
+
+    def events(run_dir):
+        return [ev("claimed", "r", T0 + 10, "T1", "lead-1", deviation=deviation),
+                ev("submitted", "r", T0 + 20, "T1", "lead-1", summary="x")]
+    run = single_task_run(tmp_path, "r", events)
+    assert A.task_rows(run)[0]["claim_deviations"] == ["worktree-outside-ale"]
+    report = report_for([run])
+    assert report["deviations"] == {"worktree-outside-ale": 1}
+    text = A.render_markdown(report)
+    assert "## Declared deviations" in text and "worktree-outside-ale: 1" in text
+
+
+def test_a_run_without_deviations_reports_none(tmp_path):
+    run = single_task_run(tmp_path, "r", lambda d: good_task("r", "T1", T0 + 100, d))
+    assert A.task_rows(run)[0]["claim_deviations"] == []
+    report = report_for([run])
+    assert report["deviations"] == {}
+    assert "No declared deviations." in A.render_markdown(report)

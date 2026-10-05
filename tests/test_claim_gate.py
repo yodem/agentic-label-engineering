@@ -208,18 +208,27 @@ def test_an_unknown_task_is_still_a_check_failure(tmp_path):
     assert claim(run, roster, task="T9") == 1
 
 
-def test_no_worktree_with_a_reason_claims_and_records_the_deviation(tmp_path):
+DEVIATION = {"code": "worktree-outside-ale", "reason": REASON}
+
+
+def test_no_worktree_with_a_reason_claims_and_records_the_deviation_on_the_claim(tmp_path):
     _repo, run, roster = make_run(tmp_path)
     assert claim(run, roster, "lead-1", "--no-worktree", "--reason", REASON) == 0
     claimed = events(run, "claimed")
-    notes = events(run, "note")
-    assert len(claimed) == 1 and len(notes) == 1
-    assert notes[0]["text"] == "deviation worktree-outside-ale: " + REASON
-    assert notes[0]["task_id"] == "T1" and notes[0]["agent_id"] == "lead-1"
-    log = E.read_events(str(run / "events.jsonl"))
-    assert log.index(notes[0]) > log.index(claimed[0])
-    state = E.reduce_run(log, L.load_labels(str(run)))
-    assert state["tasks"]["T1"]["notes"] == ["deviation worktree-outside-ale: " + REASON]
+    assert len(claimed) == 1 and claimed[0]["deviation"] == DEVIATION
+    assert claimed[0]["agent_id"] == "lead-1"
+    assert events(run, "note") == []                      # on the claim itself, not a separate note
+    assert E.check_event(claimed[0]) == []
+    state = E.reduce_run(E.read_events(str(run / "events.jsonl")), L.load_labels(str(run)))
+    assert state["tasks"]["T1"]["owner"] == "lead-1" and state["tasks"]["T1"]["notes"] == []
+
+
+def test_the_event_schema_declares_the_claim_deviation():
+    base = E.make_event("claimed", "run-1", 1.0, "T1", "lead-1", 1)
+    assert E.check_event(dict(base, deviation=DEVIATION)) == []
+    assert E.check_event(dict(base, deviation={"code": "worktree-outside-ale"})) != []
+    assert E.check_event(dict(base, deviation=dict(DEVIATION, code="other"))) != []
+    assert E.check_event(dict(base, deviation=dict(DEVIATION, extra=1))) != []
 
 
 def test_no_worktree_with_a_live_worktree_still_records_the_deviation(tmp_path):
@@ -227,7 +236,7 @@ def test_no_worktree_with_a_live_worktree_still_records_the_deviation(tmp_path):
     repo, run, roster = make_run(tmp_path)
     spawn(run, roster, repo)
     assert claim(run, roster, "lead-1", "--no-worktree", "--reason", REASON) == 0
-    assert [e["text"] for e in events(run, "note")] == ["deviation worktree-outside-ale: " + REASON]
+    assert events(run, "claimed")[0]["deviation"] == DEVIATION
 
 
 def test_no_worktree_needs_a_reason_of_ten_characters(tmp_path, capsys):
@@ -244,10 +253,10 @@ def test_reason_without_no_worktree_is_a_usage_error(tmp_path):
     assert events(run, "claimed") == []
 
 
-def test_the_override_on_a_worktree_none_task_writes_no_note(tmp_path):
+def test_the_override_on_a_worktree_none_task_records_no_deviation(tmp_path):
     _repo, run, roster = make_run(tmp_path, mode="none")
     assert claim(run, roster, "lead-1", "--no-worktree", "--reason", REASON) == 0
-    assert events(run, "note") == []
+    assert "deviation" not in events(run, "claimed")[0] and events(run, "note") == []
 
 
 def test_a_lost_claim_with_the_override_writes_no_note(tmp_path):
@@ -255,7 +264,7 @@ def test_a_lost_claim_with_the_override_writes_no_note(tmp_path):
     spawn(run, roster, repo)
     assert claim(run, roster, "a1") == 0
     assert claim(run, roster, "a2", "--no-worktree", "--reason", REASON) == 3
-    assert events(run, "note") == []
+    assert [e["agent_id"] for e in events(run, "claimed")] == ["a1"] and events(run, "note") == []
 
 
 def test_a_reclaim_after_a_rejection_keeps_the_original_spawn(tmp_path):
