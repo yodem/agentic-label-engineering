@@ -757,9 +757,10 @@ worktree was refused every file write and stopped (both 2026-10-05 Sefaria runs)
 
 **Not verified here.**
 - No live `claude -p` run was made for this item; the lead's AC3 demo covers that.
-- Whether Claude Code matches `Bash($ALE_BIN:*)` against the literal text `$ALE_BIN status`, or
-  refuses a command that begins with a variable expansion, is not established. The
-  `bin/ale-py` path rule covers the expanded form.
+- Claude Code matches the literal, unexpanded text: the live 0.4.3 dispatch
+  (`evidence/AC3-demo.md` in run `2026-10-05-ale-defects`) showed `$ALE_BIN heartbeat …` running
+  unprompted. That is why the `$ALE_BIN` rules are granted only when `ALE_BIN` is the shim
+  path. The `bin/ale-py` path rule covers the expanded form.
 
 Source: `command claude --help` (2.1.289, this install);
 https://code.claude.com/docs/en/permissions (fetched 2026-10-05: Permission modes table,

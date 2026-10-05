@@ -48,7 +48,10 @@ described above.
 prompt-free grant: `--permission-mode acceptEdits` and one `--allowedTools` list. The list holds
 `git add`, `git commit`, `git status`, `git diff` and `git log`. It also holds the executor's ALE
 subcommands (`claim`, `heartbeat`, `status`, `submit`, `usage`, `note`, `input-required`,
-`refs-ack`) under `python3 -m ale`, `<ALE_PYTHON> -m ale`, `bin/ale-py` and `$ALE_BIN`. Lead-side
+`refs-ack`) under `python3 -m ale`, `<ALE_PYTHON> -m ale`, `bin/ale-py` and `$ALE_BIN`. Rules
+match the unexpanded text, so the `$ALE_BIN` rules are granted only when the `ALE_BIN` that
+`ale-spawn` exports is exactly the `bin/ale-py` shim path; an inherited `ALE_BIN` naming another
+program gets no `$ALE_BIN` rule. Lead-side
 commands such as `rescope` and `accept` are not on it. The last entries are the task's acceptance
 commands, verbatim. ALE never passes `bypassPermissions` or `--dangerously-skip-permissions`. A
 read-only monitor (`ALE_READ_ONLY=1`) gets no grant. A roster opts out with
