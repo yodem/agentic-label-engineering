@@ -775,6 +775,23 @@ Compound commands, What a Bash rule doesn't match). Tests: `tests/test_headless_
 - **Item 11  -  follow-up possible in print mode:** **NO.** Confirmed by reading `print-mode.js` and `agent-session.js`: `agent_settled` fires only after the message-queue-draining loop in `_runAgentPrompt` has already exited, and `pi.sendUserMessage()` is fire-and-forget (not awaited by the runner), while `runPrintMode` disposes the runtime and exits right after `session.prompt()` resolves. **0 live `pi -p` experiments were run** to double-confirm this at runtime, because no provider had working, already-configured credentials in this environment; the brief explicitly permits skipping experiments in that case. The source evidence is unambiguous enough to not require it.
 - **Item 14  -  Codex hooks can deny a tool call:** **YES.** `PreToolUse` hooks can return `hookSpecificOutput.permissionDecision: "deny"` (or the legacy `{decision:"block"}`, or exit code 2 + stderr) to block a tool call before it runs  -  same contract shape as Claude Code's `PreToolUse`.
 
+## Item 17  -  Child `claude` sessions inherit the executor's ALE env; env bindings are pinned to the executor session
+
+- **Measured 2026-10-05** (run `2026-10-05-hook-session-pin`, instrumented `ale hook` on a real headless `ale dispatch`): two
+  `Stop` events reached `ale hook` under the executor's env (`ALE_TASK=T1`). One came from the executor (`cwd` = its
+  worktree). The other came from a separate session (its own `session_id`, `cwd` = `$TMPDIR/jev-bakeoff-*`): a Jev bake-off
+  `claude -p` started from a hook inside the executor session, which inherited `ALE_TASK`/`ALE_AGENT`/`ALE_RUN_DIR`.
+  Because an env binding won unconditionally (`binding.resolve`), that child's Stop ran the task's acceptance in the temp
+  dir and wrote `auto-stop-block: A1: ; A2: fatal: not a git repository` on the task; its PreToolUse would also have
+  applied the task's path guard to the child's own writes.
+- A plain `claude -p` Stop hook input carries the session's own `cwd` (same day, scratch repo), so the executor's own Stop
+  was never wrong.
+- **Rule (0.4.4).** An env binding is pinned to the session that sends `session-start` with its `cwd` inside the task's
+  recorded worktree (`<run_dir>/hook-sessions/<task>--<agent>`; a later session-start inside the worktree re-pins, so a pane
+  `/clear` or resume keeps its guard). A hook event from another session whose `cwd` is outside that worktree is ignored
+  (exit 0, nothing written). Subagents share their parent's `session_id`, so they stay bound. No pin, or no recorded local
+  worktree (remote, mode `none`): unchanged.
+
 ## Items marked COULD NOT VERIFY
 
 - Item 13 (partial): the exact list of OpenRouter model IDs under `--provider openrouter` via `pi --list-models`  -  the provider string itself (`openrouter`) is documented in the shipped `docs/providers.md`, but no OpenRouter credentials were configured in this environment, so `pi --list-models openrouter` returned no rows and the live model catalogue could not be inspected. Nothing riskier was attempted, per the brief's "skip if no provider works" instruction.

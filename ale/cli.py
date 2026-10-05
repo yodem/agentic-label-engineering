@@ -1831,6 +1831,15 @@ def cmd_hook(a) -> int:
             raise CliError(FAIL, "bound task is missing")
         label = c.labels[binding["task_id"]]
         state = c.state()["tasks"][binding["task_id"]]
+        if binding.get("source") == "env":
+            spawn = _latest_spawn(c, binding["task_id"])
+            worktree = spawn.get("worktree") if spawn else None
+            hook_cwd = data.get("cwd") or os.getcwd()
+            if event == "session-start" and (not worktree or B.within(hook_cwd, worktree)):
+                B.write_pin(binding["run_dir"], binding["task_id"], binding["agent_id"], data["session_id"])
+            if B.is_foreign(binding, data.get("session_id"), hook_cwd, worktree):
+                _hook_debug(binding, "foreign session ignored %s" % event)
+                return OK
         if event == "session-start":
             if state["state"] in E.LIVE and state.get("owner") == binding["agent_id"]:
                 pass
