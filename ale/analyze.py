@@ -283,7 +283,9 @@ def _row(run: dict, task_id: str, label: dict, task_events: List[dict], st: Opti
         state = "removed"
     else:
         state = (st or {}).get("state", "unknown")
-    integrated = bool((st or {}).get("integrated")) or bool(integrations)
+    # A no-op integration (a none/shared task, nothing merged) is not a write.
+    merged = [e for e in integrations if not e.get("noop")]
+    integrated = bool(merged) or (bool((st or {}).get("integrated")) and not integrations)
     return {
         "run_key": run["run_key"], "run_label": run.get("run_label"), "task_id": task_id, "role": values.get("role"),
         "effort": values.get("effort"), "risk": values.get("risk"), "model_tier": values.get("model_tier"),

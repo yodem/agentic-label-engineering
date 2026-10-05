@@ -123,6 +123,8 @@ def _run_two_task_plan(tmp_path, monkeypatch, capsys, dependent_mode, stacked=Fa
         filename = task_id.lower() + ".txt"
         worktree = ({"mode": dependent_mode, "stack": True}
                     if stacked and depends else dependent_mode)
+        if worktree == "none":
+            worktree = {"mode": "none", "worktree_reason": "fake executor writes in the checkout"}
         return """## Task %s: Task %s
 
 **Files:** `%s`

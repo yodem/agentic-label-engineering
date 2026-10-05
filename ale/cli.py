@@ -1237,6 +1237,12 @@ def cmd_claim(a) -> int:
     cap = L.effective_watch(c.labels[a.task], c.roster)["max_attempts"]
     from .dispatch import worktree_mode
     state = _dispatch_state(c)
+    current = state["tasks"][a.task]
+    if current.get("state") in ("claimed", "working") and current.get("owner") == a.agent:
+        # ale-exec claims before the harness starts and the executor claims again (EXECUTOR.md
+        # step 2): the owner's re-claim is a no-op, not a lost claim.
+        print("already claimed by %s" % a.agent, file=sys.stderr)
+        return OK
     if not state["tasks"][a.task]["claimable"] or state["tasks"][a.task]["attempt"] > cap:
         print("claim lost: %s" % a.task, file=sys.stderr)
         return CLAIM_LOST
@@ -2678,9 +2684,10 @@ def cmd_integrate(a) -> int:
     if state.get("integrated"):
         integrated_event = next((item for item in reversed(E.read_events(c.events_path))
                                  if item.get("type") == "integrated" and item.get("task_id") == a.task), {})
-        commit = integrated_event.get("commit", "")
+        commit = integrated_event.get("commit") or ""
         raise CliError(FAIL, "task %s is already integrated (%s)" %
-                       (a.task, commit[:7] if commit else "unknown commit"))
+                       (a.task, commit[:7] if commit else
+                        "no-op" if integrated_event.get("noop") else "unknown commit"))
     if state.get("state") != "accepted":
         raise CliError(FAIL, "task %s is %s, not accepted" % (a.task, state.get("state")))
     from .stack import integrate_blocker
@@ -2688,6 +2695,15 @@ def cmd_integrate(a) -> int:
     if blocker:
         raise CliError(FAIL, blocker)
     event = _latest_spawn(c, a.task)
+    from .dispatch import worktree_mode
+    if ((event is None or not event.get("branch"))
+            and worktree_mode(c.labels[a.task]) in CLAIM_UNGATED_MODES):
+        # A none/shared task has no branch to merge: record a no-op integration so its
+        # dependents are not held, and so analyze does not count it as a write.
+        c.emit("integrated", a.task, None, state.get("attempt", 1), commit=None, noop=True, files=[])
+        print("integrated %s: no-op (worktree.mode %s has no branch)"
+              % (a.task, worktree_mode(c.labels[a.task])), file=sys.stderr)
+        return OK
     if event is None or not event.get("branch"):
         raise CliError(FAIL, "task %s has no recorded branch" % a.task)
     worktree = event.get("worktree")
@@ -3989,7 +4005,7 @@ def _plan_labels(text: str, path: str, run_id: str, roster: dict, no_judge: bool
 
     ``stack`` marks every per-task-worktree task with exactly one dependency as stacked.
     """
-    from .bake import skeleton_label
+    from .bake import NONE_RECOMPUTE_WARNING, derived_none, skeleton_label
     from .planparse import parse_plan
 
     tasks = parse_plan(text)
@@ -4061,6 +4077,16 @@ def _plan_labels(text: str, path: str, run_id: str, roster: dict, no_judge: bool
                     "votes": [{"by": "block", "value": value, "confidence": None}],
                 }
             old_worktree = old.get("worktree") or old.get("context", {}).get("worktree")
+            block_paths = label["context"]["allowed_paths"]
+            if block_paths and (old_worktree is None or derived_none(old_worktree)):
+                # Mode and phase follow the block's own allowed_paths, not only the paths
+                # planparse found in the task body; a derived none is recomputed, loudly.
+                if old_worktree is not None:
+                    print(NONE_RECOMPUTE_WARNING % task["task_id"], file=sys.stderr)
+                old_worktree = {"mode": "per_task", "branch": None, "base": None,
+                                "worktree_reason": None}
+                if label["labels"].get("phase") is None:
+                    label["labels"]["phase"] = "implement"
             if old_worktree is not None:
                 if isinstance(old_worktree, str):
                     old_worktree = {"mode": old_worktree, "branch": None, "base": None,
@@ -4252,7 +4278,10 @@ def _plan_check_labels(labels: dict, roster: dict) -> List[str]:
     return errors
 
 
-def _compile_plan_to_run(path: str, run_dir: str, roster: dict, run_id: Optional[str] = None) -> dict:
+def _compile_plan_to_run(path: str, run_dir: str, roster: dict, run_id: Optional[str] = None,
+                         recomputed: Optional[List[str]] = None) -> dict:
+    """Compile the plan into ``<run_dir>/labels``. A derived ``none`` recomputed to ``per_task``
+    warns on stderr and adds its task id to ``recomputed``; the plan file is never rewritten."""
     from .bake import BakeError, compile_plan
     with open(path, encoding="utf-8") as handle:
         text = handle.read()
@@ -4273,10 +4302,17 @@ def _compile_plan_to_run(path: str, run_dir: str, roster: dict, run_id: Optional
             return None
     try:
         chosen_run_id = run_id if run_id is not None else sidecar_run_id
-        labels = compile_plan(text, _plan_run_id(path, chosen_run_id), provenance=provenance)
+        warnings = []
+        labels = compile_plan(text, _plan_run_id(path, chosen_run_id), provenance=provenance,
+                              warnings=warnings)
     except (BakeError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return None
+    for warning in warnings:
+        print(warning, file=sys.stderr)
+    if recomputed is not None:
+        recomputed.extend(task_id for task_id in sorted(labels)
+                          if any(warning.startswith("warning: %s: " % task_id) for warning in warnings))
     errors = _plan_check_labels(labels, roster)
     for task_id, label in labels.items():
         if not H.is_safe_id(label.get("run_id")):
@@ -4333,7 +4369,8 @@ def cmd_init_run_plan(a) -> int:
     roster = _plan_roster(a)
     run_dir = _resolve_run_dir(a, a.plan)
     a.run_dir = run_dir
-    if _compile_plan_to_run(a.plan, run_dir, roster, a.run_id) is None:
+    recomputed = []
+    if _compile_plan_to_run(a.plan, run_dir, roster, a.run_id, recomputed) is None:
         return FAIL
     c = Ctx(a)
     errors = L.check_labelset(c.labels, c.roster)
@@ -4364,6 +4401,9 @@ def cmd_init_run_plan(a) -> int:
     decisions = os.path.join(c.run_dir, "decisions.md")
     if not os.path.exists(decisions):
         H.write_atomic(decisions, "# Decisions for run %s\n\n" % c.run_id)
+    for task_id in recomputed:
+        _record_decision(c, "Recomputed %s worktree.mode none -> per_task at init-run: allowed_paths set "
+                            "and no worktree_reason (none was derived at an earlier bake)" % task_id)
     _write_current_run(c.run_dir, c.run_id, getattr(a, "set_current", False))
     return OK
 

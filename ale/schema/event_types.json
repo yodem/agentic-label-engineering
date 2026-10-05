@@ -1,4 +1,8 @@
 {
+  "$comment": "Each event type maps to the keys it must carry. $optional names keys a type may carry: they are never required, so events written before them stay valid.",
+  "$optional": {
+    "integrated": ["noop"]
+  },
   "label_vote": ["field", "by", "value"],
   "shadow_vote": ["decision", "options", "choice", "confidence", "model", "latency_ms"],
   "decision_outcome": ["decision", "choice", "source"],

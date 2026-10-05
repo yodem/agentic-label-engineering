@@ -27,6 +27,20 @@ _ASSIGNMENT_KEYS = ("kind", "role", "model_tier", "executor", "model", "pin_reas
 _ACCEPTANCE_KEYS = ("id", "cmd", "expect", "manual")
 _WORKTREE_KEYS = ("mode", "worktree_reason", "stack")
 _WATCH_KEYS = ("heartbeat_timeout_s", "stuck_after_s", "max_duration_s", "budget_tokens", "max_attempts")
+NONE_RECOMPUTE_WARNING = ("warning: %s: allowed_paths set but worktree.mode is none (derived at an earlier "
+                          "bake); baking per_task. Set worktree_reason to keep none.")
+
+
+def derived_none(worktree) -> bool:
+    """True for a block's ``worktree`` value that is ``none`` only because an earlier bake derived it.
+
+    A ``none`` is deliberate when it carries a non-empty ``worktree_reason``
+    (``{"mode": "none", "worktree_reason": "..."}``); a bare ``"none"`` is bake-derived.
+    """
+    if worktree == "none":
+        return True
+    return (isinstance(worktree, dict) and worktree.get("mode") == "none"
+            and not worktree.get("worktree_reason"))
 
 
 def _check_compact_keys(task_id: str, value: dict, allowed: Tuple[str, ...], location: str) -> None:
@@ -261,6 +275,9 @@ def render_block(label: dict) -> str:
     worktree_value = worktree.get("mode")
     if worktree_value == "shared":
         worktree_value = {"mode": "shared", "worktree_reason": worktree.get("worktree_reason")}
+    elif worktree_value == "none" and worktree.get("worktree_reason"):
+        # A deliberate none keeps its reason, or the next bake would read it as derived.
+        worktree_value = {"mode": "none", "worktree_reason": worktree["worktree_reason"]}
     if worktree.get("stack") is True:
         worktree_value = dict(worktree_value) if isinstance(worktree_value, dict) else {"mode": worktree_value}
         worktree_value["stack"] = True
@@ -407,6 +424,18 @@ def bake(text: str, labels) -> str:
             route_only = True
         elif existing and not complete_fields.issubset(existing):
             replacement_block = _merge_missing(existing, generated)
+            generated_worktree = generated.get("worktree")
+            generated_mode = (generated_worktree.get("mode") if isinstance(generated_worktree, dict)
+                              else generated_worktree)
+            if (derived_none(existing.get("worktree")) and existing.get("allowed_paths")
+                    and generated_mode == "per_task"):
+                # The label recomputed a derived none (see NONE_RECOMPUTE_WARNING): write it,
+                # stack flag included.
+                replacement_block["worktree"] = copy.deepcopy(generated_worktree)
+                block_labels = replacement_block.get("labels")
+                if isinstance(block_labels, dict) and block_labels.get("phase") is None \
+                        and (generated.get("labels") or {}).get("phase"):
+                    block_labels["phase"] = generated["labels"]["phase"]
             # route is derived: always the regenerated value, never a hand edit.
             replacement_block.pop("route", None)
             if "route" in generated:
@@ -445,8 +474,12 @@ def bake(text: str, labels) -> str:
 
 
 def compile_plan(text: str, run_id: str = "run-1", provenance: dict = None,
-                 roster: dict = None) -> Dict[str, dict]:
-    """Compile the plan's blocks into labels. With ``roster``, routing is derived afresh."""
+                 roster: dict = None, warnings: List[str] = None) -> Dict[str, dict]:
+    """Compile the plan's blocks into labels. With ``roster``, routing is derived afresh.
+
+    A block with ``allowed_paths`` and a bake-derived ``none`` (:func:`derived_none`) compiles
+    to ``per_task``; each such task appends a :data:`NONE_RECOMPUTE_WARNING` line to ``warnings``.
+    """
     blocks = extract_blocks(text)
     for _, compact in blocks:
         _validate_compact_block(compact)
@@ -477,6 +510,12 @@ def compile_plan(text: str, run_id: str = "run-1", provenance: dict = None,
             reason = worktree.get("worktree_reason")
         else:
             mode, reason = worktree, None
+        if derived_none(worktree) and label["context"]["allowed_paths"]:
+            mode = "per_task"
+            if label["labels"].get("phase") is None:
+                label["labels"]["phase"] = "implement"
+            if warnings is not None:
+                warnings.append(NONE_RECOMPUTE_WARNING % label.get("task_id"))
         label["context"]["worktree"] = {"mode": mode, "branch": None, "base": None,
                                           "worktree_reason": reason}
         if isinstance(worktree, dict) and worktree.get("stack") is True:

@@ -135,7 +135,7 @@ Run: `echo ok`
  "acceptance": [{"id":"A1","cmd":"test -f %s.py","expect":"exit0"},{"id":"A2","cmd":"echo ok","expect":"exit0"}],
  "allowed_paths": ["%s.py"],
  "depends_on": %s,
- "worktree": "none",
+ "worktree": {"mode": "none", "worktree_reason": "fake executor writes in the checkout"},
  "assignments": [{"kind":"executor","role":"backend","model_tier":"cheap","executor":"claude-headless","trigger":"ready"}]
 }
 ```
@@ -227,7 +227,7 @@ Run: `echo ok`
  "acceptance": %s,
  "allowed_paths": ["%s.py"],
  "depends_on": [],
- "worktree": "none",
+ "worktree": {"mode": "none", "worktree_reason": "fake executor writes in the checkout"},
  "assignments": [{"kind":"executor","role":"backend","model_tier":"cheap","executor":"claude-headless","trigger":"ready"}]
 }
 ```
