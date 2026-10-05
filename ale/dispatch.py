@@ -146,14 +146,19 @@ def held_for_integration(run_state: dict, labels: Dict[str, dict]) -> List[Tuple
     return held
 
 
-def due_assignments(run_state: dict, labels: Dict[str, dict], roster: dict) -> List[dict]:
+def due_assignments(run_state: dict, labels: Dict[str, dict], roster: dict,
+                    only: Optional[Set[str]] = None) -> List[dict]:
+    """The assignments due now, up to the roster's parallel cap with no two overlapping paths.
+    ``only`` limits the candidates to those tasks *before* the cap and the overlap check, so
+    unnamed due tasks neither use up the cap nor block a named one; holds and milestones still
+    see every label."""
     tasks = run_state.get("tasks", {})
     held = {task_id for task_id, _ in held_for_integration(run_state, labels)}
     spawned = _spawned(run_state)
     breaches = _breaches(run_state)
     candidates = []
     for task_id in sorted(labels):
-        if task_id in held:
+        if task_id in held or (only is not None and task_id not in only):
             continue
         label, state = labels[task_id], tasks.get(task_id, {})
         if state.get("state") in ("claimed", "working", "input-required") and not state.get("resumable"):

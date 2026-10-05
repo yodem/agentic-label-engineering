@@ -16,7 +16,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REASON = "the task needs the host checkout"
 
 
-def make_run(tmp_path, mode="per_task", extra_labels=(), paths=True, cap=None):
+def make_run(tmp_path, mode="per_task", extra_labels=(), paths=True, cap=None, label_paths=None, monitors=False,
+             executor="claude-headless"):
     repo = tmp_path / "repo"
     repo.mkdir()
     for cmd in (["git", "init", "-q"], ["git", "config", "user.email", "t@example.com"],
@@ -32,11 +33,15 @@ def make_run(tmp_path, mode="per_task", extra_labels=(), paths=True, cap=None):
             "schema_version": "1.0", "run_id": "run-1", "task_id": task_id, "title": "Task %s" % task_id,
             "labels": {"role": "backend", "model_tier": "standard", "lane": "inline", "risk": "low", "effort": "S"},
             "context": {"spec_path": "spec.md", "pointers": [],
-                        "allowed_paths": ["%s.txt" % task_id.lower()] if paths else [], "depends_on": []},
+                        "allowed_paths": (label_paths or {}).get(task_id, ["%s.txt" % task_id.lower()]) if paths else [],
+                        "depends_on": []},
             "acceptance": [{"id": "A1", "cmd": "true", "expect": "exit0"}],
             "assignments": [{"kind": "executor", "role": "backend", "model_tier": "standard",
-                             "executor": "claude-headless", "trigger": "ready"}],
+                             "executor": executor, "trigger": "ready"}],
         }
+        if monitors:
+            label["assignments"].append({"kind": "monitor", "role": "backend", "model_tier": "standard",
+                                         "executor": "claude-headless", "trigger": "ready"})
         if mode is not None:
             label["context"]["worktree"] = {"mode": mode, "branch": None, "base": None}
         (run / "labels" / ("%s.json" % task_id)).write_text(json.dumps(label))
@@ -128,7 +133,7 @@ def test_worktree_none_is_unaffected(tmp_path):
     assert claim(run, roster) == 0
 
 
-@pytest.mark.xfail(strict=True, reason="review item 2 (effective mode via dispatch.worktree_mode) breaks 46 fixture "
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason="review item 2 (effective mode via dispatch.worktree_mode) breaks 46 fixture "
                    "tests in files outside T1's allowed paths; flips to XPASS-failure once applied")
 def test_a_label_with_paths_and_no_worktree_block_is_per_task(tmp_path):
     """dispatch and verify read the effective mode: allowed_paths without context.worktree is per_task."""
@@ -325,6 +330,39 @@ def test_dispatch_task_is_not_starved_by_the_parallel_cap(tmp_path):
     repo, run, roster = make_run(tmp_path, extra_labels=("T2", "T3"), cap=1)
     spawn(run, roster, repo, "T3")
     assert spawned_tasks(run) == ["T3"]
+
+
+def test_dispatch_task_is_not_blocked_by_an_overlapping_unnamed_task(tmp_path):
+    repo, run, roster = make_run(tmp_path, extra_labels=("T2",), label_paths={"T2": ["t1.txt", "t2.txt"]})
+    spawn(run, roster, repo, "T2")
+    assert spawned_tasks(run) == ["T2"]
+    assert claim(run, roster, "a1", task="T2") == 0
+
+
+def test_dispatch_task_with_two_assignments_per_task_at_cap_one(tmp_path, capsys):
+    """The cap counts assignments (an executor and a monitor per task), as in a plain dispatch:
+    T4 is still reached when named alone, and a second named task is reported as skipped."""
+    repo, run, roster = make_run(tmp_path, extra_labels=("T2", "T3", "T4"), cap=1, monitors=True)
+    spawn(run, roster, repo, "T4")
+    assert "T4" in spawned_tasks(run) and "T1" not in spawned_tasks(run) and "T3" not in spawned_tasks(run)
+    capsys.readouterr()
+    assert ale(run, roster, "dispatch", "--spawn", "--cwd", str(repo), "--task", "T2", "--task", "T3") == 0
+    err = capsys.readouterr().err
+    assert "T3" in err and "parallel cap" in err
+    assert "T2" in spawned_tasks(run)
+
+
+def test_dispatch_task_does_not_reprint_other_tasks_unclaimed_requests(tmp_path, capsys):
+    repo, run, roster = make_run(tmp_path, extra_labels=("T2",), executor="claude-subagent")
+    assert ale(run, roster, "dispatch", "--spawn", "--cwd", str(repo)) == 0
+    assert spawned_tasks(run) == ["T1", "T2"]
+    capsys.readouterr()
+    assert ale(run, roster, "dispatch", "--spawn", "--cwd", str(repo), "--task", "T1") == 0
+    out = capsys.readouterr().out
+    assert '"task_id": "T1"' in out and '"task_id": "T2"' not in out
+    assert ale(run, roster, "dispatch", "--spawn", "--cwd", str(repo)) == 0
+    out = capsys.readouterr().out
+    assert '"task_id": "T1"' in out and '"task_id": "T2"' in out
 
 
 def test_dispatch_task_lists_only_the_named_task_in_json(tmp_path, capsys):

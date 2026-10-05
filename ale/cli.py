@@ -2271,17 +2271,22 @@ def _append_spawned(c: Ctx, due: dict, request: dict, plan: Optional[dict],
 
 
 def _due_for(dispatch_state: dict, c: Ctx, only: set) -> List[dict]:
-    """The due assignments, limited to ``only`` when given. The roster's parallel cap is lifted
-    for the selection and applied to the named tasks alone, so unnamed due tasks cannot use up
-    the slots of the ones asked for."""
+    """The due assignments, limited to the ``--task`` names when given. The roster's parallel
+    cap and the path-overlap check then apply to those tasks alone; a named task that was due
+    but cut by the cap is reported on stderr."""
     from .dispatch import due_assignments
     if not only:
         return due_assignments(dispatch_state, c.labels, c.roster)
+    due = due_assignments(dispatch_state, c.labels, c.roster, only=only)
     gate = dict(c.roster.get("cost_gate", {}))
-    cap = gate.get("max_parallel", gate.get("max_concurrent", 3))
-    gate.update(max_parallel=max(len(c.labels), cap))
-    wide = dict(c.roster, cost_gate=gate)
-    return [item for item in due_assignments(dispatch_state, c.labels, wide) if item["task_id"] in only][:cap]
+    gate["max_parallel"] = float("inf")   # only to find what the cap cut
+    everything = due_assignments(dispatch_state, c.labels, dict(c.roster, cost_gate=gate), only=only)
+    taken = {item["task_id"] for item in due}
+    skipped = sorted({item["task_id"] for item in everything} - taken)
+    if skipped:
+        print("not dispatched (parallel cap or overlapping paths): %s; run dispatch again"
+              % ", ".join(skipped), file=sys.stderr)
+    return due
 
 
 def cmd_dispatch(a) -> int:
@@ -2437,7 +2442,7 @@ def cmd_dispatch(a) -> int:
             print(json.dumps(request, sort_keys=True))
             printed.add(request["task_id"])
     if not a.no_exec:
-        for text in _unclaimed_in_session_requests(c, printed):
+        for text in _unclaimed_in_session_requests(c, printed, only):
             print(text)
     return OK
 
@@ -2473,13 +2478,13 @@ def _release_unprovisioned(c: Ctx, item: dict) -> None:
            reason=REMOTE_UNPROVISIONED)
 
 
-def _unclaimed_in_session_requests(c: Ctx, skip: set) -> List[str]:
+def _unclaimed_in_session_requests(c: Ctx, skip: set, only: Optional[set] = None) -> List[str]:
     """Saved requests of in-session spawns whose task was never claimed (the lead may have
     stopped before ``ale claim``); printing them again emits no event and makes no worktree."""
     state = c.state()["tasks"]
     out = []
     for task_id in sorted(c.labels):
-        if task_id in skip or state.get(task_id, {}).get("state") != "ready":
+        if task_id in skip or (only and task_id not in only) or state.get(task_id, {}).get("state") != "ready":
             continue
         latest = _latest_spawn(c, task_id)
         if not latest or latest.get("task_id") != task_id or latest.get("mode") != "in-session":
