@@ -18,7 +18,7 @@ REASON = "the task needs the host checkout"
 
 
 def make_run(tmp_path, mode="per_task", extra_labels=(), paths=True, cap=None, label_paths=None, monitors=False,
-             executor="claude-headless"):
+             executor="claude-headless", lane="inline", remote_host=None):
     repo = tmp_path / "repo"
     repo.mkdir()
     for cmd in (["git", "init", "-q"], ["git", "config", "user.email", "t@example.com"],
@@ -32,7 +32,7 @@ def make_run(tmp_path, mode="per_task", extra_labels=(), paths=True, cap=None, l
     for task_id in ("T1",) + tuple(extra_labels):
         label = {
             "schema_version": "1.0", "run_id": "run-1", "task_id": task_id, "title": "Task %s" % task_id,
-            "labels": {"role": "backend", "model_tier": "standard", "lane": "inline", "risk": "low", "effort": "S"},
+            "labels": {"role": "backend", "model_tier": "standard", "lane": lane, "risk": "low", "effort": "S"},
             "context": {"spec_path": "spec.md", "pointers": [],
                         "allowed_paths": (label_paths or {}).get(task_id, ["%s.txt" % task_id.lower()]) if paths else [],
                         "depends_on": []},
@@ -49,6 +49,8 @@ def make_run(tmp_path, mode="per_task", extra_labels=(), paths=True, cap=None, l
     roster = tmp_path / "roster.json"
     with open(os.path.join(ROOT, "examples", "roster.json"), encoding="utf-8") as handle:
         data = json.load(handle)
+    if remote_host:
+        data["remote_host"] = remote_host
     if cap is not None:
         data["cost_gate"]["max_concurrent"] = cap
         data["cost_gate"].pop("max_parallel", None)
@@ -407,6 +409,37 @@ def test_the_remedy_on_a_fresh_task_records_the_spawn_and_launches_nothing(tmp_p
     with open(spawn_guard["log"], encoding="utf-8") as handle:
         assert len(handle.read().splitlines()) == spawn_guard["before"]     # nothing was launched
     assert claim(run, roster) == 0
+
+
+# --- remote-routed tasks (review item 2) ----------------------------------------------------
+
+def test_a_remote_routed_task_is_refused_then_the_remedy_lets_it_claim(tmp_path, capsys):
+    repo, run, roster = make_run(tmp_path, lane="pane", remote_host="dev-server")
+    capsys.readouterr()
+    assert claim(run, roster, "lead-1") == 1
+    assert main(remedy(capsys.readouterr().err)) == 0
+    assert events(run, "released") == []                  # no unprovisioned-remote release: no loop
+    assert os.path.isdir(events(run, "spawned")[0]["worktree"])
+    assert claim(run, roster, "lead-1") == 0
+
+
+def test_an_unprovisioned_remote_spawn_does_not_strand_the_remedy(tmp_path, capsys):
+    repo, run, roster = make_run(tmp_path, lane="pane", remote_host="dev-server")
+    assert ale(run, roster, "dispatch", "--spawn", "--cwd", str(repo), "--task", "T1") == 0
+    assert [e["reason"] for e in events(run, "released")] == ["remote worktree not provisioned"]
+    capsys.readouterr()
+    assert claim(run, roster, "lead-1") == 1
+    assert main(remedy(capsys.readouterr().err)) == 0
+    assert claim(run, roster, "lead-1") == 0
+
+
+def test_a_remote_worktree_spawn_satisfies_the_gate(tmp_path, monkeypatch):
+    repo, run, roster = make_run(tmp_path, lane="pane", remote_host="dev-server")
+    monkeypatch.setenv("ALE_REMOTE_WORKTREE", "/srv/remote/wt/T1")
+    assert ale(run, roster, "dispatch", "--spawn", "--cwd", str(repo), "--task", "T1") == 0
+    spawned = events(run, "spawned")
+    assert spawned[0]["remote_worktree"] == "/srv/remote/wt/T1" and "worktree" not in spawned[0]
+    assert claim(run, roster, "remote-1") == 0
 
 
 # --- ale dispatch --task -------------------------------------------------------------------
