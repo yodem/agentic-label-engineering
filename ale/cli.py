@@ -16,7 +16,7 @@ import signal
 import tempfile
 import time
 import webbrowser
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from . import __version__
 from . import events as E
@@ -50,6 +50,11 @@ from .evalharness import jevrun as JEVRUN
 from .evalharness import report as REPORT
 from .board import BoardServer, build_snapshot
 from .runs import list_runs
+from . import runindex as RI
+from . import analyze as AN
+from . import evalledger as EL
+from . import evalcases as EC
+from . import records as REC
 
 
 _HERDR_RUNNER = subprocess.run
@@ -281,6 +286,12 @@ def _plan_run_id(path: str, supplied: Optional[str]) -> str:
 
 
 def _resolve_run_dir(a, plan_path: str = None) -> str:
+    """The run directory, always absolute: every path recorded under it (spawned worktrees,
+    requests, prompts) must still resolve when read from another working directory."""
+    return os.path.abspath(_run_dir_choice(a, plan_path))
+
+
+def _run_dir_choice(a, plan_path: str = None) -> str:
     explicit = getattr(a, "run_dir", None)
     if explicit:
         return explicit
@@ -578,6 +589,28 @@ def cmd_validate(a) -> int:
     return FAIL if errs else OK
 
 
+def _run_repo_root(run_dir: str) -> str:
+    """The repository a run dir belongs to: the git toplevel found walking up from the run dir
+    (never the process cwd: ``--run-dir`` may name another repository); outside git, the
+    ``<repo>`` of ``<repo>/.ale/runs/<id>``, else the run dir's parent."""
+    root = _git_root(run_dir)
+    if os.path.exists(os.path.join(root, ".git")):
+        return root
+    runs = os.path.dirname(os.path.abspath(run_dir))
+    if os.path.basename(runs) == "runs" and os.path.basename(os.path.dirname(runs)) == ".ale":
+        return os.path.dirname(os.path.dirname(runs))
+    return runs
+
+
+def _index_run(c: "Ctx", rhash: Optional[str]) -> None:
+    """Record the new run in the run index ($ALE_HOME/.ale/index/runs.jsonl). An index that
+    cannot be written never fails the run: ``ale analyze --backfill`` can add it later."""
+    try:
+        RI.append_run(c.run_dir, _run_repo_root(c.run_dir), c.run_id, __version__, rhash)
+    except OSError as exc:
+        print("ale: run index not updated: %s" % exc, file=sys.stderr)
+
+
 def cmd_init_run(a) -> int:
     c = Ctx(a)
     if not H.is_safe_id(c.run_id):
@@ -595,6 +628,7 @@ def cmd_init_run(a) -> int:
     rhash = R.roster_hash(c.roster)
     for tid, label in c.labels.items():
         c.emit("labeled", tid, None, 1, labels=label["labels"], roster_hash=rhash)
+    _index_run(c, rhash)
     judge = _shadow_judge(c.roster, c.run_dir)
     if judge is not None:
         _init_run_monitor_votes(c, judge)
@@ -1211,7 +1245,44 @@ def _changed_files(cwd: str, base: str) -> List[str]:
     return sorted(set(out))
 
 
-def _task_changed_paths(cwd: str, setup_outputs: List[str]) -> Optional[List[str]]:
+def _is_commit(cwd: str, ref: str) -> bool:
+    proc = subprocess.run(["git", "rev-parse", "--verify", "--quiet", ref + "^{commit}"], cwd=cwd,
+                          capture_output=True, text=True)
+    return proc.returncode == 0
+
+
+def _verify_base(cwd: str, spawn: dict, events: List[dict]) -> Optional[str]:
+    """The commit verify diffs a task worktree against.
+
+    ``git merge-base HEAD <base_ref>`` when ``base_ref`` resolves, so an executor that merged or
+    rebased onto the updated base is not blamed for upstream files; else the branch's recorded
+    ``diff_base`` (or a later restack's base); else None (diff against HEAD only). The merge-base
+    is used only when it is not older than the recorded base: a stacked task's base, or one from
+    a label's own ``worktree.base``, is not on ``base_ref``, and diffing from further back would
+    count the parent's files as the task's."""
+    recorded = _branch_base(events, spawn.get("branch"))
+    if recorded and not _is_commit(cwd, recorded):
+        recorded = None
+    base_ref = spawn.get("base_ref")
+    if base_ref:
+        merged = subprocess.run(["git", "merge-base", "HEAD", "refs/heads/" + base_ref], cwd=cwd,
+                                capture_output=True, text=True)
+        ref_base = merged.stdout.strip() if merged.returncode == 0 else ""
+        if ref_base and (recorded is None or subprocess.run(
+                ["git", "merge-base", "--is-ancestor", recorded, ref_base], cwd=cwd,
+                capture_output=True).returncode == 0):
+            return ref_base
+    return recorded
+
+
+def _task_changed_paths(cwd: str, setup_outputs: List[str],
+                        base: Optional[str] = None) -> Optional[Tuple[List[str], List[str]]]:
+    """``(pending, changed)`` task paths in ``cwd``, or None outside a git work tree with a HEAD.
+
+    ``pending`` differs from HEAD (uncommitted and untracked: what commit-at-accept commits).
+    ``changed`` adds the diff from ``base``, a commit the caller already resolved (the one the
+    task branch starts from), so committed work counts too, and so does an uncommitted change
+    that cancels a committed one; without ``base`` it equals ``pending``."""
     inside = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], cwd=cwd,
                             capture_output=True, text=True)
     if inside.returncode != 0 or inside.stdout.strip() != "true":
@@ -1220,13 +1291,18 @@ def _task_changed_paths(cwd: str, setup_outputs: List[str]) -> Optional[List[str
                           capture_output=True, text=True)
     if head.returncode != 0:
         return None
-    changed = _changed_files(cwd, "HEAD")
-    return [path for path in changed
-            if "__pycache__" not in path and not path.endswith(".pyc")
-            and path != ".ale-setup-done"
-            and not any(fnmatch.fnmatch(path, pattern)
-                        or path.startswith(pattern.rstrip("/") + "/")
-                        for pattern in setup_outputs)]
+    def task_paths(paths: List[str]) -> List[str]:
+        return [path for path in paths
+                if "__pycache__" not in path and not path.endswith(".pyc")
+                and path != ".ale-setup-done"
+                and not any(fnmatch.fnmatch(path, pattern)
+                            or path.startswith(pattern.rstrip("/") + "/")
+                            for pattern in setup_outputs)]
+
+    pending = task_paths(_changed_files(cwd, "HEAD"))
+    if not base:
+        return pending, pending
+    return pending, sorted(set(pending) | set(task_paths(_changed_files(cwd, base))))
 
 
 def _task_git_tree(cwd: str, paths: List[str]) -> str:
@@ -1300,7 +1376,8 @@ def cmd_verify(a) -> int:
     if st["state"] != "submitted":
         raise CliError(FAIL, "task %s is %s, not submitted" % (a.task, st["state"]))
     label, owner, attempt = c.labels[a.task], st["owner"], st["attempt"]
-    latest = _latest_spawn(c, a.task)
+    events = E.read_events(c.events_path)   # read once: the spawn and its base both come from it
+    latest = _latest_spawn(c, a.task, events)
     if a.reject is None and not a.cwd and latest and latest.get("remote_worktree") and not latest.get("worktree"):
         # Verifying here would run acceptance in the lead's checkout and accept with no evidence.
         raise CliError(FAIL, "remote task %s has no local worktree yet: fetch it back and run "
@@ -1331,6 +1408,8 @@ def cmd_verify(a) -> int:
                                 " (token mismatch)" if refs_mismatch else ""))
     reason = None
     task_changed = None
+    task_pending = None  # task paths changed against HEAD: what commit-at-accept commits
+    compared = "--base %s" % a.base if a.base else None  # what the file list was diffed against
     if a.base:
         changed = [path for path in _changed_files(cwd, a.base) if path != ".ale-setup-done"]
         evidence["files"] = changed
@@ -1339,10 +1418,14 @@ def cmd_verify(a) -> int:
         evidence["path_violations"] = bad[:20]
         if bad:
             reason = "path_violation: %s" % ", ".join(bad[:5])
-    spawn = _latest_spawn(c, a.task) or {}
+    spawn = latest or {}
     if spawn.get("worktree") and os.path.realpath(cwd) == os.path.realpath(spawn["worktree"]):
-        worktree_config = label.get("context", {}).get("worktree") or {}
-        task_changed = _task_changed_paths(cwd, worktree_config.get("setup_outputs", []))
+        spawn_base = _verify_base(cwd, spawn, events)
+        setup_outputs = (label.get("context", {}).get("worktree") or {}).get("setup_outputs", [])
+        paths = _task_changed_paths(cwd, setup_outputs, base=spawn_base)
+        if paths is not None:
+            task_pending, task_changed = paths
+            compared = compared or ("base %s" % spawn_base[:12] if spawn_base else "HEAD")
         if task_changed is not None and not a.base:
             evidence["files"] = task_changed
             bad = V.paths_within(task_changed, label["context"]["allowed_paths"],
@@ -1371,13 +1454,21 @@ def cmd_verify(a) -> int:
         evidence["signoff"] = a.signoff
     # Pin what was verified, so integrate can refuse later changes. Only the task's
     # own recorded worktree is pinned: that is the tree integrate commits from.
-    if task_changed is not None:
-        evidence["tree"] = _task_git_tree(cwd, task_changed)
+    if task_pending is not None:
+        # Paths already committed on the task branch are in HEAD; every task path still
+        # changed against HEAD (edits, additions, deletions) is staged.
+        evidence["tree"] = _task_git_tree(cwd, task_pending)
         # Commit at accept: the verified tree becomes the task branch tip, so a
         # dependent task can start from it and integrate only has to merge it.
         evidence["commit"] = _commit_task_paths(
-            cwd, task_changed, "ale: %s %s" % (a.task, label.get("title", a.task)))
+            cwd, task_pending, "ale: %s %s" % (a.task, label.get("title", a.task)))
         _fit(evidence)
+    from .dispatch import worktree_mode
+    if not evidence.get("files") and worktree_mode(label) != "none":
+        # An accept checked against no file list is a record the feedback loop cannot score.
+        c.emit("note", a.task, None, attempt, lead=True,
+               text=("verify: no changed files found against %s" % compared) if compared else
+                    "verify: no changed files recorded; verified outside the task worktree, so no diff ran")
     c.emit("accepted", a.task, None, attempt, evidence=evidence)
     _adjudicate_shadow_acceptance(c, a.task)
     c.render(a.task, owner)
@@ -1482,7 +1573,7 @@ def cmd_usage(a) -> int:
 
 
 def _hook_home() -> str:
-    return os.environ.get("ALE_HOME") or os.path.expanduser("~")
+    return REC.ale_home()
 
 
 def _hook_ctx(binding: dict) -> Ctx:
@@ -1682,6 +1773,8 @@ def cmd_hook(a) -> int:
                 c.emit("note", binding["task_id"], binding["agent_id"], state["attempt"], text="auto-stop-block: " + decision["reason"])
                 print(json.dumps({"decision": "block", "reason": decision["reason"]}))
             elif decision["action"] == "input_required":
+                if HK.input_pending(E.read_events(c.events_path), binding["task_id"], state["attempt"]):
+                    return OK  # already asked in this attempt: let the session stop, emit nothing
                 c.emit("input_required", binding["task_id"], binding["agent_id"], state["attempt"], question=decision["question"])
                 print(json.dumps({"decision": "block", "reason": decision["question"]}))
             elif decision["action"] == "submit":
@@ -1771,16 +1864,20 @@ def _dispatch_state(c: Ctx) -> dict:
     return state
 
 
-def _latest_spawn(c: Ctx, task_id: str) -> Optional[dict]:
+def _latest_spawn(c: Ctx, task_id: str, events: Optional[List[dict]] = None) -> Optional[dict]:
+    """The task's last ``spawned`` event (a fix task falls back to its parent's); ``events``
+    saves a re-read when the caller already holds the log."""
+    if events is None:
+        events = E.read_events(c.events_path)
     latest = None
-    for event in E.read_events(c.events_path):
+    for event in events:
         if event.get("type") == "spawned" and event.get("task_id") == task_id:
             latest = event
     if latest is None:
         label = c.labels.get(task_id, {})
         parent = label.get("fixes")
         if parent:
-            return _latest_spawn(c, parent)
+            return _latest_spawn(c, parent, events)
     return latest
 
 
@@ -1937,6 +2034,66 @@ def _resolve_plan_base(c: Ctx, label: dict, plan: dict) -> dict:
     return plan
 
 
+def _branch_exists(project_cwd: str, branch: str) -> bool:
+    return subprocess.run(["git", "show-ref", "--verify", "--quiet", "refs/heads/" + branch],
+                          cwd=project_cwd).returncode == 0
+
+
+def _checkout_branch(project_cwd: str) -> Optional[str]:
+    """The checkout's symbolic branch (``main``), or None when HEAD is detached."""
+    proc = subprocess.run(["git", "symbolic-ref", "--quiet", "--short", "HEAD"], cwd=project_cwd,
+                          capture_output=True, text=True)
+    return (proc.stdout.strip() or None) if proc.returncode == 0 else None
+
+
+def _branch_base(events: List[dict], branch: Optional[str]) -> Optional[str]:
+    """The commit ``branch`` now starts from, from the log: the last spawn on it that recorded
+    ``diff_base`` (``base_commit`` for spawns written before it existed), or a later restack of
+    a task working on it. A fix task shares its parent's branch, so it finds the parent's base."""
+    if not branch:
+        return None
+    base = None
+    branch_of = {}  # task id -> the branch its latest spawn works on
+    for event in events:
+        kind = event.get("type")
+        if kind == "spawned" and event.get("branch"):
+            branch_of[event.get("task_id")] = event["branch"]
+            if event["branch"] == branch and (event.get("diff_base") or event.get("base_commit")):
+                base = event.get("diff_base") or event.get("base_commit")
+        elif kind == "restacked" and event.get("new_base") and branch_of.get(event.get("task_id")) == branch:
+            base = event["new_base"]
+    return base
+
+
+def _record_diff_base(c: Ctx, plan: dict, project_cwd: str, branch_existed: bool) -> None:
+    """Set ``plan["diff_base"]``, the commit the worktree branch was created from: for a branch
+    created now, its merge-base with the plan base; for an existing branch (a fix task in its
+    parent's worktree, a re-dispatch), the base the log recorded for that branch."""
+    if branch_existed:
+        recorded = _branch_base(E.read_events(c.events_path), plan["branch"])
+        if recorded:
+            plan["diff_base"] = recorded
+            return
+    proc = subprocess.run(["git", "merge-base", plan.get("base") or "HEAD", "refs/heads/" + plan["branch"]],
+                          cwd=project_cwd, capture_output=True, text=True)
+    if proc.returncode == 0 and proc.stdout.strip():
+        plan["diff_base"] = proc.stdout.strip()
+
+
+def _warn_stale_base(c: Ctx, project_cwd: str) -> None:
+    """Warn once when the checkout's HEAD is behind its upstream: task worktrees branch from it.
+    Reads the last fetch only (no fetch here) and never fails the dispatch."""
+    proc = subprocess.run(["git", "rev-list", "--count", "HEAD..@{u}"], cwd=project_cwd,
+                          capture_output=True, text=True)
+    behind = proc.stdout.strip()
+    if proc.returncode != 0 or not behind.isdigit() or int(behind) <= 0:
+        return
+    message = ("ale dispatch: base HEAD is %s commit(s) behind its upstream; fetch and fast-forward first"
+               % int(behind))
+    print(message, file=sys.stderr)
+    c.emit("note", None, None, None, lead=True, text=message)
+
+
 def _create_worktree(plan: dict, project_cwd: str) -> None:
     base = plan.get("base") or "HEAD"
     path = os.path.abspath(plan["path"])
@@ -2019,7 +2176,8 @@ def _dispatch_request_json(request: dict) -> str:
     return json.dumps(printable, sort_keys=True)
 
 
-def _append_spawned(c: Ctx, due: dict, request: dict, plan: Optional[dict]) -> None:
+def _append_spawned(c: Ctx, due: dict, request: dict, plan: Optional[dict],
+                    base_ref: Optional[str] = None) -> None:
     extra = {"agent_id_minted": request["agent_id"], "assignment_kind": due["kind"],
              "executor": due["executor"], "model": due["model"],
              "trigger_instance": due["trigger_instance"]}
@@ -2027,10 +2185,15 @@ def _append_spawned(c: Ctx, due: dict, request: dict, plan: Optional[dict]) -> N
         extra["mode"] = "in-session"
     if request.get("remote_worktree"):
         extra.update({"host": due.get("host"), "remote_worktree": request["remote_worktree"]})
+    if base_ref:
+        extra["base_ref"] = base_ref
     if plan:
         extra.update({"worktree": plan["path"], "branch": plan["branch"]})
         if plan.get("stack_parent"):
+            # base_commit keeps its stack meaning only: ale.stack reads it as the stack base.
             extra.update({"stack_parent": plan["stack_parent"], "base_commit": plan["base_commit"]})
+        if plan.get("diff_base"):
+            extra["diff_base"] = plan["diff_base"]
     c.emit("spawned", due["task_id"], None, c.state()["tasks"][due["task_id"]]["attempt"],
            pane=request.get("executor_pane"), **extra)
 
@@ -2060,6 +2223,10 @@ def cmd_dispatch(a) -> int:
                       (task_id, dependency_id), file=sys.stderr)
             due = due_assignments(dispatch_state, c.labels, c.roster)
             remote_due = [item for item in due if (item.get("host") or "local") != "local"]
+            base_ref = None
+            if due and not (a.json or a.dry_run) and (a.spawn or a.no_exec):
+                _warn_stale_base(c, project_cwd)
+                base_ref = _checkout_branch(project_cwd)
             for index, item in enumerate(due, 1):
                 request = _make_dispatch_request(c, item, project_cwd, index)
                 requests.append(request)
@@ -2074,13 +2241,15 @@ def cmd_dispatch(a) -> int:
                         _resolve_plan_base(c, label, plan)
                         parent_spawn = _latest_spawn(c, item["task_id"])
                         reuses_parent = bool(label.get("fixes") and parent_spawn and parent_spawn.get("worktree"))
+                        branch_existed = _branch_exists(project_cwd, plan["branch"])
                         if not reuses_parent:
                             _create_worktree(plan, project_cwd)
+                        _record_diff_base(c, plan, project_cwd, branch_existed)
                         _run_worktree_setup(c, label, plan["path"], project_cwd)
                     _prefetch_refs(c, item, request)
                     # Record the spawn (and its worktree) so verify runs in the task worktree,
                     # and keep the request so an unclaimed task can be handed out again.
-                    _append_spawned(c, item, request, plan)
+                    _append_spawned(c, item, request, plan, base_ref)
                     H.write_atomic(_in_session_request_path(c, request["agent_id"]),
                                    json.dumps(request, sort_keys=True) + "\n")
                     continue
@@ -2104,14 +2273,16 @@ def cmd_dispatch(a) -> int:
                     _resolve_plan_base(c, label, plan)
                     parent_spawn = _latest_spawn(c, item["task_id"])
                     reuses_parent = bool(label.get("fixes") and parent_spawn and parent_spawn.get("worktree"))
+                    branch_existed = _branch_exists(project_cwd, plan["branch"])
                     if not reuses_parent:
                         _create_worktree(plan, project_cwd)
+                    _record_diff_base(c, plan, project_cwd, branch_existed)
                     _run_worktree_setup(c, label, plan["path"], project_cwd)
                 _prefetch_refs(c, item, request)
                 if a.no_exec:
-                    _append_spawned(c, item, request, plan)
+                    _append_spawned(c, item, request, plan, base_ref)
                     continue
-                _append_spawned(c, item, request, plan)
+                _append_spawned(c, item, request, plan, base_ref)
                 request_path = _write_spawn_request(c, request)
                 spawned_requests.append((item, request, request_path))
         finally:
@@ -2342,9 +2513,10 @@ def cmd_integrate(a) -> int:
         raise CliError(FAIL, "task %s worktree does not exist: %s" % (a.task, worktree))
     worktree_config = c.labels[a.task].get("context", {}).get("worktree") or {}
     setup_outputs = worktree_config.get("setup_outputs", [])
-    changed = _task_changed_paths(worktree, setup_outputs)
-    if changed is None:
+    paths = _task_changed_paths(worktree, setup_outputs)
+    if paths is None:
         raise CliError(FAIL, "cannot inspect task worktree")
+    changed = paths[0]
     allowed = c.labels[a.task].get("context", {}).get("allowed_paths", [])
     outside = V.paths_within(changed, allowed)
     if outside:
@@ -2378,7 +2550,9 @@ def cmd_integrate(a) -> int:
         if changed:
             _commit_task_paths(worktree, changed,
                                "ale: %s %s" % (a.task, c.labels[a.task].get("title", a.task)))
-    base_status = subprocess.run(["git", "status", "--porcelain"], cwd=checkout,
+    # Untracked files (provenance sidecars, .DS_Store) never block a merge of tracked work;
+    # git merge itself refuses if one would be overwritten.
+    base_status = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"], cwd=checkout,
                                  capture_output=True, text=True)
     if base_status.returncode != 0:
         raise CliError(FAIL, base_status.stderr.strip() or "git status failed")
@@ -2620,7 +2794,10 @@ def cmd_register_worktree(a) -> int:
     instance = _trigger_instance({"kind": "executor", "trigger": "ready"}, a.task, task_state, [])
     extra = {"agent_id_minted": agent_id, "assignment_kind": "executor", "executor": "external",
              "model": None, "trigger_instance": instance, "worktree": path, "branch": a.branch,
-             "base_commit": base_commit}
+             "base_commit": base_commit, "diff_base": base_commit}
+    base_ref = _checkout_branch(checkout)
+    if base_ref:
+        extra["base_ref"] = base_ref
     if a.host:
         extra["host"] = a.host
     c.emit("spawned", a.task, None, task_state["attempt"], pane=None, **extra)
@@ -2702,7 +2879,7 @@ def cmd_meta(a) -> int:
 
 
 def _binding_home(a) -> str:
-    return a.home or os.environ.get("ALE_HOME") or os.path.expanduser("~")
+    return a.home or REC.ale_home()
 
 
 def cmd_bind(a) -> int:
@@ -3157,6 +3334,131 @@ def cmd_judge_stats(a) -> int:
     return OK
 
 
+def _analyze_since(value: Optional[str], default_days: float) -> Optional[float]:
+    if value is None:
+        return float(default_days) * 86400.0
+    if value == "all":
+        return None
+    match = re.fullmatch(r"([0-9]+)d", value)
+    if not match:
+        raise CliError(USAGE, "--since takes <N>d or all, got %r" % value)
+    return int(match.group(1)) * 86400.0
+
+
+def _read_json_file(path: str, default):
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        return default
+    return data if isinstance(data, type(default)) else default
+
+
+def _dated_reports(reports_dir: str) -> List[str]:
+    try:
+        names = os.listdir(reports_dir)
+    except OSError:
+        return []
+    return sorted(name[:-5] for name in names if re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}\.json", name))
+
+
+def _day_number(day: str) -> int:
+    import datetime
+    return datetime.date(*map(int, day.split("-"))).toordinal()
+
+
+def cmd_analyze(a) -> int:
+    """Score every indexed run against the committed thresholds; exit 1 on a breached check or
+    a regressed active offline case."""
+    home = REC.ale_home()
+    index = a.index or RI.index_path(home)
+    raw_now = os.environ.get("ALE_NOW")
+    try:
+        now = float(raw_now) if raw_now not in (None, "") else time.time()
+    except ValueError:
+        raise CliError(USAGE, "ALE_NOW must be a number, got %r" % (raw_now,))
+    try:
+        thresholds = AN.load_thresholds(a.thresholds)
+    except (OSError, ValueError) as exc:
+        raise CliError(USAGE, "cannot read thresholds: %s" % exc)
+    since_s = _analyze_since(a.since, thresholds.get("window_days", 7))
+    reports_dir = os.path.join(home, ".ale", "reports")
+    today = REC.iso(now)[:10]
+    dated = _dated_reports(reports_dir)
+    if a.if_due and dated:
+        age = _day_number(today) - _day_number(dated[-1])
+        if age < int(thresholds.get("due_after_days", 7)):
+            print("ale analyze: not due (last report %s)" % dated[-1])
+            return OK
+    for root in a.backfill or []:
+        try:
+            RI.backfill([root], index=index)
+        except OSError as exc:
+            print("ale analyze: run index not updated from %s: %s" % (root, exc), file=sys.stderr)
+    runs = []
+    for entry in RI.read_index(index=index):
+        run = AN.load_run(entry)
+        if run is None:
+            print("ale analyze: skipped %s (missing)" % entry.get("run_dir"), file=sys.stderr)
+        runs.append(run)
+    report = AN.evaluate(runs, thresholds, now, since_s)
+    windows = int(thresholds.get("saturation_windows", 4))
+    history = []
+    for day in [d for d in dated if d != today][-windows:]:
+        past = _read_json_file(os.path.join(reports_dir, day + ".json"), {})
+        history.append({"date": day, "checks": {k: (v or {}).get("rate")
+                                                for k, v in (past.get("checks") or {}).items()}})
+    report["history"] = history
+    report["offline_regressions"] = EC.regressions(EL.read_rows(home), _active_case_ids())
+    fixes = REC.read_jsonl(os.path.join(home, ".ale", "fixes.jsonl"))
+    report["fixes"] = AN.fix_statuses(report, fixes)
+    report["findings"] = AN.findings(report, _read_json_file(os.path.join(reports_dir, "findings.json"), {}),
+                                     report["fixes"])
+    text = AN.render_markdown(report)
+    if not a.no_write:
+        try:
+            os.makedirs(reports_dir, exist_ok=True)
+            H.write_atomic(os.path.join(reports_dir, today + ".md"), text)
+            H.write_atomic(os.path.join(reports_dir, today + ".json"), json.dumps(report, indent=2, sort_keys=True))
+            H.write_atomic(os.path.join(reports_dir, "findings.json"),
+                           json.dumps(report["findings"], indent=2, sort_keys=True))
+            H.write_atomic(os.path.join(reports_dir, "promotions.json"),
+                           json.dumps(report["promotions"], indent=2, sort_keys=True))
+        except OSError as exc:
+            print("ale analyze: report not written: %s" % exc, file=sys.stderr)
+        analyze_id = "analyze-" + report["generated"]
+        _append_ledger_rows([EL.make_row(analyze_id, case.get("tool_version"), case.get("config_hash"),
+                                         case["case_id"], case["case_kind"], case["case_category"],
+                                         case["evaluator"], case["score"], case["passed"], case["reason"],
+                                         dict(case.get("metadata") or {}, scored_run_id=case.get("run_id")))
+                             for case in report["case_results"]], home)
+    if a.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        sys.stdout.write(text)
+    breached = any(check["breached"] for check in report["checks"].values())
+    return FAIL if breached or report["offline_regressions"] else OK
+
+
+def _append_ledger_rows(rows: List[dict], home: str) -> None:
+    """Append the analyze rows that change a case's latest score or verdict; a ledger that
+    cannot be written warns and never changes the exit code."""
+    try:
+        EL.append_changed_rows(rows, home)
+    except OSError as exc:
+        print("ale analyze: eval ledger not updated: %s" % exc, file=sys.stderr)
+
+
+def _active_case_ids() -> List[str]:
+    """Ids of the active cases in the default cases file: only these can regress, so a retired
+    case never gates ``ale analyze`` or lingers in its report."""
+    try:
+        return [case["id"] for case in EC.load_cases(EC.default_cases_path()) if EC.is_active(case)]
+    except EC.CaseError as exc:
+        print("ale analyze: offline cases not read: %s" % exc, file=sys.stderr)
+        return []
+
+
 def _nearest_existing_parent(path: str) -> str:
     cur = os.path.realpath(os.path.abspath(path))
     while not os.path.exists(cur):
@@ -3223,6 +3525,49 @@ def _write_jsonl(path: str, rows: List[dict]) -> None:
     with open(path, "w", encoding="utf-8") as f:
         for row in rows:
             f.write(json.dumps(row, sort_keys=True) + "\n")
+
+
+def cmd_eval_cases(a) -> int:
+    """Run the active offline cases; ``--ci`` exits 1 on a failed case or an offline regression."""
+    from . import __version__
+    path = a.cases or EC.default_cases_path()
+    try:
+        cases = EC.load_cases(path)
+    except EC.CaseError as exc:
+        raise CliError(USAGE, str(exc))
+    active = [case for case in cases if EC.is_active(case)]
+    if not active:
+        print("ale eval cases: no active cases in %s; nothing was checked" % path, file=sys.stderr)
+        return FAIL if a.ci else OK
+    run_id = "cases-" + REC.iso()
+    digest = EC.config_hash()
+    rows = []
+    failed = 0
+    for case in active:
+        result = EC.run_case(case)
+        failed += 0 if result["passed"] else 1
+        print("%s %s: %s" % ("PASS" if result["passed"] else "FAIL", case["id"], result["reason"]))
+        rows.append(EL.make_row(run_id, __version__, digest, case["id"], "offline", case.get("category"),
+                                "ale.case.%s" % case["kind"], result["score"], result["passed"],
+                                result["reason"], {"source_run": case.get("source_run"),
+                                                   "difficulty": case.get("difficulty"),
+                                                   "cases_path": os.path.abspath(path)}))
+    recorded = False
+    if not a.no_record:
+        try:
+            EL.append_rows(rows)
+            recorded = True
+        except OSError as exc:
+            print("ale eval cases: eval ledger not updated: %s" % exc, file=sys.stderr)
+    # An unrecorded pass (--no-record, or a ledger that cannot be written) still counts as the latest.
+    history = EL.read_rows() + ([] if recorded else rows)
+    regressed = EC.regressions(history, [case["id"] for case in active])
+    for row in regressed:
+        print("REGRESSED %s: score %.2f < best %.2f" % (row["case_id"], float(row["score"]), row["best_before"]))
+    print("eval cases: %d passed, %d failed, %d regressed, %d inactive (%s, config %s)%s" % (
+        len(active) - failed, failed, len(regressed), len(cases) - len(active), path, digest,
+        "" if recorded else ", not recorded"))
+    return FAIL if a.ci and (failed or regressed) else OK
 
 
 def cmd_eval_corpus(a) -> int:
@@ -3761,6 +4106,7 @@ def cmd_init_run_plan(a) -> int:
     rhash = R.roster_hash(c.roster)
     for task_id, label in c.labels.items():
         c.emit("labeled", task_id, None, 1, labels=label["labels"], roster_hash=rhash)
+    _index_run(c, rhash)
     if _judge_mode(c.roster) == "shadow":
         _import_bake_votes(c, a.plan)
         judge = _shadow_judge(c.roster, c.run_dir)
@@ -3969,8 +4315,23 @@ def _parser() -> argparse.ArgumentParser:
     ub.add_argument("--session", required=True)
     ub.add_argument("--subagent")
     ub.add_argument("--home")
+    an = sub.add_parser("analyze", help="score every indexed run against the committed thresholds")
+    an.set_defaults(fn=cmd_analyze)
+    an.add_argument("--since", help="7d, 30d, <N>d or all (default: the thresholds window)")
+    an.add_argument("--index", help="run index path (default: $ALE_HOME/.ale/index/runs.jsonl)")
+    an.add_argument("--backfill", action="append", metavar="DIR", help="index existing run dirs under DIR first")
+    an.add_argument("--json", action="store_true")
+    an.add_argument("--if-due", action="store_true", help="run only when the newest report is old enough")
+    an.add_argument("--no-write", action="store_true", help="print the report; writes no report, findings or ledger rows; "
+                    "--backfill still updates the index")
+    an.add_argument("--thresholds", help="thresholds file (default: ale/schema/analyze_thresholds.json)")
     ev = sub.add_parser("eval")
     evsub = ev.add_subparsers(dest="eval_cmd")
+    ecs = evsub.add_parser("cases", help="run the offline regression cases (evalcases/cases.jsonl)")
+    ecs.set_defaults(fn=cmd_eval_cases)
+    ecs.add_argument("--cases", help="cases file (default: <plugin root>/evalcases/cases.jsonl)")
+    ecs.add_argument("--ci", action="store_true", help="exit 1 on a failed active case or an offline regression")
+    ecs.add_argument("--no-record", action="store_true", help="append no rows to the eval ledger")
     ec = evsub.add_parser("corpus")
     ec.set_defaults(fn=cmd_eval_corpus)
     ec.add_argument("--ledger", required=True)

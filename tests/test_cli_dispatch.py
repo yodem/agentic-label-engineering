@@ -306,6 +306,11 @@ def test_integrate_refuses_unaccepted_task(tmp_path):
 @pytest.mark.parametrize("count,expected_more", [(2, None), (7, "(and 2 more)")])
 def test_integrate_reports_dirty_checkout_paths(tmp_path, monkeypatch, capsys, count, expected_more):
     repo = _git_repo(tmp_path)
+    # Only tracked changes block integrate; untracked files are ignored.
+    for index in range(count):
+        (repo / ("dirty-%d.txt" % index)).write_text("clean\n")
+    subprocess.run(["git", "add", "."], cwd=str(repo), check=True)
+    subprocess.run(["git", "commit", "-m", "tracked"], cwd=str(repo), check=True, capture_output=True)
     roster = _roster(tmp_path)
     run = _run(tmp_path, {"T1": _label(mode="per_task")})
     monkeypatch.setenv("ALE_SPAWN_DRY", "1")

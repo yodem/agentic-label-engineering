@@ -229,6 +229,15 @@ JSON contract works. See [docs/judge.md](docs/judge.md).
 
 0 ok, 1 check failed, 2 usage, 3 claim lost, 4 lease lost, 5 needs sign-off, 6 breaches found.
 
+## Eval loop
+
+ALE scores its own runs. `ale init-run` indexes each run under `~/.ale/` (or `$ALE_HOME/.ale/`).
+`ale analyze` grades every indexed run against bars committed in
+`ale/schema/analyze_thresholds.json`, writes a dated report and `findings.json`, and exits 1 on a
+breached check. `ale eval cases --ci` replays `evalcases/cases.jsonl`, a regression suite where
+each case is a real run failure, and exits 1 on a failed or regressed case. Both append to one
+eval ledger. See [docs/analyze.md](docs/analyze.md).
+
 ## Watchdog
 
 `ale watchdog` scans open tasks for breaches: a stale lease (no heartbeat within
@@ -265,7 +274,7 @@ anywhere, so `ale verify --base` remains the containment backstop.
   malicious local process that forges events.
 - Changed paths are normalised before containment is checked; absolute paths and paths that escape
   the project are always violations.
-- `ale integrate` needs a clean checkout. Keep `.ale/` and virtualenvs in `.gitignore`.
+- `ale integrate` needs no uncommitted changes to tracked files (untracked files are ignored). Keep `.ale/` and virtualenvs in `.gitignore`.
 - `cost_gate.max_concurrent` is part of the roster schema but is not enforced yet.
 
 ## Documentation
@@ -274,6 +283,7 @@ anywhere, so `ale verify --base` remains the containment backstop.
 | --- | --- |
 | [Explainer page](https://yodem.github.io/agentic-label-engineering/) | A visual walkthrough of the whole idea |
 | [docs/label-layer.md](docs/label-layer.md) | Plan format, label fields, worktrees, fix tasks, the run loop |
+| [docs/analyze.md](docs/analyze.md) | The eval loop: `ale analyze`, `ale eval cases`, the ledger, fix records |
 | [docs/agents.md](docs/agents.md) | Agent taxonomy, catalog lookup, rule enforcement |
 | [docs/hooks.md](docs/hooks.md) | What the hooks enforce, per harness |
 | [docs/labeling.md](docs/labeling.md) | The label cascade and judge shadow decisions |

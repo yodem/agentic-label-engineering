@@ -1,0 +1,11 @@
+{
+ "window_days": 7, "min_n": 3, "stale_after_hours": 72, "due_after_days": 7, "saturation_windows": 4,
+ "exclude_run_ids": "^(superseded-init-[0-9]+|roundtrip|jev-bakeoff)$",
+ "checks": {
+  "ale.task.first_pass": 0.70, "ale.task.path_scope_checked": 0.90, "ale.task.write_has_worktree": 0.90,
+  "ale.task.dispatch_worktree": 0.75, "ale.task.resolved": 0.90, "ale.task.input_required_bounded": 0.95,
+  "ale.task.usage_recorded": 0.50, "ale.task.acceptance_held": 0.85,
+  "ale.run.absolute_paths": 1.00, "ale.run.no_stale_open": 0.90
+ },
+ "calibration": {"bucket_min_n": 5, "group_min_n": 3, "outlier_ratio": 2.0}
+}

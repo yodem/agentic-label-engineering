@@ -5,6 +5,7 @@ graft hooks
 graft skills
 graft .claude-plugin
 graft mod
+graft evalcases
 prune mod/node_modules
 include EXECUTOR.md
 include setup.py

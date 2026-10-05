@@ -88,9 +88,9 @@ def decide_heartbeat(task_state: dict, now: float, throttle_s: float, tool_name:
     return {"step": ("auto: %s %s" % (tool_name, target))[:200], "files": paths}
 
 
-# A deep-reference read the hook can see: a ``ck items get`` command (alone or after
+# A deep-reference read the hook can see: a ``ck items get`` or ``trove items get`` command (alone or after
 # ``&&``/``;``), or a Read of the task's prefetched refs file.
-_CK_GET = re.compile(r"(?:^|&&|;|\|\||\n)[ \t]*ck\s+items\s+get\b")
+_CK_GET = re.compile(r"(?:^|&&|;|\|\||\n)[ \t]*(?:ck|trove)\s+items\s+get\b")
 _QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
 _SHELL_TOOLS = ("Bash", "exec_command")
 _READ_TOOLS = ("Read", "read_file")
@@ -138,6 +138,23 @@ def decide_stop(label: dict, task_state: dict, acceptance_result: dict,
     if blocks_so_far < max_blocks:
         return {"action": "block", "reason": reason or "acceptance failed"}
     return {"action": "input_required", "question": "Acceptance is still failing: %s" % (reason or "unknown failure")}
+
+
+def input_pending(events: List[dict], task_id: str, attempt) -> bool:
+    """True when ``task_id`` already asked for input in ``attempt`` and no answer came after it.
+
+    The stop hook asks at most once per attempt; a repeated ask only floods the event log."""
+    pending = False
+    for event in events:
+        if event.get("task_id") != task_id:
+            continue
+        if event.get("type") == "input_required" and event.get("attempt") == attempt:
+            pending = True
+        elif event.get("type") == "input_answered" and event.get("agent_id") is None:
+            # Only a lead answer counts, the reducer's authority rule: an executor cannot
+            # answer its own ask and so re-open the flood.
+            pending = False
+    return pending
 
 
 def session_context(label: dict, handoff_text: str, decisions_text: str) -> str:
