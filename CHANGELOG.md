@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.1 (2026-10-05)
+
+- `ale claim` refuses (exit 1) a task whose `worktree.mode` is not `none` when ALE never spawned it (no `spawned` event from a dispatch or `register-worktree`, or the last one was released), and prints the exact `ALE_SPAWN_BIN=/usr/bin/true ale dispatch --run-dir <run> --cwd <repo> --spawn` command, so work no longer starts outside ALE's worktree (17 task instances in the 2026-10-05 review did). `ale claim --no-worktree --reason "<why>"` (reason of 10+ characters, else exit 2; `--reason` alone is exit 2 too) lets the claim through and writes a `note` `deviation worktree-outside-ale: <why>`. A lost claim still exits 3, and `worktree: none` tasks and claims after a spawn are unaffected.
+- `ale eval cases` has a `claim` kind (a fixture run plus a `claim` invocation, expected `{allowed, exit}`) and the seed case `claim-without-spawn-refused` (13 cases).
+
 ## 0.4.0 (2026-10-04)
 
 - `ale analyze` scores every run in the new run index (`ale init-run` writes `~/.ale/index/runs.jsonl`; `--backfill DIR` adds older runs) against bars committed in `ale/schema/analyze_thresholds.json`, writes a dated markdown and JSON report, `findings.json` and `promotions.json`, appends online rows to `~/.ale/eval-ledger.jsonl`, reports fix records from `~/.ale/fixes.jsonl`, and exits 1 on a breached check or a regressed active offline case. See `docs/analyze.md`.

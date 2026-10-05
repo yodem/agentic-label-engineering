@@ -12,18 +12,22 @@ match and ``passed`` is ``score == 1.0``. No model is called anywhere in this mo
 """
 from __future__ import annotations
 
+import contextlib
 import copy
 import hashlib
+import io
 import json
 import os
 import shlex
+import shutil
+import tempfile
 from typing import Callable, Dict, List, Optional, Tuple
 
 from . import __version__
 from . import analyze as AN
 from .paths import plugin_root
 
-KINDS = ("parse", "bake", "route", "refs", "analyze")
+KINDS = ("parse", "bake", "route", "refs", "analyze", "claim")
 REQUIRED = ("id", "kind", "input", "expected")
 
 
@@ -218,8 +222,41 @@ def _analyze(case: dict) -> dict:
     return _compare(pairs, {"checks": verdicts})
 
 
+def _claim(case: dict) -> dict:
+    """Run ``ale claim`` against a temporary copy of the fixture run (``labels/``,
+    ``events.jsonl`` and a ``roster.json`` in the case dir) and report ``{allowed, exit}``.
+    ``input`` is ``{"dir", "task", "agent", "args"}``; ``args`` are extra ``claim`` flags."""
+    from .cli import main
+    directory = _input_dir(case)
+    value = case.get("input")
+    if directory is None or not isinstance(value.get("task"), str) or not isinstance(value.get("agent"), str):
+        raise CaseError("claim input needs {\"dir\", \"task\", \"agent\"}")
+    run = AN.load_run({"run_dir": os.path.abspath(directory), "run_id": case["id"]})
+    if run is None:
+        raise CaseError("no run (labels/ and events.jsonl) under %s" % directory)
+    now = float(value.get("now", max((event["ts"] for event in run["events"]), default=0.0) + 60.0))
+    saved = os.environ.get("ALE_HERDR")
+    os.environ["ALE_HERDR"] = "0"   # a case never publishes to a herdr pane
+    try:
+        with tempfile.TemporaryDirectory(prefix="ale-case-") as scratch:
+            copy_dir = os.path.join(scratch, "run")
+            shutil.copytree(directory, copy_dir)
+            argv = ["claim", "--task", value["task"], "--agent", value["agent"]] + list(value.get("args") or []) + [
+                "--run-dir", copy_dir, "--roster", os.path.join(copy_dir, "roster.json"), "--now", repr(now)]
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                code = main(argv)
+    finally:
+        if saved is None:
+            os.environ.pop("ALE_HERDR", None)
+        else:
+            os.environ["ALE_HERDR"] = saved
+    actual = {"allowed": code == 0, "exit": code}
+    pairs = [(name, want, actual.get(name)) for name, want in sorted(case["expected"].items())]
+    return _compare(pairs, actual)
+
+
 EVALUATORS: Dict[str, Callable[[dict], dict]] = {
-    "parse": _parse, "bake": _bake, "route": _route, "refs": _refs, "analyze": _analyze,
+    "parse": _parse, "bake": _bake, "route": _route, "refs": _refs, "analyze": _analyze, "claim": _claim,
 }
 
 

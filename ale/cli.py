@@ -1135,7 +1135,40 @@ def cmd_ready(a) -> int:
     return OK
 
 
+NO_WORKTREE_REASON_MIN = 10
+
+
+def _claim_deviation(a) -> Optional[str]:
+    """The validated ``--no-worktree --reason`` text, or None when neither flag is given."""
+    reason = (a.reason or "").strip()
+    if a.reason is not None and not a.no_worktree:
+        raise CliError(USAGE, "--reason only goes with --no-worktree")
+    if not a.no_worktree:
+        return None
+    if len(reason) < NO_WORKTREE_REASON_MIN:
+        raise CliError(USAGE, '--no-worktree needs --reason "<why>" of at least %d characters'
+                       % NO_WORKTREE_REASON_MIN)
+    return reason
+
+
+def _has_live_spawn(events_path: str, task_id: str) -> bool:
+    """True when ALE spawned the task (dispatch or register-worktree) and has not released
+    that spawn since. Not per attempt: a rejected task is reclaimed in the worktree of its
+    first spawn (its ready spawn key is spent), while a release re-dispatches under a new
+    spawn key, so only a release ends the spawn."""
+    live = False
+    for event in E.read_events(events_path):
+        if event.get("task_id") != task_id:
+            continue
+        if event.get("type") == "spawned":
+            live = True
+        elif event.get("type") == "released" and event.get("agent_id") is None:
+            live = False
+    return live
+
+
 def cmd_claim(a) -> int:
+    deviation = _claim_deviation(a)
     c = Ctx(a)
     if a.task not in c.labels:
         raise CliError(FAIL, "unknown task %s" % a.task)
@@ -1144,12 +1177,24 @@ def cmd_claim(a) -> int:
     if not state["tasks"][a.task]["claimable"] or state["tasks"][a.task]["attempt"] > cap:
         print("claim lost: %s" % a.task, file=sys.stderr)
         return CLAIM_LOST
+    mode = ((c.labels[a.task].get("context") or {}).get("worktree") or {}).get("mode") or "none"
+    needs_override = mode != "none" and not _has_live_spawn(c.events_path, a.task)
+    if needs_override and deviation is None:
+        raise CliError(FAIL, (
+            "task %s has worktree mode %s but ALE has not spawned it, so its work would happen outside "
+            "ALE's worktree. Run: ALE_SPAWN_BIN=/usr/bin/true ale dispatch --run-dir %s --cwd %s --spawn "
+            "(then claim again). To work elsewhere on purpose, claim with --no-worktree --reason \"<why>\" "
+            "(the deviation is recorded as a note)."
+            % (a.task, mode, os.path.abspath(c.run_dir), _run_repo_root(c.run_dir))))
     executor_id = os.environ.get("ALE_AGENT_ID") or os.environ.get("ALE_AGENT")
     c.emit("claimed", a.task, a.agent, state["tasks"][a.task]["attempt"], pane=a.pane,
            bind_claim_pane=bool(a.pane) or bool(executor_id and a.agent == executor_id))
     if c.state()["tasks"][a.task]["owner"] != a.agent:
         print("claim lost: %s" % a.task, file=sys.stderr)
         return CLAIM_LOST
+    if needs_override:
+        c.emit("note", a.task, a.agent, state["tasks"][a.task]["attempt"],
+               text=("deviation worktree-outside-ale: %s" % deviation)[:TEXT_MAX])
     c.render(a.task, a.agent)
     return OK
 
@@ -4216,7 +4261,11 @@ def _parser() -> argparse.ArgumentParser:
     meta.add_argument("--json", action="store_true")
     meta.add_argument("--csv", action="store_true")
     add("ready", cmd_ready)
-    add("claim", cmd_claim, task=True, agent=True).add_argument("--pane")
+    cl = add("claim", cmd_claim, task=True, agent=True)
+    cl.add_argument("--pane")
+    cl.add_argument("--no-worktree", action="store_true",
+                    help="claim a worktree task that ALE did not spawn (needs --reason)")
+    cl.add_argument("--reason", help="why the work stays outside ALE's worktree (10+ characters)")
     hb = add("heartbeat", cmd_heartbeat, task=True, agent=True)
     hb.add_argument("--step", required=True)
     hb.add_argument("--files")
