@@ -686,6 +686,84 @@ Evidence: `codex exec --help` (live, quoted above and in item 14), `https://deve
 
 ---
 
+## Item 16  -  Claude Code: bounded permissions for headless executors (`acceptEdits` + `--allowedTools`)
+
+**Why.** `claude -p` can't show a permission prompt, so a headless executor running in its task
+worktree was refused every file write and stopped (both 2026-10-05 Sefaria runs).
+
+**What `bin/ale-spawn` adds** to a headless `claude` executor (not a monitor running with
+`ALE_READ_ONLY=1`), right after argv[0] and `--plugin-dir`:
+
+    claude --plugin-dir <root> --allowedTools <rules> --permission-mode acceptEdits [--disallowedTools <deny>] --model M -p PROMPT
+
+- `<rules>` is **one** comma-joined value:
+  - `Bash(git add:*)`, `Bash(git commit:*)`, `Bash(git status:*)`, `Bash(git diff:*)`,
+    `Bash(git log:*)`.
+  - The ALE protocol subcommands only: `claim`, `heartbeat`, `status`, `submit`, `usage`,
+    `note`, `input-required` and `refs-ack`. Each one gets a rule
+    `Bash(<prefix> <subcommand>:*)` under four prefixes: `python3 -m ale` (EXECUTOR.md),
+    `<ALE_PYTHON> -m ale`, the absolute path of `bin/ale-py`, and the literal `$ALE_BIN` (the
+    prompt tells the executor to type `$ALE_BIN …`). Lead-side commands (`rescope`, `verify`,
+    `accept`, `integrate`, `relabel`, …) are not granted.
+  - Each acceptance command from `$ALE_RUN_DIR/labels/<task>.json`, verbatim as
+    `Bash(<cmd>)`.
+- A command (or prefix) containing `,`, `(`, `)` or a newline can't be written as a single
+  rule. ALE skips it and prints `ale-spawn: skipped allowedTools entry …` on stderr.
+- **Never** `bypassPermissions` or `--dangerously-skip-permissions`. `ale-spawn` exits 2 on any
+  roster `permission_mode` other than `acceptEdits` or null, and loading such a roster fails
+  (`harness.check`, called by `ale/roster.py`).
+- **Opt-out:** roster `harnesses.claude.permission_mode: null` restores the previous argv.
+  The default is `acceptEdits`.
+- **The variadic flag can't swallow the prompt.** `command claude --help` (2.1.289) shows
+  `--allowedTools, --allowed-tools <tools...>` ("Comma or space-separated list of tool names to
+  allow"), so it is variadic. ALE always places it directly before `--permission-mode`, so an
+  option token always ends it, whatever the roster's headless template puts next.
+  `--permission-mode <mode>` takes one value, with choices `acceptEdits`, `auto`,
+  `bypassPermissions`, `manual`, `dontAsk` and `plan`.
+
+**What bounds it.**
+- `acceptEdits` auto-approves file edits only "for paths in the working directory or
+  `additionalDirectories`" (permissions docs, Permission modes). Here the working directory is
+  the task worktree. A write elsewhere would need a prompt, and `-p` can't show one, so it is
+  refused.
+- ALE's PreToolUse hook (`ale/hooks.py` `target_paths`) still denies an edit-tool write inside
+  the worktree but outside the label's `allowed_paths`, with the reason
+  `edit path outside allowed_paths`.
+- Any Bash command that matches no rule (and isn't one of Claude Code's built-in read-only
+  commands) needs a prompt and is refused under `-p`.
+- The working directory is the worktree, so reads and writes outside it are refused under
+  `-p`. Reads need no approval only "within the working directory and additional directories".
+  This covers EXECUTOR.md step 1's `$ALE_RUN_DIR/labels/<task>.json` and `decisions.md`, the
+  prefetched `$ALE_RUN_DIR/refs/<task>.md`, and spec pointers in the main checkout. `ck items
+  get` and `trove items get` are not on the list either. ALE passes no `--add-dir`, because
+  that would also let `acceptEdits` edit labels and events. This gap is open: a full protocol
+  run may stall here.
+- Rules match each subcommand of `&&`, `;` or `|` independently (docs, Compound commands). An
+  acceptance command written as a compound therefore doesn't match its single exact rule.
+  Keep acceptance commands simple.
+
+**What is not guarded.**
+- An allowed acceptance command (a test runner, `make`, a script) runs arbitrary code. It can
+  write anywhere the user's process can.
+- `ale hook` checks only edit tools and the `cat > path <<` Bash form. `acceptEdits` also
+  auto-approves "common filesystem commands such as `mkdir`, `touch`, `mv`, and `cp`" inside
+  the worktree. Those writes can land outside `allowed_paths`, with no hook denial.
+- `git commit` can commit anything inside the worktree.
+- This is a prompt-free grant bounded by cwd plus a hook. It is not a filesystem sandbox.
+
+**Not verified here.**
+- No live `claude -p` run was made for this item; the lead's AC3 demo covers that.
+- Whether Claude Code matches `Bash($ALE_BIN:*)` against the literal text `$ALE_BIN status`, or
+  refuses a command that begins with a variable expansion, is not established. The
+  `bin/ale-py` path rule covers the expanded form.
+
+Source: `command claude --help` (2.1.289, this install);
+https://code.claude.com/docs/en/permissions (fetched 2026-10-05: Permission modes table,
+Compound commands, What a Bash rule doesn't match). Tests: `tests/test_headless_permissions.py`
+(fake `claude` on PATH records argv; no real executor).
+
+---
+
 ## Design-fork rulings (for the lead to record in the SDD ledger)
 
 - **Item 10  -  throw means:** **DENY.** A thrown `tool_call` handler propagates through `emitToolCall` (uncaught there) into `beforeToolCall`'s try/catch, which re-throws and blocks that tool call's execution (Pi's own fallback error text says "blocking execution"). The Pi shim does not need to add its own catch-and-block wrapper to get "throw = deny"  -  that is already Pi's native behavior  -  but the shim should still `try/catch` internally so it can produce a clean, explicit block reason rather than relying on Pi's generic wrapped-error message.

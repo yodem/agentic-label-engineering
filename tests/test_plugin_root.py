@@ -91,5 +91,5 @@ def test_spawn_uses_the_request_python_and_import_root(tmp_path):
     env["ALE_SPAWN_DRY"] = "1"
     out = subprocess.run([os.path.join(REPO, "bin", "ale-spawn"), str(request)], env=env,
                          capture_output=True, text=True, check=True).stdout
-    assert "ALE_BIN='/venv/bin/python' -m ale" in out
+    assert "ALE_BIN=%s" % os.path.join(REPO, "bin", "ale-py") in out
     assert "PYTHONPATH=/site" in out

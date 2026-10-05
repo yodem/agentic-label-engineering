@@ -1,0 +1,11 @@
+#!/bin/sh
+# The ALE_BIN that bin/ale-spawn exports: one executable, so an unquoted "$ALE_BIN status"
+# works in sh, bash and zsh (zsh does not word-split "python -m ale"). It runs ALE with the
+# interpreter and import root dispatch chose (ALE_PYTHON, ALE_IMPORT_ROOT).
+if [ -n "${ALE_IMPORT_ROOT:-}" ]; then
+    case ":${PYTHONPATH:-}:" in
+        *":$ALE_IMPORT_ROOT:"*) ;;
+        *) PYTHONPATH="$ALE_IMPORT_ROOT${PYTHONPATH:+:$PYTHONPATH}"; export PYTHONPATH ;;
+    esac
+fi
+exec "${ALE_PYTHON:-python3}" -m ale "$@"

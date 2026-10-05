@@ -31,6 +31,8 @@ values = {
     "ale_python": env.get("ALE_PYTHON", ""),
     "ale_read_only": env.get("ALE_READ_ONLY", ""),
     "ale_deny_tools": ",".join(env.get("ALE_DENY_TOOLS", [])),
+    "ale_permission_mode": "",
+    "ale_allowed_tools": "",
     "ale_herdr": "",
     "ale_harness": request.get("harness") or "",
     "ale_mode": request.get("mode") or "",
@@ -65,6 +67,56 @@ if not values["ale_mode"] or (request.get("argv") is None and values["ale_mode"]
             request["argv"] = H.render_argv(entry["headless"], request.get("model") or None, prompt)
             values["ale_usage_from"] = values["ale_usage_from"] or entry.get("usage_from") or ""
             values["ale_herdr_kind"] = request.get("herdr_kind") or entry.get("herdr_kind") or "claude"
+# A headless Claude executor gets a bounded, prompt-free grant: acceptEdits (edits inside the
+# worktree) plus one --allowedTools list (git, the ALE protocol commands, the acceptance
+# commands). See docs/harness-facts.md item 16 and SECURITY.md. A missing or unreadable roster
+# means the default (acceptEdits); a missing label means no acceptance rules.
+if values["ale_harness"] == "claude" and values["ale_mode"] == "headless":
+    import os
+    run_dir = values["ale_run_dir"]
+    roster_path = values["ale_roster"]
+    if roster_path and not os.path.isabs(roster_path) and run_dir:
+        roster_path = os.path.join(run_dir, roster_path)
+    try:
+        with open(roster_path, encoding="utf-8") as handle:
+            roster = json.load(handle)
+    except (OSError, ValueError, TypeError):
+        roster = {}
+    if not isinstance(roster, dict):
+        roster = {}
+    task = values["ale_task"] or request.get("task_id") or ""
+    label = {}
+    if task and os.path.basename(task) == task and run_dir:
+        try:
+            with open(os.path.join(run_dir, "labels", task + ".json"), encoding="utf-8") as handle:
+                label = json.load(handle)
+        except (OSError, ValueError, TypeError):
+            label = {}
+    if not isinstance(label, dict):
+        label = {}
+    sys.path[:0] = [path for path in (env.get("ALE_IMPORT_ROOT"),
+                                      os.path.join(os.path.dirname(sys.argv[2]), "..")) if path]
+    try:
+        from ale.harness import claude_headless_permissions
+    except ImportError:
+        claude_headless_permissions = None
+    if claude_headless_permissions is not None:
+        python = os.environ.get("ALE_PYTHON") or env.get("ALE_PYTHON") or "python3"
+        ale_py = os.path.join(os.path.dirname(os.path.abspath(sys.argv[2])), "ale-py")
+        try:
+            mode, allowed, skipped = claude_headless_permissions(
+                roster, label.get("acceptance", []),
+                ["python3 -m ale", python + " -m ale", ale_py, "$ALE_BIN"],
+                read_only=(values["ale_kind"] == "monitor"
+                           and (values["ale_read_only"] or os.environ.get("ALE_READ_ONLY")) == "1"))
+        except ValueError as err:
+            print("ale-spawn: %s" % err, file=sys.stderr)
+            sys.exit(2)
+        values["ale_permission_mode"] = mode or ""
+        values["ale_allowed_tools"] = ",".join(allowed)
+        for command in skipped:
+            print("ale-spawn: skipped allowedTools entry (holds a comma, parenthesis or newline): %s"
+                  % command, file=sys.stderr)
 # The headless argv goes one file per argument (the prompt may hold any byte but NUL);
 # the shell rebuilds "$@" from them with set --, so argv text is never evaluated.
 argv = request.get("argv")
@@ -109,11 +161,14 @@ ALE_IMPORT_ROOT=$import_root
 export ALE_IMPORT_ROOT
 ALE_PYTHON=${ALE_PYTHON:-${ale_python:-python3}}
 export ALE_PYTHON
-if [ "$ALE_PYTHON" = python3 ]; then
-    ALE_BIN=${ALE_BIN:-python3 -m ale}
-else
-    ALE_BIN=${ALE_BIN:-"'$ALE_PYTHON' -m ale"}
-fi
+# ALE_BIN is one executable path (bin/ale-py), so an unquoted $ALE_BIN works in sh, bash and
+# zsh alike. A path holding a space or shell metacharacter would split; keep the eval-able
+# quoted form there (ale-exec runs eval "$ALE_BIN ...").
+ale_py="$(CDPATH= cd -- "$(dirname "$0")" && pwd)/ale-py"
+case "$ale_py" in
+    *[!A-Za-z0-9_./+@%:-]*) ALE_BIN=${ALE_BIN:-"'$ALE_PYTHON' -m ale"} ;;
+    *) ALE_BIN=${ALE_BIN:-$ale_py} ;;
+esac
 export ALE_BIN
 case ":${PYTHONPATH:-}:" in
     *":$import_root:"*) ;;
@@ -168,6 +223,12 @@ case "$ale_mode" in
             set -- "$@" "$arg"
             if [ "$i" -eq 0 ] && [ "$ale_harness" = claude ]; then
                 if [ -n "$ALE_PLUGIN_ROOT" ]; then set -- "$@" --plugin-dir "$ALE_PLUGIN_ROOT"; fi
+                # --allowedTools is variadic: it goes right before --permission-mode so an
+                # option token always ends it and it can never swallow the prompt.
+                if [ -n "$ale_permission_mode" ]; then
+                    if [ -n "$ale_allowed_tools" ]; then set -- "$@" --allowedTools "$ale_allowed_tools"; fi
+                    set -- "$@" --permission-mode "$ale_permission_mode"
+                fi
                 if [ "$ale_kind" = "monitor" ] && [ "$ALE_READ_ONLY" = "1" ]; then
                     ale_deny_tools=${ale_deny_tools:+$ale_deny_tools,}
                     ale_deny_tools="${ale_deny_tools}Write,Edit,MultiEdit,NotebookEdit"
