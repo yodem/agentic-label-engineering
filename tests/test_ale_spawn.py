@@ -69,7 +69,7 @@ def test_pi_print_dry_run_prints_argv(tmp_path):
 def test_child_environment_has_ale_bin_and_plugin_pythonpath(tmp_path):
     proc = _run(_request(tmp_path, "claude-headless"))
     assert proc.returncode == 0
-    assert "ALE_BIN=python3 -m ale" in proc.stdout
+    assert "ALE_BIN=%s" % os.path.join(ROOT, "bin", "ale-py") in proc.stdout
     assert "PYTHONPATH=" + ROOT in proc.stdout
 
 
