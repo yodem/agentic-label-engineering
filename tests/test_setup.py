@@ -81,6 +81,24 @@ def test_detect_harnesses_from_path(tmp_path):
     assert found["harnesses"] == {"claude": False, "codex": True, "pi": False} and found["ck"] is False
 
 
+def _exe(directory, name):
+    (directory / name).write_text("#!/bin/sh\n"); (directory / name).chmod(0o755)
+
+
+def test_detect_trove_cli_from_path(tmp_path):
+    only_trove, only_ck, both = tmp_path / "t", tmp_path / "c", tmp_path / "b"
+    for d in (only_trove, only_ck, both):
+        d.mkdir()
+    _exe(only_trove, "trove"); _exe(only_ck, "ck"); _exe(both, "trove"); _exe(both, "ck")
+    found = S.detect({"PATH": str(only_trove)}, probe=False)
+    assert found["ck"] is True and found["trove_cli"] == "trove"
+    found = S.detect({"PATH": str(only_ck)}, probe=False)
+    assert found["ck"] is True and found["trove_cli"] == "ck"
+    assert S.detect({"PATH": str(both)}, probe=False)["trove_cli"] == "trove"
+    empty = S.detect({"PATH": str(tmp_path / "t" / "none")}, probe=False)
+    assert empty["ck"] is False and empty["trove_cli"] is None
+
+
 def test_detect_records_version_first_line_and_hosts_without_probe(tmp_path):
     _fake(tmp_path, "pi", 'echo "pi 1.2.3"; echo second')
     _fake(tmp_path, "ssh", 'echo called >> "%s"; exit 0' % (tmp_path / "ssh.log"))

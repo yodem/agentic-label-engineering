@@ -189,7 +189,10 @@ def detect(env: dict, probe: bool = False, cwd: Optional[str] = None) -> dict:
             if probe and ssh:
                 item["reachable"], item["ale_version"] = probe_host(ssh, env)
             hosts.append(item)
-    return {"harnesses": found, "versions": versions, "ck": shutil.which("ck", path=path) is not None,
+    cli = shutil.which("trove", path=path) or shutil.which("ck", path=path)
+    # "ck" keeps its old key name for callers: true when either the trove CLI or its ck alias is on PATH.
+    return {"harnesses": found, "versions": versions, "ck": cli is not None,
+            "trove_cli": os.path.basename(cli) if cli else None,
             "hosts": hosts, "private": _is_private(cwd or os.getcwd(), env)}
 
 
@@ -446,7 +449,8 @@ def check(roster: dict, detected: dict, catalog: Optional[dict] = None) -> Tuple
     for name, ok in sorted((detected.get("harnesses") or {}).items()):
         if ok and name in LOGIN_COMMANDS:
             lines.append("login %s: if it is not signed in, run `%s` yourself" % (name, LOGIN_COMMANDS[name]))
-    lines.append("ck: %s" % ("found" if detected.get("ck") else "not found"))
+    lines.append("trove: %s" % (("found (%s)" % detected["trove_cli"]) if detected.get("trove_cli")
+                                  else "found" if detected.get("ck") else "not found"))
     refs_file = roster.get("refs_file")
     if refs_file:
         path = os.path.expanduser(refs_file)
