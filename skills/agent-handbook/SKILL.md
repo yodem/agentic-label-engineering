@@ -7,7 +7,7 @@ description: Build or refresh one agent-readable handbook from your own document
 
 ALE ships short agent definitions in `agents/`. This skill gives each of them depth
 without putting anything personal in the repository: it builds one handbook in your
-document store (CandleKeep, or any store with a command that prints one page of a book
+document store (Trove, formerly CandleKeep, or any store with a command that prints one page of a book
 by id and page), then writes a refs file. ALE reads that file at dispatch and adds a
 "Deep reference (read on demand; not pasted)" section to the agent's prompt, naming
 the chapter and the command that reads it. Nothing is fetched at render time.
@@ -17,7 +17,7 @@ the chapter and the command that reads it. Nothing is fetched at render time.
 Ask for these once, and keep them in the summary at the end:
 
 - **Store read command.** The command that prints one page, written with `{book}` and
-  `{page}` placeholders. If the store is CandleKeep, run `ck --help` to find the
+  `{page}` placeholders. If the store is Trove, run `trove --help` to find the
   subcommand that reads one page of a book by id and page. Do not guess it.
 - **Book.** An existing handbook id to update, or none to create one.
 - **Refs file path.** Default `${XDG_CONFIG_HOME:-$HOME/.config}/ale/refs.json`. It stays

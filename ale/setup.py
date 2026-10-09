@@ -1,4 +1,4 @@
-"""``ale setup`` layers: harnesses, models, CandleKeep refs, remote host, judge and project notes.
+"""``ale setup`` layers: harnesses, models, Trove refs, remote host, judge and project notes.
 
 Detection is local and deterministic (``PATH`` lookups, ``<binary> --version``, the hosts
 file); the ssh probe runs only when asked. Setup writes only ``.ale/roster.json`` (the caller
@@ -28,7 +28,7 @@ QUESTIONS: List[dict] = [
      "prompt": "Which harness runs executors by default?", "options": list(HARNESS.BUILTIN),
      "default": "claude"},
     {"id": "refs.book", "layer": "refs", "kind": "text",
-     "prompt": "CandleKeep handbook book id for agent deep references ('build' to build one now, empty for none)",
+     "prompt": "Trove (formerly CandleKeep) handbook book id for agent deep references ('build' to build one now, empty for none)",
      "default": ""},
     {"id": "refs.file", "layer": "refs", "kind": "text",
      "prompt": "Refs file that maps each agent to its handbook chapter (empty for none)", "default": ""},
@@ -166,7 +166,7 @@ def _is_private(cwd: str, env: dict) -> bool:
 
 
 def detect(env: dict, probe: bool = False, cwd: Optional[str] = None) -> dict:
-    """What this machine has: harness binaries (and versions), ``ck``, remote hosts."""
+    """What this machine has: harness binaries (and versions), the Trove CLI (``ck`` is its deprecated alias), remote hosts."""
     path = env.get("PATH", "")
     found, versions = {}, {}
     for name, entry in HARNESS.BUILTIN.items():
