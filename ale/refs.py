@@ -6,7 +6,7 @@ agent: the catalog key (``backend/api``, ``_cross/review``, ``general``), the
 that covers every agent in it. Each value is
 ``{"title", "how_to_read", "read_first"}``. The prompt names the entry and the
 commands that read it; for a local dispatch, ``prefetch`` runs those commands (only
-``ck``, never a shell) into a file whose first line is a content token, which the
+the Trove CLI's ``trove`` or its ``ck`` alias, never a shell) into a file whose first line is a content token, which the
 executor echoes back with ``ale refs-ack``.
 """
 

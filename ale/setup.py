@@ -1,4 +1,4 @@
-"""``ale setup`` layers: harnesses, models, CandleKeep refs, remote host, judge and project notes.
+"""``ale setup`` layers: harnesses, models, Trove refs, remote host, judge and project notes.
 
 Detection is local and deterministic (``PATH`` lookups, ``<binary> --version``, the hosts
 file); the ssh probe runs only when asked. Setup writes only ``.ale/roster.json`` (the caller
@@ -28,7 +28,7 @@ QUESTIONS: List[dict] = [
      "prompt": "Which harness runs executors by default?", "options": list(HARNESS.BUILTIN),
      "default": "claude"},
     {"id": "refs.book", "layer": "refs", "kind": "text",
-     "prompt": "CandleKeep handbook book id for agent deep references ('build' to build one now, empty for none)",
+     "prompt": "Trove (formerly CandleKeep) handbook book id for agent deep references ('build' to build one now, empty for none)",
      "default": ""},
     {"id": "refs.file", "layer": "refs", "kind": "text",
      "prompt": "Refs file that maps each agent to its handbook chapter (empty for none)", "default": ""},
@@ -166,7 +166,7 @@ def _is_private(cwd: str, env: dict) -> bool:
 
 
 def detect(env: dict, probe: bool = False, cwd: Optional[str] = None) -> dict:
-    """What this machine has: harness binaries (and versions), ``ck``, remote hosts."""
+    """What this machine has: harness binaries (and versions), the Trove CLI (``ck`` is its deprecated alias), remote hosts."""
     path = env.get("PATH", "")
     found, versions = {}, {}
     for name, entry in HARNESS.BUILTIN.items():
@@ -189,7 +189,10 @@ def detect(env: dict, probe: bool = False, cwd: Optional[str] = None) -> dict:
             if probe and ssh:
                 item["reachable"], item["ale_version"] = probe_host(ssh, env)
             hosts.append(item)
-    return {"harnesses": found, "versions": versions, "ck": shutil.which("ck", path=path) is not None,
+    cli = shutil.which("trove", path=path) or shutil.which("ck", path=path)
+    # "ck" keeps its old key name for callers: true when either the trove CLI or its ck alias is on PATH.
+    return {"harnesses": found, "versions": versions, "ck": cli is not None,
+            "trove_cli": os.path.basename(cli) if cli else None,
             "hosts": hosts, "private": _is_private(cwd or os.getcwd(), env)}
 
 
@@ -446,7 +449,8 @@ def check(roster: dict, detected: dict, catalog: Optional[dict] = None) -> Tuple
     for name, ok in sorted((detected.get("harnesses") or {}).items()):
         if ok and name in LOGIN_COMMANDS:
             lines.append("login %s: if it is not signed in, run `%s` yourself" % (name, LOGIN_COMMANDS[name]))
-    lines.append("ck: %s" % ("found" if detected.get("ck") else "not found"))
+    lines.append("trove: %s" % (("found (%s)" % detected["trove_cli"]) if detected.get("trove_cli")
+                                  else "found" if detected.get("ck") else "not found"))
     refs_file = roster.get("refs_file")
     if refs_file:
         path = os.path.expanduser(refs_file)

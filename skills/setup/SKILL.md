@@ -1,12 +1,12 @@
 ---
 name: setup
-description: Set up or reconfigure ALE for this repository. Detects the harnesses (claude, codex, pi), CandleKeep and remote hosts, asks the user each setup question, then writes the roster and checks it. Triggers on "set up ALE", "configure ALE", "ale setup", "/ale:setup".
+description: Set up or reconfigure ALE for this repository. Detects the harnesses (claude, codex, pi), Trove (formerly CandleKeep) and remote hosts, asks the user each setup question, then writes the roster and checks it. Triggers on "set up ALE", "configure ALE", "ale setup", "/ale:setup".
 ---
 
 # Set up ALE
 
 `ale setup` configures six layers: the default harness, the model per harness and tier,
-CandleKeep handbook refs, the remote host, the label judge, and free-form project notes
+Trove handbook refs, the remote host, the label judge, and free-form project notes
 that every executor prompt carries. Code detects what the machine has and fills the
 defaults; you ask the user, and code applies the answers.
 

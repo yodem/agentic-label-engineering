@@ -214,7 +214,7 @@ The older ids `claude-headless`, `codex-exec`, `pi-print`, `claude-subagent` (an
 
 `ale setup` creates `.ale/roster.json`. With `--answers FILE`, interactively on a terminal, or through
 the `/ale:setup` skill (which asks you each question), it also configures the harnesses it finds on
-`PATH` (with their `--version`), the model per harness and tier, the CandleKeep handbook refs file,
+`PATH` (with their `--version`), the model per harness and tier, the Trove (formerly CandleKeep) handbook refs file,
 the remote host from `herdr-exec.toml`, the judge mode (off by default for private repositories) and
 free-text project notes that every prompt carries. `ale setup --questions --json` lists the questions;
 `ale setup --check` reports what is configured and what is broken. Setup never stores credentials:
