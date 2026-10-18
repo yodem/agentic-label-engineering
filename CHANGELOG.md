@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.6 (2026-10-18)
 
 - `ale verify` warns (`ale verify: warning: <id> cd's to <path>, outside the task tree <cwd>`, stderr only, result unchanged) when a command check begins `cd /abs/path` with a path outside the verify cwd, since such a check tests another tree than the task worktree. The example rosters (`ale/example_roster.json`, `examples/roster.json`) name `gpt-6-luna` instead of `gpt-5-codex` as the codex model.
 - `ale relabel` on an accepted or failed task now names the way to amend acceptance in its refusal (`ale reopen --task T --reason ...`, then `ale relabel --task T --field acceptance --json --value ...`; still exit 1, and a canceled or integrated task is not offered `ale reopen`, since reopen refuses it; an integrated one is told to add a new task), and a failed `ale verify` prints a `hint:` line with the `ale relabel --run-dir <dir> --task <T> --field acceptance --json --value ...` command. `verify --signoff` still does not override a failed command. A lead had never learned that acceptance could be amended after labeling, because the refusal text is not logged.
