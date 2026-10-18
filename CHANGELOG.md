@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `ale-exec` no longer checks and submits a task whose child failed on an executor usage limit (an `error` or `turn.failed` row of the captured JSON output matching `usage limit`, `quota exceeded`, `rate limit` or `429`, with `--usage-from codex-json` or `pi-json`). It prints `ale-exec: usage-limit: <line>` to stderr, raises `input-required` (`executor usage limit: <line>`) and exits 75, so the task stays owned and unsubmitted and a fallback executor can take it over. 75 is new to `ale-exec` only; the `ale` CLI exit codes are unchanged, and other failed children keep their exit code and still submit.
 - A saved label's `context.worktree` carries `mode` always and `base`, `branch` and `worktree_reason` only when they have a value; `ale init-run`, `ale plan compile` and `ale plan bake` no longer write them as `null`. A null `base` made a labels-versus-plan comparison read as stale forever. The label schema requires only `mode`; readers already treat a missing key as unset (`base` falls back to `HEAD`).
 
 ## 0.4.5 (2026-10-05)

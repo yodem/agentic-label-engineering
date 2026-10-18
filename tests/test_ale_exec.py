@@ -133,6 +133,47 @@ def test_lease_loss_terminates_child_and_returns_four(harness, tmp_path):
     assert proc.returncode == 4
 
 
+def test_usage_limit_exit_does_not_submit(harness, tmp_path):
+    child = tmp_path / "child.sh"
+    row = json.dumps({"type": "error", "message": "You've hit your usage limit"})
+    child.write_text("#!/bin/sh\ncat <<'EOF'\n%s\nEOF\nexit 1\n" % row)
+    child.chmod(0o755)
+    proc = run_exec(harness, [str(child)], "--usage-from", "codex-json")
+    assert proc.returncode == 75
+    assert "ale-exec: usage-limit:" in proc.stderr
+    assert "usage limit" in proc.stderr
+    log = log_text(harness)
+    assert "submit " not in log
+    assert "check " not in log
+    required = [line for line in log.splitlines() if line.startswith("input-required ")]
+    assert len(required) == 1
+    assert "executor usage limit: " in required[0]
+
+
+def test_turn_failed_rate_limit_does_not_submit(harness, tmp_path):
+    child = tmp_path / "child.sh"
+    row = json.dumps({"type": "turn.failed", "error": {"message": "Rate limit reached (429)"}})
+    child.write_text("#!/bin/sh\ncat <<'EOF'\n%s\nEOF\nexit 1\n" % row)
+    child.chmod(0o755)
+    proc = run_exec(harness, [str(child)], "--usage-from", "codex-json")
+    assert proc.returncode == 75
+    assert "submit " not in log_text(harness)
+
+
+def test_limit_text_in_a_normal_row_or_clean_exit_still_submits(harness, tmp_path):
+    child = tmp_path / "child.sh"
+    note = json.dumps({"type": "item.completed", "text": "fixed the 429 usage limit handler"})
+    child.write_text("#!/bin/sh\ncat <<'EOF'\n%s\nEOF\nexit 1\n" % note)
+    child.chmod(0o755)
+    proc = run_exec(harness, [str(child)], "--usage-from", "codex-json")
+    assert proc.returncode == 1
+    assert "submit " in log_text(harness)
+    err = json.dumps({"type": "error", "message": "usage limit"})
+    child.write_text("#!/bin/sh\ncat <<'EOF'\n%s\nEOF\nexit 0\n" % err)
+    proc = run_exec(harness, [str(child)], "--usage-from", "codex-json")
+    assert proc.returncode == 0
+
+
 def test_acceptance_failure_raises_input_required(harness):
     proc = run_exec(harness, ["true"], ALE_FAKE_CHECK="fail")
     assert proc.returncode == 0

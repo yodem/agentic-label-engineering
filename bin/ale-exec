@@ -9,6 +9,13 @@ Limits:
   there is no path blocking; containment is detected only at verify --base
   lease loss interrupts between heartbeats, not before an in-flight write
   ALE_EXEC_GRACE_S overrides the child termination grace period (default: 10s)
+
+Exit codes (ale-exec only; the ale CLI codes are unchanged):
+  the child's own exit code after check and submit, 4 when the lease was lost, 3 on a lost claim
+  75 the child failed on an executor usage limit (an error or turn.failed row of the captured JSON
+    output matching usage limit, quota exceeded, rate limit or 429, needs --usage-from codex-json
+    or pi-json): ale-exec prints "ale-exec: usage-limit: <line>" to stderr, skips check and submit,
+    raises input-required and leaves the task owned and unsubmitted for a fallback executor
 EOF
 }
 
@@ -178,6 +185,21 @@ PY
     done <<EOF
 $usage_rows
 EOF
+fi
+
+# A usage-limit exit is not completed work: skip check and submit so the task stays owned and
+# unsubmitted, and a fallback executor can take it over. Only a failed child counts, and only an
+# error or turn.failed row of the captured JSON output (a limit word in ordinary output is not one).
+if [ "$child_rc" -ne 0 ] && [ -n "$stdout_file" ] && [ -f "$stdout_file" ]; then
+    limit_line=$(grep -E '"type" *: *"(error|turn\.failed)"' "$stdout_file" 2>/dev/null |
+        grep -Ei -m 1 'usage limit|quota exceeded|rate limit|429')
+    if [ -n "$limit_line" ]; then
+        limit_line=$(printf '%s' "$limit_line" | cut -c1-200)
+        echo "ale-exec: usage-limit: $limit_line" >&2
+        ale_run input-required --task "$task" --agent "$agent" \
+            --question "executor usage limit: $limit_line"
+        exit 75
+    fi
 fi
 
 required_output=$(ale_run check --required --task "$task" --cwd "$(pwd)" 2>&1)
