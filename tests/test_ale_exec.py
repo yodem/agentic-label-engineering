@@ -212,6 +212,51 @@ def test_usage_limit_with_failed_exit_does_not_submit_even_with_changes(harness,
     assert "submit " not in log_text(harness)
 
 
+def test_usage_limit_is_detected_without_usage_from_and_stdout_streams_through(harness, tmp_path):
+    repo = git_repo(tmp_path / "repo")
+    proc = run_exec(harness, [limit_child(tmp_path, 1)], cwd=str(repo))
+    assert proc.returncode == 75
+    assert "ale-exec: usage-limit: " in proc.stderr
+    assert proc.stdout == '{"type": "error", "message": "You\'ve hit your usage limit"}\n'
+    log = log_text(harness)
+    assert "submit " not in log and "check " not in log
+    assert "input-required " in log
+
+
+def test_no_usage_from_keeps_child_exit_code_and_output_for_other_failures(harness, tmp_path):
+    child = tmp_path / "child.sh"
+    child.write_text("#!/bin/sh\necho hello\nexit 7\n")
+    child.chmod(0o755)
+    proc = run_exec(harness, [str(child)], cwd=str(git_repo(tmp_path / "repo")))
+    assert proc.returncode == 7
+    assert proc.stdout == "hello\n"
+    assert "submit " in log_text(harness)
+
+
+def test_usage_limit_with_clean_exit_in_an_already_dirty_tree_does_not_submit(harness, tmp_path):
+    repo = git_repo(tmp_path / "repo")
+    (repo / "wip.txt").write_text("before\n")
+    subprocess.run(["git", "add", "wip.txt"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "wip"], cwd=repo, check=True)
+    (repo / "wip.txt").write_text("edited before spawn\n")
+    (repo / "new.txt").write_text("untracked\n")
+    proc = run_exec(harness, [limit_child(tmp_path, 0)], "--usage-from", "codex-json", cwd=str(repo))
+    assert proc.returncode == 75
+    assert "submit " not in log_text(harness)
+
+
+def test_usage_limit_text_in_a_dirty_tree_the_child_edited_still_submits(harness, tmp_path):
+    repo = git_repo(tmp_path / "repo")
+    (repo / "wip.txt").write_text("before\n")
+    subprocess.run(["git", "add", "wip.txt"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "wip"], cwd=repo, check=True)
+    (repo / "wip.txt").write_text("edited before spawn\n")
+    child = limit_child(tmp_path, 0, "echo more >> wip.txt")
+    proc = run_exec(harness, [child], "--usage-from", "codex-json", cwd=str(repo))
+    assert proc.returncode == 0
+    assert "submit " in log_text(harness)
+
+
 def test_stderr_keeps_the_full_matching_line(harness, tmp_path):
     child = tmp_path / "child.sh"
     row = json.dumps({"type": "error", "message": "usage limit " + "x" * 400 + " END"})
