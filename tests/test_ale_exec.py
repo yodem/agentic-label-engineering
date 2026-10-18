@@ -50,10 +50,11 @@ def run_exec(harness, command, *options, **env_updates):
         "ALE_ROSTER": str(run_dir / "roster.json"),
         "ALE_FAKE_LOG": str(log),
     })
+    cwd = env_updates.pop("cwd", ROOT)
     env.update(env_updates)
     return subprocess.run(
         [WRAPPER, "--task", "T1", "--agent", "agent", *options, "--", *command],
-        cwd=ROOT, env=env, text=True, capture_output=True,
+        cwd=cwd, env=env, text=True, capture_output=True,
     )
 
 
@@ -160,18 +161,75 @@ def test_turn_failed_rate_limit_does_not_submit(harness, tmp_path):
     assert "submit " not in log_text(harness)
 
 
-def test_limit_text_in_a_normal_row_or_clean_exit_still_submits(harness, tmp_path):
+def git_repo(path):
+    path.mkdir()
+    for argv in (["init", "-q"], ["config", "user.email", "t@example.com"], ["config", "user.name", "t"],
+                 ["commit", "-q", "--allow-empty", "-m", "init"]):
+        subprocess.run(["git", *argv], cwd=path, check=True, capture_output=True)
+    return path
+
+
+def limit_child(tmp_path, rc, after=""):
+    child = tmp_path / "child.sh"
+    row = json.dumps({"type": "error", "message": "You've hit your usage limit"})
+    child.write_text("#!/bin/sh\ncat <<'EOF'\n%s\nEOF\n%s\nexit %d\n" % (row, after, rc))
+    child.chmod(0o755)
+    return str(child)
+
+
+def test_usage_limit_with_clean_exit_and_no_diff_does_not_submit(harness, tmp_path):
+    repo = git_repo(tmp_path / "repo")
+    proc = run_exec(harness, [limit_child(tmp_path, 0)], "--usage-from", "codex-json", cwd=str(repo))
+    assert proc.returncode == 75
+    assert "ale-exec: usage-limit: " in proc.stderr
+    log = log_text(harness)
+    assert "submit " not in log and "check " not in log
+    assert "input-required " in log
+
+
+def test_usage_limit_text_with_clean_exit_and_uncommitted_change_still_submits(harness, tmp_path):
+    repo = git_repo(tmp_path / "repo")
+    child = limit_child(tmp_path, 0, "echo work > file.txt")
+    proc = run_exec(harness, [child], "--usage-from", "codex-json", cwd=str(repo))
+    assert proc.returncode == 0
+    assert "submit " in log_text(harness)
+
+
+def test_usage_limit_text_with_clean_exit_and_committed_change_still_submits(harness, tmp_path):
+    repo = git_repo(tmp_path / "repo")
+    after = "echo work > file.txt; git add file.txt; git commit -q -m work"
+    proc = run_exec(harness, [limit_child(tmp_path, 0, after)], "--usage-from", "codex-json", cwd=str(repo))
+    assert proc.returncode == 0
+    log = log_text(harness)
+    assert "submit " in log and "input-required " not in log
+
+
+def test_usage_limit_with_failed_exit_does_not_submit_even_with_changes(harness, tmp_path):
+    repo = git_repo(tmp_path / "repo")
+    child = limit_child(tmp_path, 1, "echo work > file.txt")
+    proc = run_exec(harness, [child], "--usage-from", "codex-json", cwd=str(repo))
+    assert proc.returncode == 75
+    assert "submit " not in log_text(harness)
+
+
+def test_stderr_keeps_the_full_matching_line(harness, tmp_path):
+    child = tmp_path / "child.sh"
+    row = json.dumps({"type": "error", "message": "usage limit " + "x" * 400 + " END"})
+    child.write_text("#!/bin/sh\ncat <<'EOF'\n%s\nEOF\nexit 1\n" % row)
+    child.chmod(0o755)
+    proc = run_exec(harness, [str(child)], "--usage-from", "codex-json")
+    assert proc.returncode == 75
+    assert "END" in proc.stderr
+
+
+def test_limit_text_in_a_normal_row_still_submits(harness, tmp_path):
     child = tmp_path / "child.sh"
     note = json.dumps({"type": "item.completed", "text": "fixed the 429 usage limit handler"})
     child.write_text("#!/bin/sh\ncat <<'EOF'\n%s\nEOF\nexit 1\n" % note)
     child.chmod(0o755)
-    proc = run_exec(harness, [str(child)], "--usage-from", "codex-json")
+    proc = run_exec(harness, [str(child)], "--usage-from", "codex-json", cwd=str(git_repo(tmp_path / "repo")))
     assert proc.returncode == 1
     assert "submit " in log_text(harness)
-    err = json.dumps({"type": "error", "message": "usage limit"})
-    child.write_text("#!/bin/sh\ncat <<'EOF'\n%s\nEOF\nexit 0\n" % err)
-    proc = run_exec(harness, [str(child)], "--usage-from", "codex-json")
-    assert proc.returncode == 0
 
 
 def test_acceptance_failure_raises_input_required(harness):

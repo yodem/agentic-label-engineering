@@ -12,10 +12,13 @@ Limits:
 
 Exit codes (ale-exec only; the ale CLI codes are unchanged):
   the child's own exit code after check and submit, 4 when the lease was lost, 3 on a lost claim
-  75 the child failed on an executor usage limit (an error or turn.failed row of the captured JSON
-    output matching usage limit, quota exceeded, rate limit or 429, needs --usage-from codex-json
-    or pi-json): ale-exec prints "ale-exec: usage-limit: <line>" to stderr, skips check and submit,
-    raises input-required and leaves the task owned and unsubmitted for a fallback executor
+  75 the child hit an executor usage limit: an error or turn.failed row of the captured JSON output
+    matches usage limit, quota exceeded, rate limit or 429, and either the child exited non-zero or
+    the working tree is unchanged since it started (git status clean, HEAD unchanged). ale-exec
+    prints "ale-exec: usage-limit: <line>" to stderr, skips check and submit, raises input-required
+    and leaves the task owned and unsubmitted for a fallback executor. Detection needs captured
+    output, so it works only with --usage-from codex-json or pi-json (the codex and pi harnesses
+    always pass it); with --usage-from none the output is not read and nothing is detected.
 EOF
 }
 
@@ -96,6 +99,8 @@ cleanup() {
 trap 'ALE_EXEC_EXIT_CODE=$?; cleanup' EXIT
 trap 'signal_exit_code=130; exit 130' INT
 trap 'signal_exit_code=143; exit 143' TERM
+
+head_before=$(git rev-parse HEAD 2>/dev/null)
 
 if [ "$usage_from" != none ]; then
     stdout_file=$(mktemp "$tmp_root/ale-exec-output.XXXXXX") || exit 1
@@ -188,17 +193,25 @@ EOF
 fi
 
 # A usage-limit exit is not completed work: skip check and submit so the task stays owned and
-# unsubmitted, and a fallback executor can take it over. Only a failed child counts, and only an
-# error or turn.failed row of the captured JSON output (a limit word in ordinary output is not one).
-if [ "$child_rc" -ne 0 ] && [ -n "$stdout_file" ] && [ -f "$stdout_file" ]; then
+# unsubmitted, and a fallback executor can take it over. The signal is an error or turn.failed row
+# of the captured JSON output matching the pattern (a limit word in an ordinary row is not one),
+# and either the child failed or the task tree is unchanged since the child started (codex's exit
+# code on a quota error is not reliable, so a clean exit with no diff counts too).
+if [ -n "$stdout_file" ] && [ -f "$stdout_file" ]; then
     limit_line=$(grep -E '"type" *: *"(error|turn\.failed)"' "$stdout_file" 2>/dev/null |
         grep -Ei -m 1 'usage limit|quota exceeded|rate limit|429')
     if [ -n "$limit_line" ]; then
-        limit_line=$(printf '%s' "$limit_line" | cut -c1-200)
-        echo "ale-exec: usage-limit: $limit_line" >&2
-        ale_run input-required --task "$task" --agent "$agent" \
-            --question "executor usage limit: $limit_line"
-        exit 75
+        unchanged=
+        if [ -n "$head_before" ] && [ "$(git rev-parse HEAD 2>/dev/null)" = "$head_before" ] &&
+            [ -z "$(git status --porcelain 2>/dev/null)" ]; then
+            unchanged=1
+        fi
+        if [ "$child_rc" -ne 0 ] || [ -n "$unchanged" ]; then
+            echo "ale-exec: usage-limit: $limit_line" >&2
+            ale_run input-required --task "$task" --agent "$agent" \
+                --question "executor usage limit: $limit_line"
+            exit 75
+        fi
     fi
 fi
 

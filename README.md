@@ -256,7 +256,7 @@ what the underlying harness could support in a future adapter.
 | --- | --- | --- | --- | --- |
 | Path guard | Enforced: PreToolUse edit denial | Enforced: PreToolUse denial | Enforced: edit and write events | Not possible: verify only |
 | Auto heartbeat | Enforced: PostToolUse, 60 s throttle | Not possible: current adapter has no PostToolUse entry | Enforced: post-tool hook | Enforced: timer heartbeat |
-| Stop/submit gate | Enforced: Stop acceptance gate | Not possible: current adapter has no Stop entry | Advisory: settlement runs the gate but print mode cannot block | Enforced: exit-time `check` then submit or input-required |
+| Stop/submit gate | Enforced: Stop acceptance gate | Not possible: current adapter has no Stop entry | Advisory: settlement runs the gate but print mode cannot block | Enforced: exit-time `check` then submit or input-required; a usage-limit stop (captured JSON error row) skips both and exits 75 |
 | Usage capture | Enforced: transcript IDs are deduplicated | Advisory: `--usage-from codex-json` on wrapper | Enforced: assistant message usage | Enforced: printed JSON usage when configured |
 | Session context | Enforced: SessionStart stdout | Not possible: current adapter has no SessionStart entry | Enforced: session start injection | Not possible: wrapper has no context injection |
 

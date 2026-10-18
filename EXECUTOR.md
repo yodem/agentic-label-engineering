@@ -36,6 +36,10 @@ version of this protocol.
    attempt receives the failure output.
 11. Do not record token usage yourself. The orchestrator or an adapter records usage for the task.
 
+If a headless run under `bin/ale-exec` stops on an executor usage limit with no changes (or exits non-zero), the wrapper
+skips `check` and `submit`, raises `input-required` (`executor usage limit: ...`) and exits 75, so the task stays owned
+and unsubmitted for a fallback executor. See [docs/label-layer.md](docs/label-layer.md#harness-mode-and-host).
+
 Lead-side verification can use `ale verify --reject "reason"` to record a manual rejection without running acceptance commands. `ale reopen` returns a rejected or accepted-but-unintegrated task to verification; `ale fix` returns a rejection to implementation work. A parent gets at most two fix tasks, and fix tasks cannot be fixed again; escalate further repair to the lead.
 
 `ale dispatch --no-exec` creates and records the task worktree and branch without launching an executor, for work the lead will execute manually.
