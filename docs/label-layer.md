@@ -124,7 +124,7 @@ Each label is a JSON object in an `ale-label` fenced block or in `run/labels/TAS
 | `context.pointers` | Relevant source or documentation pointers. |
 | `context.allowed_paths` | Files and globs the task may modify. |
 | `context.depends_on` | Task IDs that must be accepted first. |
-| `context.worktree` | Isolation policy: `per_task`, `shared`, or `none`, plus branch, base, and reason. |
+| `context.worktree` | Isolation policy: `per_task`, `shared`, or `none` in `mode` (always present), plus `branch`, `base` and `worktree_reason` only when set. |
 | `acceptance` | Two to five command or manual checks. `ale verify` runs the commands. |
 | `watch` | Heartbeat, stuck, duration, token, and attempt limits. |
 | `assignments` | Executor, monitor, or fixer assignments. Exactly one assignment is the executor. |
@@ -137,6 +137,8 @@ Token budgets and estimated input cost use billable tokens: `max(0, input_tokens
 ### Worktrees
 
 `context.worktree.mode` defaults to `per_task` when the task has allowed paths. Dispatch creates `run/wt/TASK` and uses branch `ale/RUN/TASK`; the request's working directory points there. A fix task reuses its parent's worktree. Use `none` only for tasks that do not write project files. Use `shared` only with an explicit reason.
+
+A saved label's `context.worktree` always has `mode`; `branch`, `base` and `worktree_reason` appear only when they have a value, and `ale init-run`, `ale plan compile` and `ale plan bake` never write them as `null`. A missing `base` is read as `HEAD` at dispatch, so dispatch starts the worktree from the checkout's HEAD, and a missing `branch` falls back to `ale/RUN/TASK`. Older label files that carry explicit `null` keys still validate and read the same way.
 
 A `none` is deliberate only when it carries a reason: `"worktree": {"mode": "none", "worktree_reason": "<why>"}`. A bare `"none"` is treated as derived by an earlier bake (bake once set the mode from the paths it found in the task body, so blocks whose `allowed_paths` were filled in later kept `none`). When a block has non-empty `allowed_paths` and a derived `none`, `ale plan bake` (with or without `--write`) prints `warning: <T>: allowed_paths set but worktree.mode is none (derived at an earlier bake); baking per_task. Set worktree_reason to keep none.` on stderr and bakes `per_task`; `ale init-run --plan` (and `ale plan compile`) apply the same rule to the label files only, print the same warning and, at init-run, add a `decisions.md` line naming the task. The plan file is not rewritten there, so an approved plan's sha256 does not change. A block with `allowed_paths` and no `worktree` key bakes `per_task` with `phase: implement`, silently. A deliberate `none` is kept, reason included, with no warning. Write tasks should use per-task worktrees so concurrent changes cannot overlap accidentally.
 
