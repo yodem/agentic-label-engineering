@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- A saved label's `context.worktree` carries `mode` always and `base`, `branch` and `worktree_reason` only when they have a value; `ale init-run`, `ale plan compile` and `ale plan bake` no longer write them as `null`. A null `base` made a labels-versus-plan comparison read as stale forever. The label schema requires only `mode`; readers already treat a missing key as unset (`base` falls back to `HEAD`).
+
 ## 0.4.5 (2026-10-05)
 
 - Add `ale wait` to block on task states with timeout and early attention returns.

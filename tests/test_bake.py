@@ -30,9 +30,7 @@ def test_skeleton_label_has_paths_acceptance_assignments_and_worktree(roster):
 
     assert label["context"]["allowed_paths"] == ["todo/model.py", "tests/*"]
     assert label["acceptance"] == [{"id": "A1", "cmd": "python -m pytest", "expect": "exit0"}]
-    assert label["context"]["worktree"] == {
-        "mode": "per_task", "branch": None, "base": None, "worktree_reason": None
-    }
+    assert label["context"]["worktree"] == {"mode": "per_task"}
     assert label["assignments"] == [{
         "kind": "executor", "role": "backend", "model_tier": "standard",
         "executor": None, "trigger": "ready",
@@ -207,3 +205,21 @@ def test_block_lane_reason_beats_stale_sidecar():
     edited = baked.replace('"lane_reason": null', '"lane_reason": "planner answered"', 1)
     out = B.compile_plan(edited, provenance=sidecar)
     assert out["T1"]["provenance"]["lane_reason"] == "planner answered"
+
+
+def test_compiled_worktree_has_no_null_keys():
+    text = ("# P\n\n## Task 1: thing\n\n```ale-label\n"
+            + json.dumps({"task_id": "T1", "allowed_paths": ["a.py"], "worktree": {"mode": "per_task"}})
+            + "\n```\n\n**Files:**\n- Modify: `a.py`\n\nRun: `true`\n")
+    label = compile_plan(text)["T1"]
+    assert set(label["context"]["worktree"]) == {"mode"}
+
+
+def test_compiled_worktree_keeps_the_keys_that_are_set():
+    text = ("# P\n\n## Task 1: thing\n\n```ale-label\n"
+            + json.dumps({"task_id": "T1", "worktree": {"mode": "shared", "worktree_reason": "one checkout",
+                                                         "stack": True}})
+            + "\n```\n\nRun: `true`\n")
+    label = compile_plan(text)["T1"]
+    assert label["context"]["worktree"] == {"mode": "shared", "worktree_reason": "one checkout",
+                                            "stack": True}

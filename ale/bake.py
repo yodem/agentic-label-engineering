@@ -26,6 +26,14 @@ _LABEL_KEYS = ("role", "model_tier", "lane", "risk", "effort", "locality", "sub"
 _ASSIGNMENT_KEYS = ("kind", "role", "model_tier", "executor", "model", "pin_reason", "trigger")
 _ACCEPTANCE_KEYS = ("id", "cmd", "expect", "manual")
 _WORKTREE_KEYS = ("mode", "worktree_reason", "stack")
+
+
+def worktree_object(mode, **fields) -> dict:
+    """A label's ``context.worktree``: ``mode`` always, every other key only when it has a value.
+    A saved null ``base`` or ``branch`` reads as a different plan to anything comparing labels."""
+    return {"mode": mode, **{key: value for key, value in fields.items() if value is not None}}
+
+
 _WATCH_KEYS = ("heartbeat_timeout_s", "stuck_after_s", "max_duration_s", "budget_tokens", "max_attempts")
 NONE_RECOMPUTE_WARNING = ("warning: %s: allowed_paths set but worktree.mode is none (derived at an earlier "
                           "bake); baking per_task. Set worktree_reason to keep none.")
@@ -223,8 +231,7 @@ def skeleton_label(task: dict, run_id: str, votes: dict) -> dict:
             "pointers": list(task.get("pointers", [])),
             "allowed_paths": allowed_paths,
             "depends_on": list(task.get("depends_on", [])),
-            "worktree": {"mode": "per_task" if allowed_paths else "none",
-                          "branch": None, "base": None, "worktree_reason": None},
+            "worktree": worktree_object("per_task" if allowed_paths else "none"),
         },
         "acceptance": acceptance,
         "provenance": {"role": _provenance(role_vote),
@@ -516,8 +523,7 @@ def compile_plan(text: str, run_id: str = "run-1", provenance: dict = None,
                 label["labels"]["phase"] = "implement"
             if warnings is not None:
                 warnings.append(NONE_RECOMPUTE_WARNING % label.get("task_id"))
-        label["context"]["worktree"] = {"mode": mode, "branch": None, "base": None,
-                                          "worktree_reason": reason}
+        label["context"]["worktree"] = worktree_object(mode, worktree_reason=reason)
         if isinstance(worktree, dict) and worktree.get("stack") is True:
             label["context"]["worktree"]["stack"] = True
         spec_text = label["context"].get("spec_text", "")

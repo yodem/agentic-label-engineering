@@ -177,6 +177,19 @@ def test_init_run_run_id_from_keeps_its_other_values(tmp_path):
     assert started["run_id"] == "stem-plan"
 
 
+def test_init_run_saves_lane_reason(tmp_path):
+    reason = "lead context 493k >= 100k"
+    roster = _roster(tmp_path)
+    baked = _baked_text(roster).replace("The human remains available for this task.", reason)
+    plan = _run_plan(tmp_path, "2026-10-05-x", baked)
+    run_dir = str(tmp_path / ".ale" / "runs" / "2026-10-05-x")
+    assert main(["init-run", "--plan", plan, "--run-dir", run_dir, "--roster", roster, "--now", "1"]) == 0
+    with open(os.path.join(run_dir, "labels", "T1.json"), encoding="utf-8") as handle:
+        saved = json.load(handle)
+    assert saved["provenance"]["lane_reason"] == reason
+    assert set(saved["context"]["worktree"]) == {"mode"}
+
+
 # --- relabel rewrites the plan block ----------------------------------------------------------
 
 @pytest.mark.parametrize("field,value", [

@@ -4082,7 +4082,7 @@ def _plan_labels(text: str, path: str, run_id: str, roster: dict, no_judge: bool
 
     ``stack`` marks every per-task-worktree task with exactly one dependency as stacked.
     """
-    from .bake import NONE_RECOMPUTE_WARNING, derived_none, skeleton_label
+    from .bake import NONE_RECOMPUTE_WARNING, derived_none, skeleton_label, worktree_object
     from .planparse import parse_plan
 
     tasks = parse_plan(text)
@@ -4163,14 +4163,12 @@ def _plan_labels(text: str, path: str, run_id: str, roster: dict, no_judge: bool
                 # planparse found in the task body; a derived none is recomputed, loudly.
                 if old_worktree is not None:
                     print(NONE_RECOMPUTE_WARNING % task["task_id"], file=sys.stderr)
-                old_worktree = {"mode": "per_task", "branch": None, "base": None,
-                                "worktree_reason": None}
+                old_worktree = worktree_object("per_task")
                 if label["labels"].get("phase") is None:
                     label["labels"]["phase"] = "implement"
             if old_worktree is not None:
                 if isinstance(old_worktree, str):
-                    old_worktree = {"mode": old_worktree, "branch": None, "base": None,
-                                    "worktree_reason": None}
+                    old_worktree = worktree_object(old_worktree)
                 label["context"]["worktree"] = old_worktree
             for field in ("assignments", "fixes", "watch", "milestone"):
                 if field in old:

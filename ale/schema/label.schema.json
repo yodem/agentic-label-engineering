@@ -70,7 +70,7 @@
         "worktree": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["mode", "branch", "base", "worktree_reason"],
+          "required": ["mode"],
           "properties": {
             "mode": {"enum": ["per_task", "shared", "none"]},
             "branch": {"type": ["string", "null"]},
