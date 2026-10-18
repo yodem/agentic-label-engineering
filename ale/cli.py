@@ -1575,6 +1575,8 @@ def cmd_verify(a) -> int:
         print(reason, file=sys.stderr)
         return FAIL
     required = V.run_required((label.get("effective_rules") or {}).get("require_before_submit", []), cwd)
+    for check_id, target in V.outside_cds(label, cwd):   # a warning only: the result is unchanged
+        print("ale verify: warning: %s cd's to %s, outside the task tree %s" % (check_id, target, cwd), file=sys.stderr)
     evidence = V.run_acceptance(label, cwd)
     evidence["required"] = required
     evidence["required_failures"] = [item for item in required if not item["ok"]]
@@ -1627,6 +1629,10 @@ def cmd_verify(a) -> int:
             _emit_vote(c, a.task, _rejection_vote(c, shadow_judge, a.task, evidence, reason), "run_loop")
         c.render(a.task, owner)
         print(reason, file=sys.stderr)
+        if reason.startswith("acceptance failed"):
+            print("hint: a wrong check is amended with `ale relabel --run-dir %s --task %s --field acceptance "
+                  "--json --value '<2-5 checks>' --reason ...` (on an accepted or failed task run `ale reopen` "
+                  "first); --signoff does not override a failed command" % (c.run_dir, a.task), file=sys.stderr)
         return FAIL
     if (evidence["manual"] or label["labels"]["risk"] == "high") and not a.signoff:
         print("needs sign-off: manual=%s risk=%s" % (evidence["manual"], label["labels"]["risk"]), file=sys.stderr)
@@ -3388,7 +3394,15 @@ def cmd_relabel(a) -> int:
     c = Ctx(a)
     st = c.task(a.task)
     if st["state"] in E.TERMINAL:
-        raise CliError(FAIL, "task %s is terminal: %s" % (a.task, st["state"]))
+        message = "task %s is terminal: %s" % (a.task, st["state"])
+        if st.get("integrated"):   # cmd_reopen refuses an integrated task as well
+            message += ("; it is integrated, so it cannot be reopened and its acceptance cannot be amended: "
+                        "add a new task for the change")
+        elif st["state"] != "canceled":   # reopen refuses a canceled task
+            message += ("; to amend it run `ale reopen --task %s --reason ...`, then "
+                        "`ale relabel --task %s --field acceptance --json --value '<2-5 checks>' --reason ...`"
+                        % (a.task, a.task))
+        raise CliError(FAIL, message)
 
     label = dict(c.labels[a.task])
     assignments_old = None
@@ -4082,7 +4096,7 @@ def _plan_labels(text: str, path: str, run_id: str, roster: dict, no_judge: bool
 
     ``stack`` marks every per-task-worktree task with exactly one dependency as stacked.
     """
-    from .bake import NONE_RECOMPUTE_WARNING, derived_none, skeleton_label
+    from .bake import NONE_RECOMPUTE_WARNING, derived_none, skeleton_label, worktree_object
     from .planparse import parse_plan
 
     tasks = parse_plan(text)
@@ -4163,14 +4177,12 @@ def _plan_labels(text: str, path: str, run_id: str, roster: dict, no_judge: bool
                 # planparse found in the task body; a derived none is recomputed, loudly.
                 if old_worktree is not None:
                     print(NONE_RECOMPUTE_WARNING % task["task_id"], file=sys.stderr)
-                old_worktree = {"mode": "per_task", "branch": None, "base": None,
-                                "worktree_reason": None}
+                old_worktree = worktree_object("per_task")
                 if label["labels"].get("phase") is None:
                     label["labels"]["phase"] = "implement"
             if old_worktree is not None:
                 if isinstance(old_worktree, str):
-                    old_worktree = {"mode": old_worktree, "branch": None, "base": None,
-                                    "worktree_reason": None}
+                    old_worktree = worktree_object(old_worktree)
                 label["context"]["worktree"] = old_worktree
             for field in ("assignments", "fixes", "watch", "milestone"):
                 if field in old:

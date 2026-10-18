@@ -139,7 +139,7 @@ def test_questions_defaults_from_roster_and_detection(example_roster):
     detected = {"harnesses": {"claude": True, "codex": True, "pi": False}, "ck": False, "private": True,
                 "hosts": [{"name": "dev-server", "ssh": "user@box"}, {"name": "mac", "ssh": ""}]}
     items = {q["id"]: q for q in S.questions(detected, example_roster, env={})}
-    assert items["models.codex.standard"]["default"] == "gpt-5-codex"
+    assert items["models.codex.standard"]["default"] == "gpt-6-luna"
     assert items["models.claude.frontier"]["default"] == "claude-opus-5-5"
     assert "models.pi.cheap" not in items
     assert items["harness.default"]["options"] == ["claude", "codex"]
@@ -364,7 +364,7 @@ def test_models_touch_only_wildcard_rows_and_defaults_are_idempotent(example_ros
     assert {"role": "frontend", "model_tier": "standard", "executor": "claude-headless",
             "model": "claude-pinned"} in changed["routing"]
     assert {"role": "backend", "model_tier": "standard", "executor": "codex-exec",
-            "model": "gpt-5-codex"} in changed["routing"]
+            "model": "gpt-6-luna"} in changed["routing"]
     star = [r for r in changed["routing"] if r["role"] == "*" and r["model_tier"] == "standard"]
     assert star[0]["model"] == "claude-new"
 

@@ -56,12 +56,7 @@ def check_label(label: dict, roster: dict, catalog: dict = None) -> List[str]:
     context = effective.setdefault("context", {})
     if "worktree" not in context:
         allowed = context.get("allowed_paths", [])
-        context["worktree"] = {
-            "mode": "per_task" if allowed else "none",
-            "branch": None,
-            "base": None,
-            "worktree_reason": None,
-        }
+        context["worktree"] = {"mode": "per_task" if allowed else "none"}
     if "assignments" not in effective:
         labels = effective.get("labels", {})
         effective["assignments"] = [{
@@ -103,7 +98,7 @@ def check_label(label: dict, roster: dict, catalog: dict = None) -> List[str]:
         if assignment["kind"] == "monitor" and assignment["trigger"] == "ready":
             errs.append("%s: monitor assignments cannot use trigger ready" % tid)
     worktree = effective["context"]["worktree"]
-    if worktree["mode"] == "shared" and not worktree["worktree_reason"]:
+    if worktree["mode"] == "shared" and not worktree.get("worktree_reason"):
         errs.append("%s: shared worktree requires worktree_reason" % tid)
     for field in _VOCAB_FIELDS:
         value = effective["labels"][field]
