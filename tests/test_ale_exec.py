@@ -257,6 +257,36 @@ def test_usage_limit_text_in_a_dirty_tree_the_child_edited_still_submits(harness
     assert "submit " in log_text(harness)
 
 
+def test_large_output_with_quota_row_last_reaches_caller_and_capture(harness, tmp_path):
+    repo = git_repo(tmp_path / "repo")
+    child = tmp_path / "child.sh"
+    row = json.dumps({"type": "error", "message": "You've hit your usage limit"})
+    child.write_text("#!/bin/sh\nhead -c 73728 /dev/zero | tr '\\0' 'x'\necho\ncat <<'EOF'\n%s\nEOF\n" % row)
+    child.chmod(0o755)
+    run_dir, log, fake = harness
+    env = os.environ.copy()
+    env.update({"ALE_BIN": fake, "ALE_RUN_DIR": str(run_dir), "ALE_ROSTER": str(run_dir / "roster.json"),
+                "ALE_FAKE_LOG": str(log)})
+    proc = subprocess.Popen([WRAPPER, "--task", "T1", "--agent", "agent", "--", str(child)],
+                            cwd=repo, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    time.sleep(3)  # the caller pauses reading, so tee blocks on a full pipe
+    out, err = proc.communicate(timeout=30)
+    assert proc.returncode == 75
+    assert len(out) == 73728 + 1 + len(row) + 1
+    assert out.endswith(row + "\n")
+    assert "ale-exec: usage-limit: " in err
+    assert "submit " not in log_text(harness)
+
+
+def test_usage_limit_clean_exit_with_edited_untracked_file_still_submits(harness, tmp_path):
+    repo = git_repo(tmp_path / "repo")
+    (repo / "new.txt").write_text("before\n")
+    child = limit_child(tmp_path, 0, "echo changed > new.txt")
+    proc = run_exec(harness, [child], "--usage-from", "codex-json", cwd=str(repo))
+    assert proc.returncode == 0
+    assert "submit " in log_text(harness)
+
+
 def test_stderr_keeps_the_full_matching_line(harness, tmp_path):
     child = tmp_path / "child.sh"
     row = json.dumps({"type": "error", "message": "usage limit " + "x" * 400 + " END"})

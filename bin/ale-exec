@@ -9,6 +9,7 @@ Limits:
   there is no path blocking; containment is detected only at verify --base
   lease loss interrupts between heartbeats, not before an in-flight write
   ALE_EXEC_GRACE_S overrides the child termination grace period (default: 10s)
+  ALE_EXEC_TEE_WAIT_S bounds the wait for captured stdout to drain after the child exits (default: 60s)
 
 Exit codes (ale-exec only; the ale CLI codes are unchanged):
   the child's own exit code after check and submit, 4 when the lease was lost, 3 on a lost claim
@@ -112,7 +113,13 @@ trap 'signal_exit_code=143; exit 143' TERM
 # against HEAD, so a tree that was already dirty still counts as unchanged when the child left it be.
 tree_snapshot() {
     head_rev=$(git rev-parse HEAD 2>/dev/null) || return 0
-    printf '%s %s\n' "$head_rev" "$({ git status --porcelain; git diff HEAD; } 2>/dev/null | cksum)"
+    top=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
+    printf '%s %s\n' "$head_rev" "$({
+        git status --porcelain
+        git diff HEAD
+        # status and diff do not see an untracked file's contents: hash those too
+        (cd "$top" && git ls-files -o --exclude-standard -z | xargs -0 cksum)
+    } 2>/dev/null | cksum)"
 }
 snapshot_before=$(tree_snapshot)
 
@@ -168,12 +175,20 @@ loop_pid=$!
 wait "$child_pid"
 child_rc=$?
 if [ -n "$tee_pid" ]; then
-    # tee ends when the child closes the FIFO; an orphaned grandchild holding it open gets 1 second.
+    # tee ends when the child closes the FIFO. Let it drain to EOF, even when the caller reads
+    # slowly: cutting it short can lose the final rows, the very ones the usage-limit guard reads.
+    # Only a grandchild that keeps stdout open past the child's exit bounds the wait (60 s unless
+    # ALE_EXEC_TEE_WAIT_S says otherwise; 1 s after the child was killed by a signal).
+    tee_wait_s=${ALE_EXEC_TEE_WAIT_S:-60}
+    [ "$child_rc" -gt 128 ] && tee_wait_s=1
     n=0
-    while kill -0 "$tee_pid" 2>/dev/null && [ "$n" -lt 10 ]; do
+    while kill -0 "$tee_pid" 2>/dev/null && [ "$n" -lt $((tee_wait_s * 10)) ]; do
         sleep 0.1
         n=$((n + 1))
     done
+    if kill -0 "$tee_pid" 2>/dev/null; then
+        echo "ale-exec: output still open ${tee_wait_s}s after the child exited; using the capture so far" >&2
+    fi
     kill "$tee_pid" 2>/dev/null || true
     wait "$tee_pid" 2>/dev/null || true
     tee_pid=
