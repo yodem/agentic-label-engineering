@@ -3395,7 +3395,10 @@ def cmd_relabel(a) -> int:
     st = c.task(a.task)
     if st["state"] in E.TERMINAL:
         message = "task %s is terminal: %s" % (a.task, st["state"])
-        if st["state"] != "canceled":   # reopen refuses a canceled task
+        if st.get("integrated"):   # cmd_reopen refuses an integrated task as well
+            message += ("; it is integrated, so it cannot be reopened and its acceptance cannot be amended: "
+                        "add a new task for the change")
+        elif st["state"] != "canceled":   # reopen refuses a canceled task
             message += ("; to amend it run `ale reopen --task %s --reason ...`, then "
                         "`ale relabel --task %s --field acceptance --json --value '<2-5 checks>' --reason ...`"
                         % (a.task, a.task))

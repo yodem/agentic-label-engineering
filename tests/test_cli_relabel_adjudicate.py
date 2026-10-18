@@ -219,6 +219,21 @@ def test_relabel_on_accepted_task_names_reopen(run_dir, capsys):
     assert _read_label(run_dir)["acceptance"] != _TWO_CHECKS
 
 
+def test_relabel_on_integrated_task_does_not_offer_reopen(run_dir, capsys):
+    _append(run_dir, "claimed", agent_id="a1", ts=1)
+    _append(run_dir, "submitted", agent_id="a1", ts=2, summary="done")
+    _append(run_dir, "accepted", agent_id=None, ts=3, evidence={"passed": True})
+    _append(run_dir, "integrated", agent_id=None, ts=4, commit=None, noop=True, files=[])
+    capsys.readouterr()
+    assert ale(run_dir, "reopen", "--task", "T01", "--reason", "x") == 1   # the premise: reopen refuses it
+    capsys.readouterr()
+    assert ale(run_dir, "relabel", "--task", "T01", "--field", "acceptance", "--json",
+               "--value", json.dumps(_TWO_CHECKS), "--reason", "late") == 1
+    err = capsys.readouterr().err
+    assert "terminal: accepted" in err and "integrated" in err and "cannot be reopened" in err
+    assert "ale reopen" not in err
+
+
 def test_relabel_on_canceled_task_does_not_offer_reopen(run_dir, capsys):
     _append(run_dir, "canceled", agent_id=None, ts=1, reason="dropped")
     capsys.readouterr()

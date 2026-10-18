@@ -19,10 +19,10 @@ def outside_cds(label: dict, cwd: str) -> List[tuple]:
     root = os.path.realpath(cwd)
     found = []
     for item in label.get("acceptance", []):
-        match = re.match(r"^\s*cd\s+(/\S+)", item.get("cmd", ""))
+        match = re.match(r"^\s*cd\s+(/[^\s;&|)]*)", item.get("cmd", ""))
         if not match:
             continue
-        target = match.group(1).rstrip(";&|")
+        target = match.group(1)
         real = os.path.realpath(target)
         if real != root and not real.startswith(root.rstrip(os.sep) + os.sep):
             found.append((item["id"], target))

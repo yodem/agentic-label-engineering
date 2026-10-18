@@ -131,6 +131,13 @@ def test_verify_no_cd_warning_inside_cwd_or_for_relative_cd(run_dir, capsys):
     assert code == 0 and "warning" not in err
 
 
+@pytest.mark.parametrize("cmd", ["cd {d}&&true", "cd {d};true", "cd {d}|true"])
+def test_verify_cd_operators_do_not_become_part_of_the_path(run_dir, capsys, cmd):
+    edit_label(run_dir, "T01", lambda l: l["acceptance"][0].update(cmd=cmd.format(d=run_dir)))
+    code, err = _verify_after_submit(run_dir, run_dir, capsys)
+    assert code == 0 and "warning" not in err
+
+
 def test_manual_criterion_needs_signoff(run_dir, capsys):
     edit_label(run_dir, "T01", lambda l: l["acceptance"].__setitem__(1, {"id": "A2", "manual": "Reviewer confirms shape"}))
     ale(run_dir, "init-run")
