@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import fnmatch
+import os
 import posixpath
+import re
 import subprocess
 from typing import Callable, Dict, List
 
@@ -10,6 +12,21 @@ TAIL = 300
 
 def _want(expect: str) -> int:
     return 0 if expect == "exit0" else int(expect.split(":", 1)[1])
+
+
+def outside_cds(label: dict, cwd: str) -> List[tuple]:
+    """(check id, path) for each command check that starts by cd-ing to an absolute path outside cwd."""
+    root = os.path.realpath(cwd)
+    found = []
+    for item in label.get("acceptance", []):
+        match = re.match(r"^\s*cd\s+(/\S+)", item.get("cmd", ""))
+        if not match:
+            continue
+        target = match.group(1).rstrip(";&|")
+        real = os.path.realpath(target)
+        if real != root and not real.startswith(root.rstrip(os.sep) + os.sep):
+            found.append((item["id"], target))
+    return found
 
 
 def run_acceptance(label: dict, cwd: str, run: Callable = subprocess.run, timeout: int = 600) -> dict:

@@ -1575,6 +1575,8 @@ def cmd_verify(a) -> int:
         print(reason, file=sys.stderr)
         return FAIL
     required = V.run_required((label.get("effective_rules") or {}).get("require_before_submit", []), cwd)
+    for check_id, target in V.outside_cds(label, cwd):   # a warning only: the result is unchanged
+        print("ale verify: warning: %s cd's to %s, outside the task tree %s" % (check_id, target, cwd), file=sys.stderr)
     evidence = V.run_acceptance(label, cwd)
     evidence["required"] = required
     evidence["required_failures"] = [item for item in required if not item["ok"]]

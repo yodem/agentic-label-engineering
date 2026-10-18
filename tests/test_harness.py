@@ -143,6 +143,6 @@ def test_plan_route_cli(tmp_path, capsys):
                  "--roster", roster, "--json"]) == 0
     route = json.loads(capsys.readouterr().out)
     assert set(route) == {"harness", "model", "mode", "host", "resolved_from"}
-    assert route == {"harness": "codex", "model": "gpt-5-codex", "mode": "headless", "host": "local",
+    assert route == {"harness": "codex", "model": "gpt-6-luna", "mode": "headless", "host": "local",
                      "resolved_from": "roster"}  # examples roster: backend/standard -> codex-exec
     assert main(["plan", "route", str(plan), "--task", "T99", "--roster", roster, "--json"]) == 2

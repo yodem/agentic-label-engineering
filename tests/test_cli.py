@@ -105,6 +105,32 @@ def test_failed_acceptance_rejects(run_dir, capsys):
     assert (st["state"], st["attempt"], st["rejections"]) == ("rejected", 2, 1) and "A1" in st["last_reject_reason"]
 
 
+def _verify_after_submit(run_dir, cwd, capsys):
+    ale(run_dir, "init-run")
+    ale(run_dir, "claim", "--task", "T01", "--agent", "a1", now=1)
+    ale(run_dir, "submit", "--task", "T01", "--agent", "a1", "--summary", "s", now=2)
+    capsys.readouterr()
+    code = ale(run_dir, "verify", "--task", "T01", "--cwd", cwd, now=3)
+    return code, capsys.readouterr().err
+
+
+def test_verify_warns_on_absolute_cd_outside_cwd(run_dir, capsys, tmp_path):
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    edit_label(run_dir, "T01", lambda l: l["acceptance"][0].update(cmd="cd %s && exit 0" % elsewhere))
+    code, err = _verify_after_submit(run_dir, run_dir, capsys)
+    assert code == 0 and state(run_dir, capsys)["state"] == "accepted"   # a warning only: the result is unchanged
+    assert "ale verify: warning: A1 cd's to %s, outside the task tree %s" % (elsewhere, run_dir) in err
+
+
+def test_verify_no_cd_warning_inside_cwd_or_for_relative_cd(run_dir, capsys):
+    inside = os.path.join(run_dir, "labels")
+    edit_label(run_dir, "T01", lambda l: (l["acceptance"][0].update(cmd="cd %s && exit 0" % inside),
+                                          l["acceptance"][1].update(cmd="cd labels && exit 0")))
+    code, err = _verify_after_submit(run_dir, run_dir, capsys)
+    assert code == 0 and "warning" not in err
+
+
 def test_manual_criterion_needs_signoff(run_dir, capsys):
     edit_label(run_dir, "T01", lambda l: l["acceptance"].__setitem__(1, {"id": "A2", "manual": "Reviewer confirms shape"}))
     ale(run_dir, "init-run")

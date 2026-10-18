@@ -105,7 +105,7 @@
       "role": "backend",
       "model_tier": "standard",
       "executor": "codex-exec",
-      "model": "gpt-5-codex"
+      "model": "gpt-6-luna"
     },
     {
       "role": "monitor",
