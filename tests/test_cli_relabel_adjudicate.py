@@ -187,3 +187,56 @@ def test_relabel_role_reroutes_agent_and_rules(run_dir):
     assert label["labels"]["role"] == "general"
     assert label["routing"]["agent"]["key"] == "general"
     assert label["effective_rules"]["deny_paths"] == []
+
+
+_TWO_CHECKS = [{"id": "A1", "cmd": "pytest -q", "expect": "exit0"},
+               {"id": "A2", "cmd": "python -m compileall .", "expect": "exit0"}]
+
+
+def test_relabel_acceptance_on_reopened_task_succeeds(run_dir):
+    _append(run_dir, "claimed", agent_id="a1", ts=1)
+    _append(run_dir, "submitted", agent_id="a1", ts=2, summary="done")
+    _append(run_dir, "rejected", agent_id=None, ts=3, evidence={"passed": False}, reason="acceptance failed: A1")
+    assert ale(run_dir, "reopen", "--task", "T01", "--reason", "amend the checks", now=4) == 0
+    assert ale(run_dir, "relabel", "--task", "T01", "--field", "acceptance", "--json",
+               "--value", json.dumps(_TWO_CHECKS), "--reason", "wrong command", now=5) == 0
+    event = E.read_events(_events_path(run_dir))[-1]
+    assert event["type"] == "relabeled" and event["field"] == "acceptance" and event["new"] == _TWO_CHECKS
+    assert _read_label(run_dir)["acceptance"] == _TWO_CHECKS
+
+
+def test_relabel_on_accepted_task_names_reopen(run_dir, capsys):
+    _append(run_dir, "claimed", agent_id="a1", ts=1)
+    _append(run_dir, "submitted", agent_id="a1", ts=2, summary="done")
+    _append(run_dir, "accepted", agent_id=None, ts=3, evidence={"passed": True})
+    capsys.readouterr()
+    assert ale(run_dir, "relabel", "--task", "T01", "--field", "acceptance", "--json",
+               "--value", json.dumps(_TWO_CHECKS), "--reason", "late") == 1
+    err = capsys.readouterr().err
+    assert "task T01 is terminal: accepted" in err
+    assert "ale reopen --task T01" in err
+    assert "--field acceptance --json" in err
+    assert _read_label(run_dir)["acceptance"] != _TWO_CHECKS
+
+
+def test_relabel_on_canceled_task_does_not_offer_reopen(run_dir, capsys):
+    _append(run_dir, "canceled", agent_id=None, ts=1, reason="dropped")
+    capsys.readouterr()
+    assert ale(run_dir, "relabel", "--task", "T01", "--field", "role", "--value", "docs", "--reason", "x") == 1
+    err = capsys.readouterr().err
+    assert "terminal: canceled" in err and "ale reopen" not in err
+
+
+def test_failed_verify_hint_names_relabel_acceptance(run_dir, capsys):
+    label = _read_label(run_dir)
+    label["acceptance"][0]["cmd"] = "exit 1"
+    with open(_label_path(run_dir, "T01"), "w", encoding="utf-8") as f:
+        json.dump(label, f)
+    _append(run_dir, "claimed", agent_id="a1", ts=1)
+    _append(run_dir, "submitted", agent_id="a1", ts=2, summary="done")
+    capsys.readouterr()
+    assert ale(run_dir, "verify", "--task", "T01", "--cwd", run_dir, "--signoff", "lead", now=3) == 1
+    err = capsys.readouterr().err
+    assert "acceptance failed: A1" in err
+    assert ("ale relabel --run-dir %s --task T01 --field acceptance --json --value" % run_dir) in err
+    assert "--signoff does not override a failed command" in err

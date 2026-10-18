@@ -1627,6 +1627,10 @@ def cmd_verify(a) -> int:
             _emit_vote(c, a.task, _rejection_vote(c, shadow_judge, a.task, evidence, reason), "run_loop")
         c.render(a.task, owner)
         print(reason, file=sys.stderr)
+        if reason.startswith("acceptance failed"):
+            print("hint: a wrong check is amended with `ale relabel --run-dir %s --task %s --field acceptance "
+                  "--json --value '<2-5 checks>' --reason ...` (on an accepted or failed task run `ale reopen` "
+                  "first); --signoff does not override a failed command" % (c.run_dir, a.task), file=sys.stderr)
         return FAIL
     if (evidence["manual"] or label["labels"]["risk"] == "high") and not a.signoff:
         print("needs sign-off: manual=%s risk=%s" % (evidence["manual"], label["labels"]["risk"]), file=sys.stderr)
@@ -3388,7 +3392,12 @@ def cmd_relabel(a) -> int:
     c = Ctx(a)
     st = c.task(a.task)
     if st["state"] in E.TERMINAL:
-        raise CliError(FAIL, "task %s is terminal: %s" % (a.task, st["state"]))
+        message = "task %s is terminal: %s" % (a.task, st["state"])
+        if st["state"] != "canceled":   # reopen refuses a canceled task
+            message += ("; to amend it run `ale reopen --task %s --reason ...`, then "
+                        "`ale relabel --task %s --field acceptance --json --value '<2-5 checks>' --reason ...`"
+                        % (a.task, a.task))
+        raise CliError(FAIL, message)
 
     label = dict(c.labels[a.task])
     assignments_old = None
